@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "Construction Corner",
+    "slug": "construction-corner",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A66C2"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundColor": "#0A66C2"
+      },
+      "package": "com.constructioncorner.app"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-asset"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "f3ff9454-1374-4b67-b8e1-2be5b8ed1106"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/f3ff9454-1374-4b67-b8e1-2be5b8ed1106"
+    },
+    "ios": {}
+  }
+}

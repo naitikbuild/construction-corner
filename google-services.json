@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "670902518182",
+    "project_id": "constructioncornerindia",
+    "storage_bucket": "constructioncornerindia.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:670902518182:android:4112bea9b1998ecd56cf67",
+        "android_client_info": {
+          "package_name": "com.constructioncorner.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA9mgtvOf5ygoXNTYsQlu04n_xCLbdBok0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

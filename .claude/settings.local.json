@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx expo:*)",
+      "Bash(adb devices:*)",
+      "Bash(netstat -ano)",
+      "Bash(xargs -I {} taskkill /PID {} /F)",
+      "Bash(cmd.exe /c \"tasklist /FI \\\\\"PID eq 2740\\\\\"\" 2>&1)",
+      "Bash(cmd.exe /c \"wmic process where processid=2740 get name,commandline\" 2>&1)",
+      "Bash(cmd.exe /c \"wmic process where \\\\\"processid=2740 OR processid=9108\\\\\" get processid,name,commandline 2>&1\")",
+      "Bash(\"$HOME/AppData/Local/Android/Sdk/platform-tools/adb.exe\" reverse:*)",
+      "Bash(grep -E \"\\\\.\\(ts|tsx|js\\)$\")",
+      "Bash(npx expo-doctor:*)",
+      "Bash(\"C:/Users/naiti/AppData/Local/Android/Sdk/platform-tools/adb.exe\" devices:*)"
+    ]
+  }
+}

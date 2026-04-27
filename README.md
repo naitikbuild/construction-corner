@@ -10,16 +10,6 @@ Construction Corner is a super-app for India's construction industry — a singl
 
 ---
 
-## Core Innovation — Verified Work System
-
-Every rupee of work done through the app gets verified by **both parties**.
-
-- Service providers pay a **1% commission** on completed work
-- The verified amount is **permanently recorded on their profile**
-- Builds an **immutable trust score** that cannot be faked or gamed
-
-This creates a compounding reputation layer that becomes more valuable the longer a professional uses the platform.
-
 ---
 
 ## Key Features
@@ -52,19 +42,6 @@ Login · Onboarding · Home · Search · Worker Profile · Professional Profile 
 
 ---
 
-## Business Model
-
-**1% commission** on every verified work transaction — simple, scalable, aligned with user success.
-
-| Monthly Work Volume | Monthly Revenue |
-|---|---|
-| ₹1 Crore | ₹1 Lakh |
-| ₹10 Crore | ₹10 Lakh |
-| ₹100 Crore | ₹1 Crore |
-
-As users build their verified work history, they become stickier — driving organic retention and word-of-mouth growth.
-
----
 
 ## Looking For
 

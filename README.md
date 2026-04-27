@@ -72,7 +72,7 @@ Co-founders and early team members who are passionate about **construction tech 
 
 If you work in construction, fintech, or mobile product development and want to build something that changes how India builds — reach out.
 
-**Contact:** naitikrathod223@gmail.com
+**Contact:** naitik.build@gmail.com
 
 ---
 

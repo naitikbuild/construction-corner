@@ -1,9 +1,11 @@
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   ScrollView, StatusBar, Modal, FlatList, KeyboardAvoidingView,
-  Platform, Animated,
+  Platform, Animated, Alert,
 } from 'react-native';
 import { useState, useMemo, useRef, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { postJob } from '../services/jobService';
 
 import { BLUE } from '../constants/colors';
 
@@ -301,13 +303,18 @@ export default function PostJobScreen({ navigation }) {
 
   const canPost = filledCount === REQUIRED.length;
 
-  const handlePost = () => {
+  const handlePost = async () => {
     if (!canPost) return;
     setPosting(true);
-    setTimeout(() => {
-      setPosting(false);
+    try {
+      const uid = await AsyncStorage.getItem('uid');
+      await postJob({ ...form, postedBy: uid });
       setPosted(true);
-    }, 1400);
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Failed to post job. Please try again.');
+    } finally {
+      setPosting(false);
+    }
   };
 
   const resetForm = () => {

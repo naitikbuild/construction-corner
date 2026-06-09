@@ -1,9 +1,9 @@
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, TextInput, StatusBar
+  StyleSheet, TextInput, StatusBar, ActivityIndicator,
 } from 'react-native';
 import { useState, useEffect } from 'react';
-import { getJobs } from '../services';
+import { getAllJobs } from '../services/jobService';
 
 const filters = ['All', 'Full Time', 'Part Time', 'Contract', 'Urgent'];
 
@@ -111,6 +111,7 @@ export default function JobsScreen({ navigation }) {
   const [search, setSearch] = useState('');
   const [saved, setSaved] = useState([]);
   const [jobsData, setJobsData] = useState(jobs);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadJobs();
@@ -118,9 +119,33 @@ export default function JobsScreen({ navigation }) {
 
   const loadJobs = async () => {
     try {
-      const data = await getJobs();
-      if (data.length > 0) setJobsData(data);
-    } catch (_) {}
+      const data = await getAllJobs();
+      if (data.length > 0) {
+        const mapped = data.map(j => ({
+          emoji: '🏗️',
+          bg: '#EFF6FF',
+          accent: '#3B82F6',
+          title: j.title || 'Job Opening',
+          company: j.company || j.postedBy || 'Company',
+          location: j.location || 'India',
+          pay: j.salary ? `₹${Number(j.salary).toLocaleString('en-IN')}/${j.salaryPer === 'Day' ? 'day' : 'mo'}` : 'Negotiable',
+          type: j.jobType || 'Full Time',
+          urgent: j.urgent || false,
+          posted: 'Recently',
+          applicants: (j.applicants || []).length,
+          exp: j.experience || '',
+          skills: j.skills || [],
+          desc: j.description || '',
+          id: j.id,
+          ...j,
+        }));
+        setJobsData(mapped);
+      }
+    } catch (_) {
+      // Keep sample jobs on error
+    } finally {
+      setLoading(false);
+    }
   };
 
   const toggleSave = (i) => {
@@ -146,7 +171,7 @@ export default function JobsScreen({ navigation }) {
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>Job Board</Text>
-          <Text style={styles.headerSub}>{jobsData.length} jobs available</Text>
+          <Text style={styles.headerSub}>{loading ? 'Loading...' : `${jobsData.length} jobs available`}</Text>
         </View>
         <TouchableOpacity style={styles.postJobBtn} onPress={() => navigation.navigate('PostJob')}>
           <Text style={styles.postJobText}>+ Post Job</Text>

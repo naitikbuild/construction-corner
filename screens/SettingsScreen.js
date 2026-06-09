@@ -3,8 +3,11 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   StatusBar, SafeAreaView, Switch, Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { signOut } from 'firebase/auth';
 import BottomNav from '../components/BottomNav';
 
+import { auth } from '../config/firebase';
 import { BLUE, BLUE_LIGHT } from '../constants/colors';
 
 export default function SettingsScreen({ navigation }) {
@@ -21,13 +24,23 @@ export default function SettingsScreen({ navigation }) {
     setNotifs(prev => ({ ...prev, [key]: !prev[key] }));
   }
 
-  function handleLogout() {
+  function handleSignOut() {
     Alert.alert(
-      'Log Out',
-      'Are you sure you want to log out of Construction Corner?',
+      'Sign Out',
+      'Are you sure you want to sign out of Construction Corner?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Log Out', style: 'destructive', onPress: () => navigation.replace('Login') },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await signOut(auth);
+              await AsyncStorage.clear();
+            } catch (_) {}
+            navigation.reset({ index: 0, routes: [{ name: 'AccountType' }] });
+          },
+        },
       ]
     );
   }
@@ -146,10 +159,10 @@ export default function SettingsScreen({ navigation }) {
           />
         </View>
 
-        {/* Logout */}
-        <View style={styles.logoutSection}>
-          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-            <Text style={styles.logoutBtnText}>🚪  Log Out</Text>
+        {/* Sign Out */}
+        <View style={styles.signOutSection}>
+          <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
+            <Text style={styles.signOutBtnText}>🚪 Sign Out</Text>
           </TouchableOpacity>
           <Text style={styles.madeInIndia}>Made with ❤️ in India 🇮🇳</Text>
         </View>
@@ -189,9 +202,9 @@ const styles = StyleSheet.create({
   rowLabelDanger: { color: '#E11D48' },
   rowArrow: { fontSize: 20, color: '#CCC' },
   versionText: { fontSize: 13, fontWeight: '700', color: '#6B6560' },
-  // Logout
-  logoutSection: { marginHorizontal: 16, marginTop: 20, alignItems: 'center' },
-  logoutBtn: { width: '100%', paddingVertical: 15, borderRadius: 14, borderWidth: 1.5, borderColor: '#FECDD3', backgroundColor: '#FFF1F2', alignItems: 'center', marginBottom: 16 },
-  logoutBtnText: { fontSize: 15, fontWeight: '800', color: '#E11D48' },
+  // Sign Out
+  signOutSection: { marginHorizontal: 16, marginTop: 20, alignItems: 'center' },
+  signOutBtn: { width: '100%', paddingVertical: 15, borderRadius: 14, borderWidth: 1.5, borderColor: '#EF4444', backgroundColor: '#fff', alignItems: 'center', marginBottom: 16 },
+  signOutBtnText: { fontSize: 15, fontWeight: '800', color: '#EF4444' },
   madeInIndia: { fontSize: 12, color: '#CCC', fontWeight: '600' },
 });

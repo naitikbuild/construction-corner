@@ -1,10 +1,13 @@
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  FlatList, TextInput, StatusBar,
+  FlatList, TextInput, StatusBar, ActivityIndicator,
 } from 'react-native';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { BLUE } from '../constants/colors';
+import { db } from '../config/firebase';
+import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 
 const LIGHT_BLUE = '#E0F5FE';
 
@@ -123,19 +126,79 @@ function ConversationItem({ item, onPress }) {
 
 export default function ChatListScreen({ navigation }) {
   const [search, setSearch] = useState('');
+  const [conversations, setConversations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const uidRef = useRef(null);
+  const unsubRef = useRef(null);
+
+  useEffect(() => {
+    setupRealTimeChats();
+    return () => { if (unsubRef.current) unsubRef.current(); };
+  }, []);
+
+  const setupRealTimeChats = async () => {
+    try {
+      const uid = await AsyncStorage.getItem('uid');
+      if (!uid) { setLoading(false); setConversations(CONVERSATIONS); return; }
+      uidRef.current = uid;
+
+      const q = query(collection(db, 'chats'), where('participants', 'array-contains', uid));
+      unsubRef.current = onSnapshot(q, (snap) => {
+        setLoading(false);
+        if (snap.empty) {
+          setConversations(CONVERSATIONS);
+          return;
+        }
+        const mapped = snap.docs.map(d => {
+          const data = d.data();
+          const otherUid = (data.participants || []).find(p => p !== uid);
+          const otherName = data.participantNames?.[otherUid] || 'User';
+          const ts = data.lastMessageAt?.toDate?.();
+          let time = '';
+          if (ts) {
+            const diffMins = Math.round((Date.now() - ts.getTime()) / 60000);
+            time = diffMins < 60 ? `${diffMins}m ago`
+              : diffMins < 1440 ? `${Math.round(diffMins / 60)}h ago`
+              : 'Yesterday';
+          }
+          return {
+            id: d.id,
+            name: otherName,
+            role: 'Construction Professional',
+            emoji: '👷',
+            avatarBg: '#EFF6FF',
+            lastMessage: data.lastMessage || 'Start a conversation',
+            time,
+            unread: 0,
+            online: false,
+            uid: otherUid,
+          };
+        });
+        // Sort by most recent
+        mapped.sort((a, b) => (b.time < a.time ? -1 : 1));
+        setConversations(mapped.length > 0 ? mapped : CONVERSATIONS);
+      }, () => {
+        setLoading(false);
+        setConversations(CONVERSATIONS);
+      });
+    } catch (_) {
+      setLoading(false);
+      setConversations(CONVERSATIONS);
+    }
+  };
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return CONVERSATIONS;
+    if (!search.trim()) return conversations;
     const q = search.toLowerCase();
-    return CONVERSATIONS.filter(
+    return conversations.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
         c.role.toLowerCase().includes(q) ||
         c.lastMessage.toLowerCase().includes(q)
     );
-  }, [search]);
+  }, [search, conversations]);
 
-  const totalUnread = CONVERSATIONS.reduce((sum, c) => sum + c.unread, 0);
+  const totalUnread = conversations.reduce((sum, c) => sum + (c.unread || 0), 0);
 
   return (
     <View style={styles.container}>
@@ -189,6 +252,12 @@ export default function ChatListScreen({ navigation }) {
       </View>
 
       {/* List */}
+      {loading && (
+        <View style={{ alignItems: 'center', paddingTop: 40 }}>
+          <ActivityIndicator size="large" color={BLUE} />
+          <Text style={{ marginTop: 10, color: '#888', fontSize: 13 }}>Loading chats...</Text>
+        </View>
+      )}
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}

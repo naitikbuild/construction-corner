@@ -10,16 +10,23 @@ const TABS = [
   { icon: '👤', label: 'Profile',screen: 'MyDashboard' },
 ];
 
-export default function BottomNav({ navigation, active }) {
+export default function BottomNav({ navigation, active, onProfilePress }) {
   return (
     <View style={styles.nav}>
       {TABS.map(tab => {
         const isActive = active === tab.screen;
+        const handlePress = () => {
+          if (tab.label === 'Profile' && onProfilePress) {
+            onProfilePress();
+          } else {
+            navigation.navigate(tab.screen);
+          }
+        };
         return (
           <TouchableOpacity
             key={tab.screen}
             style={styles.item}
-            onPress={() => navigation.navigate(tab.screen)}
+            onPress={handlePress}
             activeOpacity={0.7}
           >
             {tab.post ? (

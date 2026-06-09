@@ -1,32 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, StatusBar, SafeAreaView,
+  StyleSheet, StatusBar, SafeAreaView, Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { signOut } from 'firebase/auth';
 import BottomNav from '../components/BottomNav';
 
+import { auth } from '../config/firebase';
 import { BLUE, BLUE_LIGHT } from '../constants/colors';
-
-const PENDING_CONFIRMATIONS = [
-  {
-    id: 'pc1',
-    workerName: 'Ramesh Vishwakarma',
-    workerEmoji: '👷',
-    role: 'Mason',
-    amount: '₹20,000',
-    markedBy: 'Suresh Patel',
-    timeAgo: '2h ago',
-  },
-  {
-    id: 'pc2',
-    workerName: 'Priya Agarwal',
-    workerEmoji: '🛋️',
-    role: 'Interior Designer',
-    amount: '₹45,000',
-    markedBy: 'Kavya Shah',
-    timeAgo: '1d ago',
-  },
-];
+import { getProfile } from '../services/userService';
+import { getPendingWork, getTotalVerifiedAmount } from '../services/workService';
 
 const ACTIVITY = [
   { icon: '📋', color: '#E0F5FE', title: 'Job Posted', sub: 'Site Engineer – Bopal Project', time: '2h ago' },
@@ -46,7 +30,74 @@ const QUICK_ACTIONS = [
 ];
 
 export default function MyDashboardScreen({ navigation }) {
-  const [profileCompletion] = useState(72);
+  const [profileCompletion, setProfileCompletion] = useState(0);
+  const [userName, setUserName] = useState('');
+  const [ccScore, setCcScore] = useState(500);
+  const [verifiedAmt, setVerifiedAmt] = useState(0);
+  const [pendingConfirmations, setPendingConfirmations] = useState([]);
+
+  useEffect(() => {
+    loadDashboard();
+  }, []);
+
+  const loadDashboard = async () => {
+    try {
+      const cached = await AsyncStorage.getItem('userName');
+      if (cached) setUserName(cached);
+      const uid = await AsyncStorage.getItem('uid');
+      if (!uid) return;
+      const [profile, totalAmt, pending] = await Promise.all([
+        getProfile(uid),
+        getTotalVerifiedAmount(uid),
+        getPendingWork(uid),
+      ]);
+      if (profile) {
+        const name = profile.name || profile.companyName || '';
+        if (name) { setUserName(name); AsyncStorage.setItem('userName', name); }
+        setCcScore(profile.ccScore || 500);
+        // Calculate profile completion
+        const fields = ['name', 'city', 'profileType', 'category'];
+        const filled = fields.filter(f => profile[f]).length;
+        setProfileCompletion(Math.round((filled / fields.length) * 100));
+      }
+      setVerifiedAmt(totalAmt);
+      if (pending.length > 0) {
+        const mapped = pending.map(p => ({
+          id: p.id,
+          workerName: p.customerName || 'Customer',
+          workerEmoji: '🏠',
+          role: p.workType || 'Construction Work',
+          amount: `₹${Number(p.amount || 0).toLocaleString('en-IN')}`,
+          markedBy: p.customerName || 'Customer',
+          timeAgo: 'Recently',
+          workId: p.id,
+          workData: p,
+        }));
+        setPendingConfirmations(mapped);
+      }
+    } catch (_) {}
+  };
+
+  function handleSignOut() {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out of Construction Corner?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await signOut(auth);
+              await AsyncStorage.clear();
+            } catch (_) {}
+            navigation.reset({ index: 0, routes: [{ name: 'AccountType' }] });
+          },
+        },
+      ]
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -57,7 +108,7 @@ export default function MyDashboardScreen({ navigation }) {
         <View style={styles.headerContent}>
           <View>
             <Text style={styles.greeting}>Good Morning 👋</Text>
-            <Text style={styles.userName}>Naitik Rathod</Text>
+            <Text style={styles.userName}>{userName || 'Welcome!'}</Text>
           </View>
           <View style={styles.headerRight}>
             <TouchableOpacity style={styles.notifBtn} onPress={() => navigation.navigate('Notifications')}>
@@ -93,10 +144,10 @@ export default function MyDashboardScreen({ navigation }) {
         {/* Stats */}
         <View style={styles.statsRow}>
           {[
-            { icon: '📋', label: 'Jobs Posted', value: '3', color: BLUE, bg: BLUE_LIGHT },
-            { icon: '❤️', label: 'Saved', value: '12', color: '#E11D48', bg: '#FFF1F2' },
-            { icon: '👁️', label: 'Profile Views', value: '48', color: '#16A34A', bg: '#F0FDF4' },
-            { icon: '💬', label: 'Messages', value: '6', color: '#EA580C', bg: '#FFF7ED' },
+            { icon: '✅', label: 'Verified ₹', value: verifiedAmt > 0 ? `₹${Math.round(verifiedAmt / 1000)}K` : '₹0', color: '#16A34A', bg: '#F0FDF4' },
+            { icon: '⭐', label: 'CC Score', value: String(ccScore), color: BLUE, bg: BLUE_LIGHT },
+            { icon: '👁️', label: 'Profile Views', value: '—', color: '#16A34A', bg: '#F0FDF4' },
+            { icon: '💬', label: 'Messages', value: '—', color: '#EA580C', bg: '#FFF7ED' },
           ].map(stat => (
             <View key={stat.label} style={[styles.statBox, { backgroundColor: stat.bg }]}>
               <Text style={styles.statIcon}>{stat.icon}</Text>
@@ -112,13 +163,13 @@ export default function MyDashboardScreen({ navigation }) {
             <Text style={styles.ccScoreTitle}>CC Score</Text>
             <Text style={styles.ccScoreSub}>Construction Corner Trust Score</Text>
             <View style={styles.ccScoreBarBg}>
-              <View style={[styles.ccScoreBarFill, { width: '76%' }]} />
+              <View style={[styles.ccScoreBarFill, { width: `${Math.min(ccScore / 10, 100)}%` }]} />
             </View>
             <Text style={styles.ccScoreHint}>Complete profile & get reviews to improve</Text>
           </View>
           <View style={styles.ccScoreRight}>
-            <Text style={styles.ccScoreNumber}>762</Text>
-            <Text style={styles.ccScoreRating}>Good</Text>
+            <Text style={styles.ccScoreNumber}>{ccScore}</Text>
+            <Text style={styles.ccScoreRating}>{ccScore >= 750 ? 'Excellent' : ccScore >= 600 ? 'Good' : 'New'}</Text>
           </View>
         </View>
 
@@ -138,19 +189,19 @@ export default function MyDashboardScreen({ navigation }) {
         </View>
 
         {/* Pending Work Confirmations */}
-        {PENDING_CONFIRMATIONS.length > 0 && (
+        {pendingConfirmations.length > 0 && (
           <>
             <View style={styles.sectionHead}>
               <Text style={styles.sectionTitle}>Pending Confirmations</Text>
               <View style={styles.pendingBadge}>
-                <Text style={styles.pendingBadgeText}>{PENDING_CONFIRMATIONS.length} pending</Text>
+                <Text style={styles.pendingBadgeText}>{pendingConfirmations.length} pending</Text>
               </View>
             </View>
-            {PENDING_CONFIRMATIONS.map(item => (
+            {pendingConfirmations.map(item => (
               <TouchableOpacity
                 key={item.id}
                 style={styles.confirmCard}
-                onPress={() => navigation.navigate('ConfirmWork', { confirmation: item })}
+                onPress={() => navigation.navigate('ConfirmWork', { workId: item.workId, workData: item.workData })}
               >
                 <View style={styles.confirmAvatar}>
                   <Text style={{ fontSize: 22 }}>{item.workerEmoji}</Text>
@@ -162,7 +213,7 @@ export default function MyDashboardScreen({ navigation }) {
                 </View>
                 <View style={styles.confirmActions}>
                   <TouchableOpacity style={styles.confirmBtn}
-                    onPress={() => navigation.navigate('ConfirmWork', { confirmation: item })}>
+                    onPress={() => navigation.navigate('ConfirmWork', { workId: item.workId, workData: item.workData })}>
                     <Text style={styles.confirmBtnText}>Confirm</Text>
                   </TouchableOpacity>
                   <Text style={styles.confirmTime}>{item.timeAgo}</Text>
@@ -215,6 +266,11 @@ export default function MyDashboardScreen({ navigation }) {
             <Text style={styles.activityTime}>{item.time}</Text>
           </View>
         ))}
+
+        {/* Sign Out */}
+        <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
+          <Text style={styles.signOutBtnText}>🚪 Sign Out</Text>
+        </TouchableOpacity>
 
         <View style={{ height: 100 }} />
       </ScrollView>
@@ -299,4 +355,7 @@ const styles = StyleSheet.create({
   activityTitle: { fontSize: 13, fontWeight: '800', color: '#111', marginBottom: 2 },
   activitySub: { fontSize: 11, color: '#6B6560' },
   activityTime: { fontSize: 10, color: '#aaa', fontWeight: '600' },
+  // Sign Out
+  signOutBtn: { marginHorizontal: 16, marginTop: 8, paddingVertical: 15, borderRadius: 14, borderWidth: 1.5, borderColor: '#EF4444', backgroundColor: '#fff', alignItems: 'center' },
+  signOutBtnText: { fontSize: 15, fontWeight: '800', color: '#EF4444' },
 });

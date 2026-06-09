@@ -2,9 +2,11 @@ import {
   View, Text, TouchableOpacity, StyleSheet, FlatList,
   TextInput, StatusBar, KeyboardAvoidingView, Platform, Modal,
 } from 'react-native';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { BLUE } from '../constants/colors';
+import { sendMessage, getChatMessages, createChat } from '../services/chatService';
 
 // ─── Sample Messages per conversation ────────────────────────────────────────
 
@@ -92,26 +94,71 @@ export default function ChatScreen({ navigation, route }) {
     online: true,
   };
 
-  const initialMessages = SAMPLE_MESSAGES[conversation.id] || SAMPLE_MESSAGES['1'];
-  const [messages, setMessages] = useState(initialMessages);
+  const [messages, setMessages] = useState(SAMPLE_MESSAGES[conversation.id] || SAMPLE_MESSAGES['1']);
   const [inputText, setInputText] = useState('');
   const [showMenu, setShowMenu] = useState(false);
+  const [myUid, setMyUid] = useState(null);
+  const [chatId, setChatId] = useState(null);
   const listRef = useRef(null);
+  const unsubRef = useRef(null);
 
-  const sendMessage = () => {
+  useEffect(() => {
+    initChat();
+    return () => { if (unsubRef.current) unsubRef.current(); };
+  }, []);
+
+  const initChat = async () => {
+    try {
+      const uid = await AsyncStorage.getItem('uid');
+      if (!uid) return;
+      setMyUid(uid);
+
+      if (conversation.uid) {
+        const myName = await AsyncStorage.getItem('userName') || 'Me';
+        const id = await createChat(
+          { uid, name: myName },
+          { uid: conversation.uid, name: conversation.name }
+        );
+        setChatId(id);
+        const unsub = getChatMessages(id, (msgs) => {
+          const formatted = msgs.map(m => ({
+            id: m.id,
+            text: m.text,
+            sent: m.sender === uid,
+            time: m.timestamp
+              ? new Date(m.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+              : '',
+          }));
+          setMessages(formatted.length > 0 ? formatted : (SAMPLE_MESSAGES[conversation.id] || SAMPLE_MESSAGES['1']));
+          setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 100);
+        });
+        unsubRef.current = unsub;
+      }
+    } catch (_) {}
+  };
+
+  const handleSend = async () => {
     const text = inputText.trim();
     if (!text) return;
-    const newMsg = {
-      id: `m${Date.now()}`,
+    setInputText('');
+    const optimistic = {
+      id: `opt_${Date.now()}`,
       text,
       sent: true,
       time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
     };
-    setMessages((prev) => [...prev, newMsg]);
-    setInputText('');
-    setTimeout(() => {
-      listRef.current?.scrollToEnd({ animated: true });
-    }, 100);
+    // Optimistic update for instant feedback
+    if (!chatId) {
+      setMessages(prev => [...prev, optimistic]);
+    }
+    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+    if (chatId && myUid) {
+      try {
+        await sendMessage(chatId, text, myUid);
+      } catch (_) {
+        // Message shown optimistically; fail silently
+      }
+    }
   };
 
   return (
@@ -209,11 +256,11 @@ export default function ChatScreen({ navigation, route }) {
             onChangeText={setInputText}
             multiline
             maxLength={500}
-            onSubmitEditing={sendMessage}
+            onSubmitEditing={handleSend}
           />
           <TouchableOpacity
             style={[styles.sendBtn, !inputText.trim() && styles.sendBtnDisabled]}
-            onPress={sendMessage}
+            onPress={handleSend}
             disabled={!inputText.trim()}
           >
             <Text style={styles.sendIcon}>➤</Text>

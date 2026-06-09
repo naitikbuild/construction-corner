@@ -1,8 +1,9 @@
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, StatusBar, FlatList, SectionList, Dimensions,
+  ScrollView, StatusBar, FlatList, SectionList, Dimensions, ActivityIndicator,
 } from 'react-native';
-import { useState, useRef, useMemo, useEffect } from 'react';
+import { useState, useRef, useMemo, useEffect, useCallback } from 'react';
+import { searchUsers } from '../services/userService';
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 
@@ -68,6 +69,53 @@ const MASTER = [
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const PROFILE_SCREEN = {
+  professional: 'ProfessionalProfile',
+  worker: 'WorkerProfile',
+  supplier: 'SupplierProfile',
+  business: 'BusinessProfile',
+};
+
+const TYPE_LABEL = {
+  professional: 'Professionals',
+  worker: 'Contractors',
+  supplier: 'Suppliers',
+  business: 'Companies',
+};
+
+const TYPE_EMOJI = {
+  professional: '🏛️',
+  worker: '👷',
+  supplier: '🏭',
+  business: '🏢',
+};
+
+const TYPE_BG = {
+  professional: '#EDE7F6',
+  worker: '#FFF3E0',
+  supplier: '#E3F2FD',
+  business: '#E8F5E9',
+};
+
+function firestoreUserToResult(user) {
+  const pt = (user.profileType || '').toLowerCase();
+  const name = user.name || user.companyName || 'Unknown';
+  const cat = user.designation || user.category || user.workerSkill || user.supplierCategory || '';
+  const city = user.city || '';
+  return {
+    uid: user.uid,
+    profileScreen: PROFILE_SCREEN[pt] || null,
+    type: TYPE_LABEL[pt] || 'Users',
+    emoji: TYPE_EMOJI[pt] || '👤',
+    bg: TYPE_BG[pt] || '#F5F5F5',
+    name,
+    sub: [cat, city].filter(Boolean).join('  ·  '),
+    rating: user.rating ? String(user.rating) : '4.5',
+    reviews: user.reviewCount || 0,
+    cta: 'View',
+  };
+}
 
 function groupResults(query) {
   const q = query.toLowerCase().trim();
@@ -256,18 +304,52 @@ function EmptyState({ recent, onRecentPress, onRecentRemove, onClearRecent, onTr
 
 export default function SearchScreen({ navigation, route }) {
   const inputRef = useRef(null);
-  const [query, setQuery]   = useState(route?.params?.query || '');
-  const [recent, setRecent] = useState(INITIAL_RECENT);
+  const [query, setQuery]         = useState(route?.params?.query || '');
+  const [recent, setRecent]       = useState(INITIAL_RECENT);
+  const [searching, setSearching] = useState(false);
+  const [liveResults, setLiveResults] = useState(null);
+  const debounceRef = useRef(null);
 
   useEffect(() => {
     const timer = setTimeout(() => inputRef.current?.focus(), 150);
     return () => clearTimeout(timer);
   }, []);
 
-  const sections = useMemo(() => {
+  useEffect(() => {
+    if (!query.trim()) { setLiveResults(null); return; }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setSearching(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const users = await searchUsers(query);
+        if (users.length > 0) {
+          const items = users.map(firestoreUserToResult);
+          const groups = {};
+          items.forEach(item => {
+            if (!groups[item.type]) groups[item.type] = [];
+            groups[item.type].push(item);
+          });
+          setLiveResults(Object.entries(groups).map(([title, data]) => ({ title, data })));
+        } else {
+          setLiveResults([]);
+        }
+      } catch (_) {
+        setLiveResults(null);
+      } finally {
+        setSearching(false);
+      }
+    }, 400);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [query]);
+
+  const staticSections = useMemo(() => {
     if (!query.trim()) return null;
     return groupResults(query);
   }, [query]);
+
+  const sections = liveResults !== null
+    ? (liveResults.length > 0 ? liveResults : staticSections)
+    : staticSections;
 
   const addToRecent = (text) => {
     if (!text.trim()) return;
@@ -288,8 +370,8 @@ export default function SearchScreen({ navigation, route }) {
   const clearRecent  = () => setRecent([]);
 
   const showEmpty   = !query.trim();
-  const showResults = !showEmpty && sections && sections.length > 0;
-  const showNoRes   = !showEmpty && sections && sections.length === 0;
+  const showResults = !showEmpty && !searching && sections && sections.length > 0;
+  const showNoRes   = !showEmpty && !searching && (!sections || sections.length === 0);
 
   return (
     <View style={styles.container}>
@@ -345,10 +427,17 @@ export default function SearchScreen({ navigation, route }) {
         />
       )}
 
+      {!showEmpty && searching && (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator size="large" color={ORANGE} />
+          <Text style={{ marginTop: 12, color: MID, fontSize: 13, fontWeight: '600' }}>Searching...</Text>
+        </View>
+      )}
+
       {showResults && (
         <SectionList
           sections={sections}
-          keyExtractor={(item, index) => item.name + index}
+          keyExtractor={(item, index) => (item.uid || item.name) + index}
           renderSectionHeader={({ section: { title, data } }) => (
             <View style={styles.resultSectionHead}>
               <Text style={styles.resultSectionTitle}>{title}</Text>
@@ -362,9 +451,15 @@ export default function SearchScreen({ navigation, route }) {
               item={item}
               onCta={() => {
                 addToRecent(query);
-                if (item.type === 'Materials')     navigation.navigate('MaterialMarketplace');
-                else if (item.type === 'Jobs')     navigation.navigate('Jobs');
-                else navigation.navigate('ProfessionalList', { category: item.type });
+                if (item.uid && item.profileScreen) {
+                  navigation.navigate(item.profileScreen, { uid: item.uid });
+                } else if (item.type === 'Materials') {
+                  navigation.navigate('MaterialMarketplace');
+                } else if (item.type === 'Jobs') {
+                  navigation.navigate('Jobs');
+                } else {
+                  navigation.navigate('CategoryList', { category: item.type, profileType: 'professional' });
+                }
               }}
             />
           )}

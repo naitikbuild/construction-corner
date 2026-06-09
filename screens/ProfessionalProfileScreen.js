@@ -1,8 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, StatusBar, useWindowDimensions, Alert,
+  StyleSheet, StatusBar, useWindowDimensions, Alert, ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfile } from '../services/userService';
+import { getTotalVerifiedAmount } from '../services/workService';
+import { createChat } from '../services/chatService';
+import { auth } from '../config/firebase';
 
 // ─── Instagram Gradient Helper ────────────────────────────────────────────────
 function IGGrad({ style, children }) {
@@ -58,10 +63,89 @@ const REVIEWS = [
 ];
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
-export default function ProfessionalProfileScreen({ navigation }) {
+export default function ProfessionalProfileScreen({ navigation, route }) {
+  const viewUid = route?.params?.uid ?? null;
   const { width } = useWindowDimensions();
   const [activeTab, setActiveTab] = useState('Grid');
+  const [loading, setLoading] = useState(true);
+  const [liveProfile, setLiveProfile] = useState(null);
+  const [verifiedAmt, setVerifiedAmt] = useState('');
+  const [myUid, setMyUid] = useState(null);
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  const loadProfile = async () => {
+    try {
+      const uid = viewUid || auth.currentUser?.uid;
+      const me = await AsyncStorage.getItem('uid');
+      setMyUid(me);
+      if (!uid) { setLoading(false); return; }
+      const [profile, totalAmt] = await Promise.all([getProfile(uid), getTotalVerifiedAmount(uid)]);
+      if (profile) setLiveProfile(profile);
+      setVerifiedAmt(totalAmt > 0 ? `₹${totalAmt.toLocaleString('en-IN')}` : '₹0');
+    } catch (_) {}
+    finally { setLoading(false); }
+  };
+
+  const handleChat = async () => {
+    if (!viewUid || viewUid === myUid) return;
+    try {
+      const myName = await AsyncStorage.getItem('userName') || 'Me';
+      const chatId = await createChat(
+        { uid: myUid, name: myName },
+        { uid: viewUid, name: liveProfile?.name || 'Professional' }
+      );
+      navigation.navigate('Chat', {
+        conversation: {
+          id: chatId,
+          uid: viewUid,
+          name: liveProfile?.name || 'Professional',
+          role: liveProfile?.designation || 'Professional',
+          emoji: '🏛️',
+          avatarBg: '#EDE7F6',
+          online: false,
+        }
+      });
+    } catch (_) { Alert.alert('Error', 'Could not open chat.'); }
+  };
+
   const photoSize = (width - 4) / 3;
+
+  const display = {
+    name: liveProfile?.name || 'Add your name',
+    designation: liveProfile?.designation || 'Add your designation',
+    location: [liveProfile?.city, liveProfile?.state].filter(Boolean).join(', ') || 'Add location',
+    verified: verifiedAmt || '₹0',
+  };
+
+  if (loading) {
+    return (
+      <View style={[ss.screen, { alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator size="large" color="#C13584" />
+        <Text style={{ marginTop: 12, color: '#888', fontSize: 14 }}>Loading profile...</Text>
+      </View>
+    );
+  }
+
+  if (!liveProfile && !viewUid) {
+    return (
+      <View style={[ss.screen, { alignItems: 'center', justifyContent: 'center', padding: 32 }]}>
+        <Text style={{ fontSize: 52, marginBottom: 16 }}>🏛️</Text>
+        <Text style={{ fontSize: 20, fontWeight: '900', color: '#111', marginBottom: 8, textAlign: 'center' }}>Profile Incomplete</Text>
+        <Text style={{ fontSize: 14, color: '#888', textAlign: 'center', lineHeight: 22, marginBottom: 24 }}>
+          Please complete your profile to appear in search results and attract clients.
+        </Text>
+        <TouchableOpacity
+          style={{ backgroundColor: '#C13584', paddingVertical: 14, paddingHorizontal: 28, borderRadius: 12 }}
+          onPress={() => navigation.navigate('EditProfile')}
+        >
+          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>Complete Profile →</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={ss.screen}>
@@ -72,7 +156,7 @@ export default function ProfessionalProfileScreen({ navigation }) {
         <TouchableOpacity style={ss.navBtn} onPress={() => navigation.goBack()}>
           <Text style={ss.navBackArrow}>←</Text>
         </TouchableOpacity>
-        <Text style={ss.navTitle}>@vikram.desai</Text>
+        <Text style={ss.navTitle}>@{display.name.toLowerCase().replace(/\s+/g, '.')}</Text>
         <TouchableOpacity style={ss.navBtn} onPress={() => Alert.alert('Options')}>
           <Text style={ss.navDots}>⋯</Text>
         </TouchableOpacity>
@@ -92,17 +176,17 @@ export default function ProfessionalProfileScreen({ navigation }) {
           {/* Right: 3 stats */}
           <View style={ss.igStats}>
             <View style={ss.igStat}>
-              <Text style={ss.igStatVal}>₹28.5L</Text>
+              <Text style={ss.igStatVal}>{verifiedAmt || '₹0'}</Text>
               <Text style={ss.igStatLbl}>Verified</Text>
             </View>
             <View style={ss.igStatDivider} />
             <View style={ss.igStat}>
-              <Text style={ss.igStatVal}>34</Text>
-              <Text style={ss.igStatLbl}>Projects</Text>
+              <Text style={ss.igStatVal}>{liveProfile?.experience || '—'}</Text>
+              <Text style={ss.igStatLbl}>Yrs Exp</Text>
             </View>
             <View style={ss.igStatDivider} />
             <View style={ss.igStat}>
-              <Text style={[ss.igStatVal, { color: '#E8A900' }]}>4.9 ★</Text>
+              <Text style={[ss.igStatVal, { color: '#E8A900' }]}>{liveProfile?.rating ? `${liveProfile.rating} ★` : '—'}</Text>
               <Text style={ss.igStatLbl}>Rating</Text>
             </View>
           </View>
@@ -111,18 +195,18 @@ export default function ProfessionalProfileScreen({ navigation }) {
         {/* ── 3. NAME ROW ───────────────────────────────────────────────────── */}
         <View style={ss.namePad}>
           <View style={ss.nameRow}>
-            <Text style={ss.name}>Vikram Desai</Text>
+            <Text style={ss.name}>{display.name}</Text>
             <View style={ss.verifiedBadge}>
               <Text style={ss.verifiedBadgeText}>✓ Verified</Text>
             </View>
           </View>
 
           {/* ── 4. DESIGNATION ─────────────────────────────────────────────── */}
-          <Text style={ss.designation}>Senior Architect · Self Employed</Text>
+          <Text style={ss.designation}>{display.designation}</Text>
 
           {/* ── 5. LOCATION ────────────────────────────────────────────────── */}
           <View style={ss.locationRow}>
-            <Text style={ss.locationText}>📍 Navrangpura, Ahmedabad</Text>
+            <Text style={ss.locationText}>📍 {display.location}</Text>
             <Text style={ss.locationDot}> · </Text>
             <View style={ss.availDot} />
             <Text style={ss.availText}> Available</Text>
@@ -149,19 +233,24 @@ export default function ProfessionalProfileScreen({ navigation }) {
           <IGGrad style={ss.callBtn}>
             <TouchableOpacity
               style={ss.callBtnInner}
-              onPress={() => Alert.alert('Calling', 'Calling Vikram Desai…')}
+              onPress={handleChat}
               activeOpacity={0.85}
             >
-              <Text style={ss.callBtnText}>📞  Call Now</Text>
+              <Text style={ss.callBtnText}>💬  Message</Text>
             </TouchableOpacity>
           </IGGrad>
 
           <TouchableOpacity
             style={ss.msgBtn}
-            onPress={() => Alert.alert('Message', 'Opening chat…')}
+            onPress={() => navigation.navigate('MarkWorkComplete', {
+              workerName: display.name,
+              workerRole: display.designation,
+              workerEmoji: '🏛️',
+              workerUid: viewUid,
+            })}
             activeOpacity={0.85}
           >
-            <Text style={ss.msgBtnText}>💬  Message</Text>
+            <Text style={ss.msgBtnText}>✅  Work Done</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -180,7 +269,7 @@ export default function ProfessionalProfileScreen({ navigation }) {
           </View>
           <View style={ss.verBody}>
             <View style={ss.verStat}>
-              <Text style={ss.verAmt}>₹28.5L</Text>
+              <Text style={ss.verAmt}>{display.verified}</Text>
               <Text style={ss.verStatLbl}>Total Earned</Text>
             </View>
             <View style={ss.verDivider} />

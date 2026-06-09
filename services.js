@@ -1,9 +1,7 @@
-// Firebase services temporarily disabled
-// Will be re-enabled with development build
+// Re-export from modular service files
+export { getAllJobs as getJobs } from './services/jobService';
+export { saveProfile as saveUserProfile, getProfile as getUserProfile } from './services/userService';
+export { postJob } from './services/jobService';
 
-export const getJobs = async () => [];
 export const getCompanies = async () => [];
 export const getCourses = async () => [];
-export const saveUserProfile = async () => true;
-export const getUserProfile = async () => null;
-export const postJob = async () => true;

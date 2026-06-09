@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, StatusBar,
+  StyleSheet, StatusBar, ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { BLUE, BLUE_LIGHT, BLUE_MID, GREEN, GREEN_LIGHT, GREEN_DARK } from '../constants/colors';
+import { getVerifiedWork } from '../services/workService';
 const BORDER = '#E2E8F0';
 const CARD = '#F8FAFC';
 const TEXT = '#0F172A';
@@ -44,12 +46,48 @@ function getIcon(type) {
   return '🔨';
 }
 
-export default function WorkHistoryScreen({ navigation }) {
+export default function WorkHistoryScreen({ navigation, route }) {
+  const viewUid = route?.params?.uid ?? null;
   const [activeFilter, setActiveFilter] = useState('All');
+  const [workJobs, setWorkJobs] = useState(WORK_JOBS);
+  const [loading, setLoading] = useState(true);
+  const [totalAmount, setTotalAmount] = useState(TOTAL_AMOUNT);
+  const [totalJobs, setTotalJobs] = useState(TOTAL_JOBS);
+
+  useEffect(() => {
+    loadWork();
+  }, []);
+
+  const loadWork = async () => {
+    try {
+      const uid = viewUid || await AsyncStorage.getItem('uid');
+      if (!uid) return;
+      const works = await getVerifiedWork(uid);
+      if (works.length > 0) {
+        const mapped = works.map((w, i) => ({
+          id: w.id || i,
+          type: w.workType || w.description?.split(' ').slice(0, 3).join(' ') || 'Construction Work',
+          location: w.location || 'India',
+          date: w.date || new Date().toLocaleDateString('en-IN'),
+          amount: Number(w.amount) || 0,
+          year: String(new Date(w.verifiedAt?.seconds ? w.verifiedAt.seconds * 1000 : Date.now()).getFullYear()),
+          customer: w.customerName || 'Customer',
+        }));
+        setWorkJobs(mapped);
+        const total = mapped.reduce((s, j) => s + j.amount, 0);
+        setTotalAmount(total);
+        setTotalJobs(mapped.length);
+      }
+    } catch (_) {
+      // Keep sample data on error
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filtered = activeFilter === 'All'
-    ? WORK_JOBS
-    : WORK_JOBS.filter((j) => j.year === activeFilter);
+    ? workJobs
+    : workJobs.filter((j) => j.year === activeFilter);
 
   const filteredTotal = filtered.reduce((sum, j) => sum + j.amount, 0);
 
@@ -80,11 +118,13 @@ export default function WorkHistoryScreen({ navigation }) {
           </View>
 
           <Text style={styles.totalLabel}>Total Verified Work Done</Text>
-          <Text style={styles.totalAmount}>₹{TOTAL_AMOUNT.toLocaleString('en-IN')}</Text>
+          {loading
+            ? <ActivityIndicator color="#fff" style={{ marginVertical: 8 }} />
+            : <Text style={styles.totalAmount}>₹{totalAmount.toLocaleString('en-IN')}</Text>}
 
           <View style={styles.totalStatsRow}>
             <View style={styles.totalStat}>
-              <Text style={styles.totalStatVal}>{TOTAL_JOBS}</Text>
+              <Text style={styles.totalStatVal}>{totalJobs}</Text>
               <Text style={styles.totalStatKey}>Verified Jobs</Text>
             </View>
             <View style={styles.totalStatDiv} />

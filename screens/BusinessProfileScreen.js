@@ -1,8 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, StatusBar, useWindowDimensions, Alert,
+  StyleSheet, StatusBar, useWindowDimensions, Alert, ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfile } from '../services/userService';
+import { getTotalVerifiedAmount } from '../services/workService';
+import { createChat } from '../services/chatService';
+import { auth } from '../config/firebase';
 
 // ─── Gradient Button ──────────────────────────────────────────────────────────
 function GradBtn({ label, subLabel, onPress }) {
@@ -86,9 +91,87 @@ const PROJECTS = [
 ];
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
-export default function BusinessProfileScreen({ navigation }) {
+export default function BusinessProfileScreen({ navigation, route }) {
+  const viewUid = route?.params?.uid ?? null;
   const { width } = useWindowDimensions();
   const [activeTab, setActiveTab] = useState('Projects');
+  const [loading, setLoading] = useState(true);
+  const [liveProfile, setLiveProfile] = useState(null);
+  const [verifiedAmt, setVerifiedAmt] = useState('');
+  const [myUid, setMyUid] = useState(null);
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  const loadProfile = async () => {
+    try {
+      const uid = viewUid || auth.currentUser?.uid;
+      const me = await AsyncStorage.getItem('uid');
+      setMyUid(me);
+      if (!uid) { setLoading(false); return; }
+      const [profile, totalAmt] = await Promise.all([getProfile(uid), getTotalVerifiedAmount(uid)]);
+      if (profile) setLiveProfile(profile);
+      setVerifiedAmt(totalAmt > 0 ? `₹${totalAmt.toLocaleString('en-IN')}` : '₹0');
+    } catch (_) {}
+    finally { setLoading(false); }
+  };
+
+  const handleChat = async () => {
+    if (!viewUid || viewUid === myUid) return;
+    try {
+      const myName = await AsyncStorage.getItem('userName') || 'Me';
+      const chatId = await createChat(
+        { uid: myUid, name: myName },
+        { uid: viewUid, name: liveProfile?.companyName || liveProfile?.name || 'Company' }
+      );
+      navigation.navigate('Chat', {
+        conversation: {
+          id: chatId,
+          uid: viewUid,
+          name: liveProfile?.companyName || liveProfile?.name || 'Company',
+          role: liveProfile?.companyType || 'Construction Company',
+          emoji: '🏢',
+          avatarBg: '#E8F5E9',
+          online: false,
+        }
+      });
+    } catch (_) { Alert.alert('Error', 'Could not open chat.'); }
+  };
+
+  const display = {
+    name: liveProfile?.companyName || liveProfile?.name || 'Add company name',
+    type: liveProfile?.companyType || liveProfile?.designation || 'Add business type',
+    location: [liveProfile?.city, liveProfile?.state].filter(Boolean).join(', ') || 'Add location',
+    verified: verifiedAmt || '₹0',
+  };
+
+  if (loading) {
+    return (
+      <View style={[ss.screen, { alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator size="large" color="#C13584" />
+        <Text style={{ marginTop: 12, color: '#888', fontSize: 14 }}>Loading profile...</Text>
+      </View>
+    );
+  }
+
+  if (!liveProfile && !viewUid) {
+    return (
+      <View style={[ss.screen, { alignItems: 'center', justifyContent: 'center', padding: 32 }]}>
+        <Text style={{ fontSize: 52, marginBottom: 16 }}>🏢</Text>
+        <Text style={{ fontSize: 20, fontWeight: '900', color: '#111', marginBottom: 8, textAlign: 'center' }}>Profile Incomplete</Text>
+        <Text style={{ fontSize: 14, color: '#888', textAlign: 'center', lineHeight: 22, marginBottom: 24 }}>
+          Please complete your company profile to appear in search results and attract clients.
+        </Text>
+        <TouchableOpacity
+          style={{ backgroundColor: '#C13584', paddingVertical: 14, paddingHorizontal: 28, borderRadius: 12 }}
+          onPress={() => navigation.navigate('EditProfile')}
+        >
+          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>Complete Profile →</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={ss.screen}>
@@ -113,13 +196,13 @@ export default function BusinessProfileScreen({ navigation }) {
             <Text style={{ fontSize: 44 }}>{PROFILE.logo}</Text>
           </View>
 
-          <Text style={ss.profileName}>{PROFILE.name}</Text>
+          <Text style={ss.profileName}>{display.name}</Text>
           <View style={ss.typeBadgeWrap}>
             <View style={ss.typeBadge}>
-              <Text style={ss.typeBadgeText}>{PROFILE.type}</Text>
+              <Text style={ss.typeBadgeText}>{display.type}</Text>
             </View>
           </View>
-          <Text style={ss.profileLoc}>📍 {PROFILE.location}</Text>
+          <Text style={ss.profileLoc}>📍 {display.location}</Text>
 
           <View style={ss.badgesRow}>
             <View style={[ss.badge, { backgroundColor: '#E8F5E9', borderColor: '#4CAF50' }]}>
@@ -159,7 +242,7 @@ export default function BusinessProfileScreen({ navigation }) {
           </View>
           <View style={ss.verifiedBody}>
             <View style={ss.verifiedStat}>
-              <Text style={ss.verifiedAmt}>{PROFILE.verifiedAmt}</Text>
+              <Text style={ss.verifiedAmt}>{display.verified}</Text>
               <Text style={ss.verifiedLbl}>Total Project Value</Text>
             </View>
             <View style={ss.verifiedDivider} />
@@ -289,14 +372,22 @@ export default function BusinessProfileScreen({ navigation }) {
 
       {/* ACTION BAR */}
       <View style={ss.bookBar}>
-        <TouchableOpacity style={ss.markCompleteBtn} onPress={() => navigation.navigate('MarkWorkComplete')}>
+        <TouchableOpacity
+          style={ss.markCompleteBtn}
+          onPress={() => navigation.navigate('MarkWorkComplete', {
+            workerName: display.name,
+            workerRole: display.type,
+            workerEmoji: '🏢',
+            workerUid: viewUid,
+          })}
+        >
           <Text style={ss.markCompleteBtnText}>✅ Mark{'\n'}Complete</Text>
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <GradBtn
-            label="Get Quote"
-            subLabel="Our team responds within 2 hrs"
-            onPress={() => Alert.alert('Quote Request', `Sent to ${PROFILE.name}!`)}
+            label="Contact Now"
+            subLabel="Send message"
+            onPress={handleChat}
           />
         </View>
       </View>

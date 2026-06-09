@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, StatusBar, Alert,
+  StyleSheet, StatusBar, Alert, ActivityIndicator,
 } from 'react-native';
 
 import { BLUE, BLUE_LIGHT, BLUE_MID, GREEN, GREEN_DARK } from '../constants/colors';
+import { confirmWork, getPendingWork } from '../services/workService';
+import { db } from '../config/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 const RED = '#EF4444';
 const RED_LIGHT = '#FEF2F2';
@@ -38,9 +41,47 @@ function StarDisplay({ value }) {
   );
 }
 
-export default function ConfirmWorkScreen({ navigation }) {
+export default function ConfirmWorkScreen({ navigation, route }) {
+  const workId = route?.params?.workId ?? null;
+  const workDataParam = route?.params?.workData ?? null;
+  const [loadedWorkData, setLoadedWorkData] = useState(workDataParam);
+  const [loadingWork, setLoadingWork] = useState(workId && !workDataParam);
+
+  useEffect(() => {
+    if (workId && !workDataParam) {
+      getDoc(doc(db, 'pending_work', workId)).then(snap => {
+        if (snap.exists()) setLoadedWorkData(snap.data());
+        setLoadingWork(false);
+      }).catch(() => setLoadingWork(false));
+    }
+  }, [workId]);
+
+  const workData = loadedWorkData || WORK_RECORD;
+
+  const RECORD = workId ? {
+    customer: { name: workData.customerName || 'Customer', role: 'Property Owner', emoji: '🏠', location: 'India' },
+    amount: workData.amount || 0,
+    commission: workData.commission || Math.round((workData.amount || 0) * 0.01),
+    netAmount: workData.netAmount || ((workData.amount || 0) - Math.round((workData.amount || 0) * 0.01)),
+    description: workData.description || '',
+    date: workData.date || '',
+    rating: workData.rating || 0,
+    review: workData.review || '',
+    workType: workData.workType || 'Construction Work',
+  } : WORK_RECORD;
+
   const [paymentDone, setPaymentDone] = useState(false);
   const [selectedUPI, setSelectedUPI] = useState(null);
+  const [confirming, setConfirming] = useState(false);
+
+  if (loadingWork) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color={GREEN} />
+        <Text style={{ marginTop: 12, color: '#888' }}>Loading work details...</Text>
+      </View>
+    );
+  }
 
   const UPI_OPTIONS = [
     { id: 'gpay', label: 'Google Pay', icon: '🟢', color: '#1A73E8' },
@@ -55,25 +96,31 @@ export default function ConfirmWorkScreen({ navigation }) {
     }
     Alert.alert(
       'Confirm & Pay Commission?',
-      `You will pay ₹${WORK_RECORD.commission} via ${selectedUPI.toUpperCase()}. This work record will be permanently added to your profile.`,
+      `You will pay ₹${RECORD.commission} via ${selectedUPI.toUpperCase()}. This work record will be permanently added to your profile.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Confirm & Pay ₹' + WORK_RECORD.commission,
+          text: 'Confirm & Pay ₹' + RECORD.commission,
           style: 'default',
-          onPress: () => {
-            setPaymentDone(true);
-            setTimeout(() => navigation.navigate('LeaveReview', {
-              workerName: WORK_RECORD.customer.name,
-              workerEmoji: WORK_RECORD.customer.emoji,
-              role: WORK_RECORD.customer.role,
-              workType: WORK_RECORD.workType,
-              amount: `₹${WORK_RECORD.amount.toLocaleString('en-IN')}`,
-            }), 1500);
-          },
+          onPress: doConfirm,
         },
       ]
     );
+  };
+
+  const doConfirm = async () => {
+    setConfirming(true);
+    try {
+      if (workId) {
+        await confirmWork(workId, RECORD.commission);
+      }
+      setPaymentDone(true);
+      setTimeout(() => navigation.navigate('WorkHistory'), 1800);
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Failed to confirm work. Please try again.');
+    } finally {
+      setConfirming(false);
+    }
   };
 
   const handleDispute = () => {
@@ -135,12 +182,12 @@ export default function ConfirmWorkScreen({ navigation }) {
 
         <View style={styles.customerCard}>
           <View style={styles.customerAvatar}>
-            <Text style={styles.customerEmoji}>{WORK_RECORD.customer.emoji}</Text>
+            <Text style={styles.customerEmoji}>{RECORD.customer.emoji}</Text>
           </View>
           <View style={styles.customerInfo}>
-            <Text style={styles.customerName}>{WORK_RECORD.customer.name}</Text>
-            <Text style={styles.customerRole}>{WORK_RECORD.customer.role}</Text>
-            <Text style={styles.customerLoc}>📍 {WORK_RECORD.customer.location}</Text>
+            <Text style={styles.customerName}>{RECORD.customer.name}</Text>
+            <Text style={styles.customerRole}>{RECORD.customer.role}</Text>
+            <Text style={styles.customerLoc}>📍 {RECORD.customer.location}</Text>
           </View>
           <View style={styles.submittedBadge}>
             <Text style={styles.submittedText}>Submitted</Text>
@@ -156,36 +203,36 @@ export default function ConfirmWorkScreen({ navigation }) {
         <View style={styles.detailsCard}>
           <View style={styles.detailRow}>
             <Text style={styles.detailKey}>Work Type</Text>
-            <Text style={styles.detailVal}>{WORK_RECORD.workType}</Text>
+            <Text style={styles.detailVal}>{RECORD.workType}</Text>
           </View>
           <View style={styles.detailDivider} />
           <View style={styles.detailRow}>
             <Text style={styles.detailKey}>Work Amount</Text>
             <Text style={[styles.detailVal, { color: BLUE, fontSize: 20, fontWeight: '900' }]}>
-              ₹{WORK_RECORD.amount.toLocaleString('en-IN')}
+              ₹{RECORD.amount.toLocaleString('en-IN')}
             </Text>
           </View>
           <View style={styles.detailDivider} />
           <View style={styles.detailRowVertical}>
             <Text style={styles.detailKey}>Work Description</Text>
-            <Text style={styles.detailDesc}>{WORK_RECORD.description}</Text>
+            <Text style={styles.detailDesc}>{RECORD.description}</Text>
           </View>
           <View style={styles.detailDivider} />
           <View style={styles.detailRow}>
             <Text style={styles.detailKey}>Completion Date</Text>
-            <Text style={styles.detailVal}>{WORK_RECORD.date}</Text>
+            <Text style={styles.detailVal}>{RECORD.date}</Text>
           </View>
           <View style={styles.detailDivider} />
           <View style={styles.detailRowVertical}>
             <Text style={styles.detailKey}>Customer Rating</Text>
-            <StarDisplay value={WORK_RECORD.rating} />
+            <StarDisplay value={RECORD.rating} />
           </View>
-          {WORK_RECORD.review ? (
+          {RECORD.review ? (
             <>
               <View style={styles.detailDivider} />
               <View style={styles.detailRowVertical}>
                 <Text style={styles.detailKey}>Customer Review</Text>
-                <Text style={styles.reviewText}>"{WORK_RECORD.review}"</Text>
+                <Text style={styles.reviewText}>"{RECORD.review}"</Text>
               </View>
             </>
           ) : null}
@@ -200,7 +247,7 @@ export default function ConfirmWorkScreen({ navigation }) {
         <View style={styles.commissionCard}>
           <View style={styles.commRow}>
             <Text style={styles.commKey}>Work Amount</Text>
-            <Text style={styles.commVal}>₹{WORK_RECORD.amount.toLocaleString('en-IN')}</Text>
+            <Text style={styles.commVal}>₹{RECORD.amount.toLocaleString('en-IN')}</Text>
           </View>
           <View style={styles.commRow}>
             <View>
@@ -208,12 +255,12 @@ export default function ConfirmWorkScreen({ navigation }) {
               <Text style={styles.commSubKey}>1% of work amount</Text>
             </View>
             <Text style={[styles.commVal, { color: RED, fontWeight: '900' }]}>
-              ₹{WORK_RECORD.commission.toLocaleString('en-IN')}
+              ₹{RECORD.commission.toLocaleString('en-IN')}
             </Text>
           </View>
           <View style={[styles.commRow, styles.commNetRow]}>
             <Text style={styles.commNetKey}>You Receive (Net)</Text>
-            <Text style={styles.commNetVal}>₹{WORK_RECORD.netAmount.toLocaleString('en-IN')}</Text>
+            <Text style={styles.commNetVal}>₹{RECORD.netAmount.toLocaleString('en-IN')}</Text>
           </View>
           <View style={styles.commPayRow}>
             <Text style={styles.commPayLabel}>Pay Commission via UPI:</Text>
@@ -251,8 +298,10 @@ export default function ConfirmWorkScreen({ navigation }) {
         </View>
 
         {/* ACTION BUTTONS */}
-        <TouchableOpacity style={styles.confirmBtn} onPress={handleConfirm} activeOpacity={0.85}>
-          <Text style={styles.confirmBtnText}>✓  Confirm & Pay ₹{WORK_RECORD.commission}</Text>
+        <TouchableOpacity style={styles.confirmBtn} onPress={handleConfirm} activeOpacity={0.85} disabled={confirming}>
+          {confirming
+            ? <ActivityIndicator color="#fff" />
+            : <Text style={styles.confirmBtnText}>✓  Confirm & Pay ₹{RECORD.commission}</Text>}
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.disputeBtn} onPress={handleDispute} activeOpacity={0.85}>

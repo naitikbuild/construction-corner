@@ -1,10 +1,12 @@
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, StatusBar, Switch, Modal, FlatList, Animated,
+  ScrollView, StatusBar, Switch, Modal, FlatList, Animated, Alert,
 } from 'react-native';
 import { useState, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { BLUE } from '../constants/colors';
+import { saveProfile } from '../services/userService';
 
 const LIGHT_BLUE = '#E0F5FE';
 const GREY_BG = '#F2F0ED';
@@ -1080,12 +1082,54 @@ export default function EditProfileScreen({ navigation, route }) {
     else navigation.goBack();
   };
 
-  const handleSave = () => {
+  const PROFILE_DEST = {
+    professional: 'ProfessionalProfile',
+    worker: 'WorkerProfile',
+    business: 'BusinessProfile',
+    supplier: 'SupplierProfile',
+  };
+
+  const handleSave = async () => {
     setSaving(true);
-    setTimeout(() => {
+    try {
+      const uid = await AsyncStorage.getItem('uid');
+      if (!uid) throw new Error('Not logged in');
+
+      const pt = (profileType || data.role || '').toLowerCase();
+      const displayName = (pt === 'business' || pt === 'supplier')
+        ? (data.companyName || data.name || '')
+        : (data.name || '');
+
+      const profileData = {
+        ...data,
+        profileType: pt,
+        role: data.role || profileType || '',
+        phone: data.phone || (await AsyncStorage.getItem('phone')) || '',
+        category: data.designation || data.workerSkill || data.supplierCategory || '',
+        ccScore: 500,
+        createdAt: new Date().toISOString(),
+      };
+      await saveProfile(uid, profileData);
+
+      // Cache user name so other screens can show it quickly
+      if (displayName) await AsyncStorage.setItem('userName', displayName);
+
+      Alert.alert(
+        'Profile Saved! 🎉',
+        'Your profile is now live on Construction Corner.',
+        [{
+          text: 'View Profile',
+          onPress: () => {
+            const dest = PROFILE_DEST[pt] || 'Home';
+            navigation.replace(dest, { uid });
+          },
+        }]
+      );
+    } catch (err) {
+      Alert.alert('Save Failed', err.message || 'Could not save profile. Please try again.');
+    } finally {
       setSaving(false);
-      navigation.replace('Home');
-    }, 1200);
+    }
   };
 
   const goToStep = (s) => setStep(s);
@@ -1111,7 +1155,7 @@ export default function EditProfileScreen({ navigation, route }) {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{headerTitle()}</Text>
         <TouchableOpacity onPress={() => navigation.replace('Home')}>
-          <Text style={styles.skipBtn}>Skip</Text>
+          <Text style={styles.skipBtn}>Later</Text>
         </TouchableOpacity>
       </View>
 

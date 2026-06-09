@@ -1,3 +1,6 @@
+import { useState, useEffect } from 'react';
+import { View, ActivityIndicator } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
@@ -57,10 +60,26 @@ import ReviewsListScreen from './screens/ReviewsListScreen';
 const Stack = createNativeStackNavigator();
 
 export default function App() {
+  const [initialRoute, setInitialRoute] = useState(null);
+
+  useEffect(() => {
+    AsyncStorage.getItem('uid').then(uid => {
+      setInitialRoute(uid ? 'Home' : 'AccountType');
+    });
+  }, []);
+
+  if (!initialRoute) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' }}>
+        <ActivityIndicator size="large" color="#1565C0" />
+      </View>
+    );
+  }
+
   return (
     <NavigationContainer>
       <Stack.Navigator
-        initialRouteName="Onboarding"
+        initialRouteName={initialRoute}
         screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
       >
         {/* Auth & Onboarding */}

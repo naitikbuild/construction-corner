@@ -1,7 +1,13 @@
+import { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, StatusBar, useWindowDimensions, Alert,
+  StyleSheet, StatusBar, useWindowDimensions, Alert, ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfile } from '../services/userService';
+import { getTotalVerifiedAmount, getVerifiedWork } from '../services/workService';
+import { createChat } from '../services/chatService';
+import { auth } from '../config/firebase';
 
 // ─── Section Label ────────────────────────────────────────────────────────────
 function SLabel({ text }) {
@@ -63,9 +69,104 @@ const REVIEWS = [
 ];
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
-export default function WorkerProfileScreen({ navigation }) {
+export default function WorkerProfileScreen({ navigation, route }) {
+  const viewUid = route?.params?.uid ?? null;
   const { width } = useWindowDimensions();
   const photoSize = (width - 4) / 3;
+  const [loading, setLoading] = useState(true);
+  const [liveWorker, setLiveWorker] = useState(null);
+  const [verifiedAmt, setVerifiedAmt] = useState('₹0');
+  const [verifiedJobs, setVerifiedJobs] = useState([]);
+  const [myUid, setMyUid] = useState(null);
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  const loadProfile = async () => {
+    try {
+      const uid = viewUid || auth.currentUser?.uid;
+      const me = await AsyncStorage.getItem('uid');
+      setMyUid(me);
+      if (!uid) { setLoading(false); return; }
+      const [profile, totalAmt, jobs] = await Promise.all([
+        getProfile(uid),
+        getTotalVerifiedAmount(uid),
+        getVerifiedWork(uid),
+      ]);
+      if (profile) setLiveWorker(profile);
+      setVerifiedAmt(totalAmt > 0 ? `₹${totalAmt.toLocaleString('en-IN')}` : '₹0');
+      setVerifiedJobs(jobs.slice(0, 3));
+    } catch (_) {}
+    finally { setLoading(false); }
+  };
+
+  const handleChat = async () => {
+    if (!viewUid || viewUid === myUid) return;
+    try {
+      const myName = await AsyncStorage.getItem('userName') || 'Me';
+      const chatId = await createChat(
+        { uid: myUid, name: myName },
+        { uid: viewUid, name: liveWorker?.name || 'Worker' }
+      );
+      navigation.navigate('Chat', {
+        conversation: {
+          id: chatId,
+          uid: viewUid,
+          name: liveWorker?.name || 'Worker',
+          role: liveWorker?.workerSkill || 'Worker',
+          emoji: '👷',
+          avatarBg: '#FFF3E0',
+          online: false,
+        }
+      });
+    } catch (_) { Alert.alert('Error', 'Could not open chat.'); }
+  };
+
+  const displayWorker = {
+    name: liveWorker?.name || 'Add your name',
+    designation: liveWorker?.workerSkill || 'Add your skill',
+    location: [liveWorker?.city, liveWorker?.state].filter(Boolean).join(', ') || 'Add location',
+    avatar: '👷',
+    rating: liveWorker?.rating || '—',
+    reviews: liveWorker?.reviews || 0,
+    years: liveWorker?.workerExperience || liveWorker?.experience || '—',
+    verifiedAmt,
+    jobs: liveWorker?.jobsCompleted || 0,
+    repeatClients: liveWorker?.repeatClients || 0,
+    onTime: liveWorker?.onTimeRate || '—',
+    trustScore: liveWorker?.trustScore || 0,
+    dailyRate: liveWorker?.dailyRate || 'Not set',
+  };
+
+  const isIncomplete = !liveWorker;
+
+  if (loading) {
+    return (
+      <View style={[ss.screen, { alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator size="large" color="#1A1A1A" />
+        <Text style={{ marginTop: 12, color: '#888', fontSize: 14 }}>Loading profile...</Text>
+      </View>
+    );
+  }
+
+  if (isIncomplete && !viewUid) {
+    return (
+      <View style={[ss.screen, { alignItems: 'center', justifyContent: 'center', padding: 32 }]}>
+        <Text style={{ fontSize: 52, marginBottom: 16 }}>👷</Text>
+        <Text style={{ fontSize: 20, fontWeight: '900', color: '#1A1A1A', marginBottom: 8, textAlign: 'center' }}>Profile Incomplete</Text>
+        <Text style={{ fontSize: 14, color: '#888', textAlign: 'center', lineHeight: 22, marginBottom: 24 }}>
+          Please complete your profile to appear in search results and attract clients.
+        </Text>
+        <TouchableOpacity
+          style={{ backgroundColor: '#1A1A1A', paddingVertical: 14, paddingHorizontal: 28, borderRadius: 12 }}
+          onPress={() => navigation.navigate('EditProfile')}
+        >
+          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>Complete Profile →</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={ss.screen}>
@@ -92,9 +193,9 @@ export default function WorkerProfileScreen({ navigation }) {
               <Text style={{ fontSize: 36 }}>{WORKER.avatar}</Text>
             </View>
             <View style={ss.heroInfo}>
-              <Text style={ss.heroName}>{WORKER.name}</Text>
-              <Text style={ss.heroDesig}>{WORKER.designation}</Text>
-              <Text style={ss.heroLoc}>📍 {WORKER.location}</Text>
+              <Text style={ss.heroName}>{displayWorker.name}</Text>
+              <Text style={ss.heroDesig}>{displayWorker.designation}</Text>
+              <Text style={ss.heroLoc}>📍 {displayWorker.location}</Text>
             </View>
           </View>
 
@@ -121,24 +222,29 @@ export default function WorkerProfileScreen({ navigation }) {
           <View style={ss.heroActions}>
             <TouchableOpacity
               style={ss.hireBtn}
-              onPress={() => Alert.alert('Hiring', 'Request sent to Ramesh Patel!')}
+              onPress={handleChat}
               activeOpacity={0.85}
             >
               <Text style={ss.hireBtnText}>Hire Now</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={ss.outlineBtn}
-              onPress={() => Alert.alert('Chat', 'Opening chat…')}
+              onPress={handleChat}
               activeOpacity={0.85}
             >
               <Text style={ss.outlineBtnText}>💬 Chat</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={ss.outlineBtn}
-              onPress={() => Alert.alert('Call', 'Calling Ramesh Patel…')}
+              onPress={() => navigation.navigate('MarkWorkComplete', {
+                workerName: displayWorker.name,
+                workerRole: displayWorker.designation,
+                workerEmoji: '👷',
+                workerUid: viewUid,
+              })}
               activeOpacity={0.85}
             >
-              <Text style={ss.outlineBtnText}>📞 Call</Text>
+              <Text style={ss.outlineBtnText}>✅ Work Done</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -164,7 +270,7 @@ export default function WorkerProfileScreen({ navigation }) {
           {/* Verified earnings — prominent */}
           <View style={ss.verEarningsBox}>
             <Text style={ss.verEarningsLabel}>✓  Verified Earnings</Text>
-            <Text style={ss.verEarningsAmt}>{WORKER.verifiedAmt}</Text>
+            <Text style={ss.verEarningsAmt}>{displayWorker.verifiedAmt}</Text>
             <Text style={ss.verEarningsSub}>Confirmed by clients · Cannot be edited</Text>
           </View>
 
@@ -223,18 +329,20 @@ export default function WorkerProfileScreen({ navigation }) {
         {/* ── 6. VERIFIED WORK HISTORY ──────────────────────────────────────── */}
         <View style={ss.card}>
           <SLabel text="Verified Work History" />
-          {VERIFIED_JOBS.map((job, i) => (
-            <View key={i} style={[ss.jobRow, i < VERIFIED_JOBS.length - 1 && ss.jobRowBorder]}>
+          {verifiedJobs.length === 0 ? (
+            <Text style={{ fontSize: 13, color: '#888', paddingVertical: 8 }}>No verified work yet</Text>
+          ) : verifiedJobs.map((job, i) => (
+            <View key={i} style={[ss.jobRow, i < verifiedJobs.length - 1 && ss.jobRowBorder]}>
               <View style={{ flex: 1 }}>
                 <View style={ss.jobTopLine}>
-                  <Text style={ss.jobType}>{job.type}</Text>
+                  <Text style={ss.jobType}>{job.workType || job.description?.split(' ').slice(0, 4).join(' ') || 'Construction Work'}</Text>
                   <View style={ss.verBadge}>
                     <Text style={ss.verBadgeText}>✓ Verified</Text>
                   </View>
                 </View>
-                <Text style={ss.jobMeta}>📍 {job.location}  ·  {job.date}</Text>
+                <Text style={ss.jobMeta}>📍 India  ·  {job.date || ''}</Text>
               </View>
-              <Text style={ss.jobAmt}>{job.amount}</Text>
+              <Text style={ss.jobAmt}>₹{Number(job.amount || 0).toLocaleString('en-IN')}</Text>
             </View>
           ))}
           <TouchableOpacity
@@ -242,7 +350,7 @@ export default function WorkerProfileScreen({ navigation }) {
             onPress={() => navigation.navigate('WorkHistory')}
             activeOpacity={0.8}
           >
-            <Text style={ss.viewAllText}>View All {WORKER.jobs} Jobs →</Text>
+            <Text style={ss.viewAllText}>View Full Work History →</Text>
           </TouchableOpacity>
         </View>
 
@@ -346,26 +454,23 @@ export default function WorkerProfileScreen({ navigation }) {
 
       {/* ── 12. STICKY BOTTOM BAR ─────────────────────────────────────────── */}
       <View style={ss.bottomBar}>
-        <TouchableOpacity
-          style={ss.bottomHireBtn}
-          onPress={() => Alert.alert('Hiring', 'Request sent to Ramesh Patel!')}
-          activeOpacity={0.85}
-        >
+        <TouchableOpacity style={ss.bottomHireBtn} onPress={handleChat} activeOpacity={0.85}>
           <Text style={ss.bottomHireBtnText}>Hire Now</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={ss.bottomOutlineBtn}
-          onPress={() => Alert.alert('Chat', 'Opening chat…')}
-          activeOpacity={0.85}
-        >
+        <TouchableOpacity style={ss.bottomOutlineBtn} onPress={handleChat} activeOpacity={0.85}>
           <Text style={ss.bottomOutlineBtnText}>💬 Chat</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={ss.bottomOutlineBtn}
-          onPress={() => Alert.alert('Call', 'Calling Ramesh Patel…')}
+          onPress={() => navigation.navigate('MarkWorkComplete', {
+            workerName: displayWorker.name,
+            workerRole: displayWorker.designation,
+            workerEmoji: '👷',
+            workerUid: viewUid,
+          })}
           activeOpacity={0.85}
         >
-          <Text style={ss.bottomOutlineBtnText}>📞 Call</Text>
+          <Text style={ss.bottomOutlineBtnText}>✅ Work Done</Text>
         </TouchableOpacity>
       </View>
     </View>

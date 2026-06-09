@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, StatusBar, TextInput, Alert,
+  StyleSheet, StatusBar, TextInput, Alert, ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { BLUE, BLUE_LIGHT, BLUE_MID, GREEN, GREEN_LIGHT } from '../constants/colors';
+import { markWorkComplete } from '../services/workService';
 
 const BORDER = '#E2E8F0';
 const CARD = '#F8FAFC';
@@ -41,15 +43,18 @@ export default function MarkWorkCompleteScreen({ navigation, route }) {
     designation: route?.params?.workerRole   ?? DEFAULT_PROVIDER.designation,
     emoji:       route?.params?.workerEmoji  ?? DEFAULT_PROVIDER.emoji,
     location:    route?.params?.location     ?? DEFAULT_PROVIDER.location,
+    uid:         route?.params?.workerUid    ?? null,
   };
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [date, setDate] = useState('');
   const [rating, setRating] = useState(0);
   const [review, setReview] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const commission = amount ? Math.round(parseFloat(amount.replace(/,/g, '')) * 0.01) : 0;
   const netAmount = amount ? parseFloat(amount.replace(/,/g, '')) - commission : 0;
+  const rawAmount = amount ? parseFloat(amount.replace(/,/g, '')) : 0;
 
   const handleSubmit = () => {
     if (!amount || !description || !date || rating === 0) {
@@ -61,9 +66,37 @@ export default function MarkWorkCompleteScreen({ navigation, route }) {
       'Once the service provider confirms, this record cannot be edited.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Submit', style: 'default', onPress: () => navigation.navigate('ConfirmWork') },
+        { text: 'Submit', style: 'default', onPress: doSubmit },
       ]
     );
+  };
+
+  const doSubmit = async () => {
+    setSubmitting(true);
+    try {
+      const customerId = await AsyncStorage.getItem('uid');
+      const customerName = await AsyncStorage.getItem('userName') || 'Customer';
+      const workData = {
+        customerId,
+        customerName,
+        providerId: PROVIDER.uid,
+        providerName: PROVIDER.name,
+        amount: rawAmount,
+        commission,
+        netAmount,
+        description,
+        date,
+        rating,
+        review,
+        workType: description.split(' ').slice(0, 3).join(' '),
+      };
+      const workId = await markWorkComplete(workData);
+      navigation.navigate('ConfirmWork', { workId, workData, provider: PROVIDER });
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Failed to submit. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const formatAmount = (text) => {
@@ -237,13 +270,15 @@ export default function MarkWorkCompleteScreen({ navigation, route }) {
         </View>
 
         {/* SUBMIT BUTTON — Instagram gradient */}
-        <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit} activeOpacity={0.85}>
+        <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit} activeOpacity={0.85} disabled={submitting}>
           <View style={styles.submitGrad} pointerEvents="none">
             {['#833AB4', '#C13584', '#FD1D1D', '#F77737'].map((c, i) => (
               <View key={i} style={{ flex: 1, backgroundColor: c }} />
             ))}
           </View>
-          <Text style={styles.submitBtnText}>Submit Work Record →</Text>
+          {submitting
+            ? <ActivityIndicator color="#fff" />
+            : <Text style={styles.submitBtnText}>Submit Work Record →</Text>}
         </TouchableOpacity>
 
         <View style={{ height: 40 }} />

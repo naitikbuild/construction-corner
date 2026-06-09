@@ -1,10 +1,16 @@
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  SectionList, StatusBar,
+  SectionList, StatusBar, ActivityIndicator,
 } from 'react-native';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { BLUE } from '../constants/colors';
+import {
+  subscribeNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+} from '../services/notificationService';
 
 const LIGHT_BLUE = '#E0F5FE';
 
@@ -222,9 +228,57 @@ function NotifCard({ item, onPress }) {
 
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
+function firestoreNotifToCard(n) {
+  const typeMap = {
+    work_confirmation: { icon: '🛡️', iconBg: '#DCFCE7', iconColor: '#15803D', filter: 'Work', type: 'work_confirm' },
+    work_confirmed:   { icon: '✅', iconBg: '#F0FDF4', iconColor: '#15803D', filter: 'Work', type: 'work_verified' },
+    message:          { icon: '🔔', iconBg: '#E0F5FE', iconColor: BLUE, filter: 'Messages', type: 'message' },
+  };
+  const meta = typeMap[n.type] || { icon: '🔔', iconBg: '#E0F5FE', iconColor: BLUE, filter: 'All', type: 'general' };
+  const ts = n.createdAt ? new Date(n.createdAt) : new Date();
+  const diffMins = Math.round((Date.now() - ts.getTime()) / 60000);
+  let time = diffMins < 60 ? `${diffMins}m ago`
+    : diffMins < 1440 ? `${Math.round(diffMins / 60)}h ago`
+    : diffMins < 2880 ? 'Yesterday'
+    : `${Math.round(diffMins / 1440)}d ago`;
+  return {
+    id: n.id,
+    type: meta.type,
+    icon: meta.icon,
+    iconBg: meta.iconBg,
+    iconColor: meta.iconColor,
+    title: n.message || 'New notification',
+    description: n.message || '',
+    time,
+    unread: !n.read,
+    filter: meta.filter,
+    workId: n.workId || null,
+  };
+}
+
 export default function NotificationsScreen({ navigation }) {
   const [activeFilter, setActiveFilter] = useState('All');
   const [notifications, setNotifications] = useState(ALL_NOTIFICATIONS);
+  const [loading, setLoading] = useState(true);
+  const uidRef = useRef(null);
+  const unsubRef = useRef(null);
+
+  useEffect(() => {
+    AsyncStorage.getItem('uid').then(uid => {
+      if (!uid) { setLoading(false); return; }
+      uidRef.current = uid;
+      unsubRef.current = subscribeNotifications(uid, (items) => {
+        setLoading(false);
+        if (items.length > 0) {
+          const mapped = items.map(firestoreNotifToCard);
+          setNotifications([...mapped, ...ALL_NOTIFICATIONS]);
+        } else {
+          setNotifications(ALL_NOTIFICATIONS);
+        }
+      });
+    });
+    return () => { if (unsubRef.current) unsubRef.current(); };
+  }, []);
 
   const filtered = activeFilter === 'All'
     ? notifications
@@ -233,14 +287,18 @@ export default function NotificationsScreen({ navigation }) {
   const sections = groupByDate(filtered);
   const unreadCount = notifications.filter((n) => n.unread).length;
 
-  const markAllRead = () => {
+  const markAllRead = async () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+    if (uidRef.current) await markAllNotificationsRead(uidRef.current);
   };
 
-  const markRead = (id) => {
+  const markRead = async (id, isFirestore) => {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, unread: false } : n))
     );
+    if (uidRef.current && isFirestore) {
+      await markNotificationRead(uidRef.current, id);
+    }
   };
 
   return (
@@ -297,13 +355,19 @@ export default function NotificationsScreen({ navigation }) {
       </View>
 
       {/* List */}
+      {loading ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator size="large" color={BLUE} />
+        </View>
+      ) : null}
       <SectionList
         sections={sections}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <NotifCard item={item} onPress={() => {
-            markRead(item.id);
-            if (item.type === 'work_confirm') navigation.navigate('ConfirmWork');
+            const isFirestore = !ALL_NOTIFICATIONS.find(n => n.id === item.id);
+            markRead(item.id, isFirestore);
+            if (item.type === 'work_confirm') navigation.navigate('ConfirmWork', { workId: item.workId });
             else if (item.type === 'work_verified') navigation.navigate('WorkHistory');
             else if (item.type === 'message') navigation.navigate('ChatList');
             else if (item.type === 'job_update' || item.type === 'job_match') navigation.navigate('Jobs');

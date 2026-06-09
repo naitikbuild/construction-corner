@@ -3,7 +3,10 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, useWindowDimensions, Alert
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNav from '../components/BottomNav';
+import { auth } from '../config/firebase';
+import { getProfile } from '../services/userService';
 
 const contractors = [
   { icon: '🏗️', name: 'RCC Work', bg: '#EBF5FB', category: 'RCC Work' },
@@ -114,36 +117,51 @@ const jobs = [
   { icon: '🔌', title: 'Electrical Supervisor', company: 'L&T Construction', location: 'Gandhinagar', pay: '₹55K/mo', tags: ['Full Time', 'Urgent'] },
 ];
 
-const prices = [
-  { icon: '🏗️', label: 'Cement', value: '₹340/bag', dir: 'up' },
-  { icon: '⚙️', label: 'Steel', value: '₹58/kg', dir: 'down' },
-  { icon: '🟫', label: 'Tiles', value: '₹45/sqft', dir: 'stable' },
-  { icon: '🎨', label: 'Paint', value: '₹280/ltr', dir: 'up' },
-  { icon: '🏭', label: 'RMC', value: '₹4,200/m³', dir: 'down' },
-  { icon: '🪵', label: 'Plywood', value: '₹90/sqft', dir: 'stable' },
-  { icon: '🔩', label: 'TMT Bar', value: '₹62/kg', dir: 'up' },
-];
 
-const emergency = [
-  { icon: '⚡', name: 'Electrician', status: 'Available Now', dot: '#4CAF50', category: 'Electrical' },
-  { icon: '🔧', name: 'Plumber', status: 'Available Now', dot: '#4CAF50', category: 'Plumbing' },
-  { icon: '🎨', name: 'Painter', status: '30 min away', dot: '#FF9800', category: 'Painters' },
-  { icon: '❄️', name: 'AC Repair', status: 'Available Now', dot: '#4CAF50', category: 'HVAC Engineer' },
-  { icon: '🔒', name: 'Locksmith', status: 'Available Now', dot: '#4CAF50', category: 'Locksmith' },
-];
-
-const tenders = [
-  { name: 'G+10 Residential', location: 'Bodakdev', budget: '₹2.5 Cr', days: 5 },
-  { name: 'Commercial Complex', location: 'SG Highway', budget: '₹8 Cr', days: 12 },
-  { name: 'School Building', location: 'Gandhinagar', budget: '₹1.2 Cr', days: 3 },
-  { name: 'IT Park Phase 2', location: 'GIFT City', budget: '₹15 Cr', days: 9 },
-];
-
+const PROFILE_SCREEN_MAP = {
+  worker: 'WorkerProfile',
+  professional: 'ProfessionalProfile',
+  business: 'BusinessProfile',
+  supplier: 'SupplierProfile',
+};
 
 export default function HomeScreen({ navigation }) {
   const { width } = useWindowDimensions();
   const bannerRef = useRef(null);
   const [bannerIndex, setBannerIndex] = useState(0);
+  const [userName, setUserName] = useState('');
+  const [userLocation, setUserLocation] = useState('');
+
+  useEffect(() => {
+    loadUserInfo();
+  }, []);
+
+  const loadUserInfo = async () => {
+    try {
+      const cached = await AsyncStorage.getItem('userName');
+      if (cached) setUserName(cached);
+      const uid = await AsyncStorage.getItem('uid');
+      if (!uid) return;
+      const profile = await getProfile(uid);
+      if (profile) {
+        const name = profile.name || profile.companyName || '';
+        if (name) { setUserName(name); AsyncStorage.setItem('userName', name); }
+        if (profile.city) setUserLocation(`${profile.city}${profile.state ? `, ${profile.state}` : ''}`);
+      }
+    } catch (_) {}
+  };
+
+  const handleProfilePress = async () => {
+    try {
+      const user = auth.currentUser;
+      if (!user) { navigation.navigate('AccountType'); return; }
+      const profile = await getProfile(user.uid);
+      const screen = PROFILE_SCREEN_MAP[profile?.profileType] || 'MyDashboard';
+      navigation.navigate(screen, { uid: user.uid });
+    } catch (_) {
+      navigation.navigate('MyDashboard');
+    }
+  };
   const [contractorsExpanded, setContractorsExpanded] = useState(false);
   const [professionalsExpanded, setProfessionalsExpanded] = useState(false);
   const [companiesExpanded, setCompaniesExpanded] = useState(false);
@@ -188,7 +206,10 @@ export default function HomeScreen({ navigation }) {
 
         {/* LOCATION BAR */}
         <View style={styles.locationBar}>
-          <Text style={styles.locationText}>📍 Ahmedabad, Gujarat  ▾</Text>
+          <Text style={styles.locationText}>
+            📍 {userLocation || 'Ahmedabad, Gujarat'}  ▾
+            {userName ? `  ·  👋 ${userName.split(' ')[0]}` : ''}
+          </Text>
           <TouchableOpacity onPress={() => Alert.alert('Change Location', 'Coming soon!')}>
             <Text style={styles.locationChange}>Change</Text>
           </TouchableOpacity>
@@ -256,75 +277,6 @@ export default function HomeScreen({ navigation }) {
             ))}
           </View>
         </View>
-
-        {/* ── PRICE TICKER ── */}
-        <View style={styles.tickerWrap}>
-          <Text style={styles.tickerLabel}>Live Prices</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tickerRow}>
-            {prices.map((p, i) => {
-              const arrow = p.dir === 'up' ? '↑' : p.dir === 'down' ? '↓' : '→';
-              const arrowColor = p.dir === 'up' ? '#E53935' : p.dir === 'down' ? '#43A047' : '#888';
-              return (
-                <View key={i} style={styles.tickerPill}>
-                  <Text style={styles.tickerIcon}>{p.icon}</Text>
-                  <Text style={styles.tickerName}>{p.label}</Text>
-                  <Text style={styles.tickerValue}>{p.value}</Text>
-                  <Text style={[styles.tickerArrow, { color: arrowColor }]}>{arrow}</Text>
-                </View>
-              );
-            })}
-          </ScrollView>
-        </View>
-
-        {/* ── EMERGENCY SERVICES ── */}
-        <View style={styles.secHead}>
-          <View>
-            <Text style={styles.secTitle}>🆘 Need Someone Urgently?</Text>
-            <Text style={styles.emergencySubtitle}>Available within 2 hours</Text>
-          </View>
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hScrollRow}>
-          {emergency.map((e, i) => (
-            <TouchableOpacity
-              key={i}
-              style={styles.emergencyCard}
-              onPress={() => navigation.navigate('CategoryList', { category: e.category, profileType: 'worker' })}
-            >
-              <Text style={styles.emergencyEmoji}>{e.icon}</Text>
-              <Text style={styles.emergencyName}>{e.name}</Text>
-              <View style={styles.emergencyStatusRow}>
-                <View style={[styles.statusDot, { backgroundColor: e.dot }]} />
-                <Text style={styles.emergencyStatus}>{e.status}</Text>
-              </View>
-              <TouchableOpacity style={styles.bookNowBtn} onPress={() => navigation.navigate('CategoryList', { category: e.category, profileType: 'worker' })}>
-                <Text style={styles.bookNowText}>Book Now</Text>
-              </TouchableOpacity>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {/* ── ACTIVE TENDERS ── */}
-        <View style={styles.secHead}>
-          <Text style={styles.secTitle}>📋 Active Tenders Near You</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('Tenders')}>
-            <Text style={styles.secLink}>See All →</Text>
-          </TouchableOpacity>
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hScrollRow}>
-          {tenders.map((t, i) => (
-            <TouchableOpacity key={i} style={styles.tenderCard} onPress={() => navigation.navigate('Tenders')}>
-              <Text style={styles.tenderName}>{t.name}</Text>
-              <Text style={styles.tenderLocation}>📍 {t.location}</Text>
-              <Text style={styles.tenderBudget}>{t.budget}</Text>
-              <Text style={[styles.tenderDeadline, t.days <= 7 && { color: '#E53935' }]}>
-                ⏳ {t.days} days left
-              </Text>
-              <TouchableOpacity style={styles.bidBtn} onPress={() => navigation.navigate('Tenders')}>
-                <Text style={styles.bidBtnText}>View & Bid</Text>
-              </TouchableOpacity>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
 
         {/* ── COURSE OF THE DAY ── */}
         <View style={styles.secHead}>
@@ -553,7 +505,7 @@ export default function HomeScreen({ navigation }) {
         <View style={{ height: 20 }} />
       </ScrollView>
 
-      <BottomNav navigation={navigation} active="Home" />
+      <BottomNav navigation={navigation} active="Home" onProfilePress={handleProfilePress} />
     </View>
   );
 }
@@ -765,59 +717,8 @@ const styles = StyleSheet.create({
   locationText: { fontSize: 13, fontWeight: '700', color: '#222' },
   locationChange: { fontSize: 13, fontWeight: '700', color: '#4CAF50' },
 
-  // Price ticker
-  tickerWrap: {
-    backgroundColor: '#FFFFFF',
-    paddingTop: 12, paddingBottom: 4,
-    borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
-  },
-  tickerLabel: { fontSize: 11, fontWeight: '700', color: '#888', paddingHorizontal: 14, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
-  tickerRow: { paddingHorizontal: 14, gap: 8, paddingBottom: 10 },
-  tickerPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6,
-    borderWidth: 1, borderColor: '#EEEEEE',
-    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 3, elevation: 1,
-  },
-  tickerIcon: { fontSize: 13 },
-  tickerName: { fontSize: 11, fontWeight: '600', color: '#555' },
-  tickerValue: { fontSize: 11, fontWeight: '800', color: '#111' },
-  tickerArrow: { fontSize: 12, fontWeight: '800' },
-
   // Horizontal scroll common padding
   hScrollRow: { paddingHorizontal: 14, gap: 10, paddingBottom: 12 },
-
-  // Emergency services
-  emergencySubtitle: { fontSize: 11, color: '#E53935', fontWeight: '600', marginTop: 2 },
-  emergencyCard: {
-    width: 110,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14, padding: 14,
-    alignItems: 'center',
-    shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, elevation: 2,
-  },
-  emergencyEmoji: { fontSize: 36, marginBottom: 8 },
-  emergencyName: { fontSize: 12, fontWeight: '800', color: '#111', marginBottom: 6, textAlign: 'center' },
-  emergencyStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 10 },
-  statusDot: { width: 7, height: 7, borderRadius: 4 },
-  emergencyStatus: { fontSize: 10, color: '#555', fontWeight: '500' },
-  bookNowBtn: { backgroundColor: '#E8F5E9', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
-  bookNowText: { fontSize: 11, fontWeight: '700', color: '#2E7D32' },
-
-  // Active tenders
-  tenderCard: {
-    width: 180,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14, padding: 14,
-    shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, elevation: 2,
-  },
-  tenderName: { fontSize: 13, fontWeight: '800', color: '#111', marginBottom: 4 },
-  tenderLocation: { fontSize: 11, color: '#888', marginBottom: 6 },
-  tenderBudget: { fontSize: 14, fontWeight: '900', color: '#2E7D32', marginBottom: 4 },
-  tenderDeadline: { fontSize: 11, fontWeight: '600', color: '#888', marginBottom: 10 },
-  bidBtn: { backgroundColor: '#E8F5E9', borderRadius: 8, paddingVertical: 6, alignItems: 'center' },
-  bidBtnText: { fontSize: 12, fontWeight: '700', color: '#2E7D32' },
 
   // Course of the day
   courseCard: {

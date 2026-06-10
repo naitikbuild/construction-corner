@@ -5,15 +5,15 @@ import {
 import { useState, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { BLUE } from '../constants/colors';
 import { saveProfile } from '../services/userService';
 
-const LIGHT_BLUE = '#E0F5FE';
-const GREY_BG = '#F2F0ED';
-const BORDER = '#E2E8F0';
-const TEXT_DARK = '#1A202C';
-const TEXT_MID = '#4A5568';
-const TEXT_LIGHT = '#A0ADB8';
+const BLUE = '#FF6B2B';
+const LIGHT_BLUE = '#FFF3E0';
+const GREY_BG = '#F5F5F0';
+const BORDER = '#EFEFEF';
+const TEXT_DARK = '#1A1A1A';
+const TEXT_MID = '#666666';
+const TEXT_LIGHT = '#888888';
 
 // ─── Data ──────────────────────────────────────────────────────────────────
 
@@ -1408,6 +1408,6 @@ const styles = StyleSheet.create({
     flex: 2, backgroundColor: BLUE, paddingVertical: 15,
     borderRadius: 14, alignItems: 'center',
   },
-  nextBtnDisabled: { backgroundColor: '#A0BFEE' },
+  nextBtnDisabled: { backgroundColor: '#FFCBA8' },
   nextBtnText: { fontSize: 16, fontWeight: '900', color: 'white' },
 });

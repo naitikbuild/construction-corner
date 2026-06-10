@@ -4,17 +4,18 @@ import {
   StyleSheet, StatusBar, useWindowDimensions, Alert, ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getProfile } from '../services/userService';
+import { getProfile, recordProfileView } from '../services/userService';
 import { getTotalVerifiedAmount } from '../services/workService';
 import { createChat } from '../services/chatService';
+import { toggleBookmark, isBookmarked } from '../services/bookmarkService';
 import { auth } from '../config/firebase';
 
-// ─── Instagram Gradient Helper ────────────────────────────────────────────────
-function IGGrad({ style, children }) {
+// ─── Orange Gradient Helper ────────────────────────────────────────────────
+function OrangeGrad({ style, children }) {
   return (
     <View style={[{ overflow: 'hidden' }, style]}>
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        {['#833AB4', '#BF2E6E', '#FD1D1D', '#F77737'].map((c, i) => (
+        {['#FF6B2B', '#FF7A35', '#FF8840', '#FF8C00'].map((c, i) => (
           <View key={i} style={{ flex: 1, backgroundColor: c }} />
         ))}
       </View>
@@ -71,6 +72,7 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
   const [liveProfile, setLiveProfile] = useState(null);
   const [verifiedAmt, setVerifiedAmt] = useState('');
   const [myUid, setMyUid] = useState(null);
+  const [bookmarked, setBookmarked] = useState(false);
 
   useEffect(() => {
     loadProfile();
@@ -82,6 +84,10 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
       const me = await AsyncStorage.getItem('uid');
       setMyUid(me);
       if (!uid) { setLoading(false); return; }
+      if (uid !== me) {
+        recordProfileView(uid, me);
+        isBookmarked(me, uid).then(saved => setBookmarked(saved)).catch(() => {});
+      }
       const [profile, totalAmt] = await Promise.all([getProfile(uid), getTotalVerifiedAmount(uid)]);
       if (profile) setLiveProfile(profile);
       setVerifiedAmt(totalAmt > 0 ? `₹${totalAmt.toLocaleString('en-IN')}` : '₹0');
@@ -123,7 +129,7 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
   if (loading) {
     return (
       <View style={[ss.screen, { alignItems: 'center', justifyContent: 'center' }]}>
-        <ActivityIndicator size="large" color="#C13584" />
+        <ActivityIndicator size="large" color="#FF6B2B" />
         <Text style={{ marginTop: 12, color: '#888', fontSize: 14 }}>Loading profile...</Text>
       </View>
     );
@@ -138,7 +144,7 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
           Please complete your profile to appear in search results and attract clients.
         </Text>
         <TouchableOpacity
-          style={{ backgroundColor: '#C13584', paddingVertical: 14, paddingHorizontal: 28, borderRadius: 12 }}
+          style={{ backgroundColor: '#FF6B2B', paddingVertical: 14, paddingHorizontal: 28, borderRadius: 14 }}
           onPress={() => navigation.navigate('EditProfile')}
         >
           <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>Complete Profile →</Text>
@@ -157,8 +163,24 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
           <Text style={ss.navBackArrow}>←</Text>
         </TouchableOpacity>
         <Text style={ss.navTitle}>@{display.name.toLowerCase().replace(/\s+/g, '.')}</Text>
-        <TouchableOpacity style={ss.navBtn} onPress={() => Alert.alert('Options')}>
-          <Text style={ss.navDots}>⋯</Text>
+        <TouchableOpacity
+          style={ss.navBtn}
+          onPress={async () => {
+            if (!myUid || !viewUid || viewUid === myUid) return;
+            const lp = liveProfile || {};
+            const saved = await toggleBookmark(myUid, {
+              uid: viewUid,
+              name: lp.name || lp.companyName || 'Professional',
+              profileType: 'professional',
+              category: lp.designation || lp.category || '',
+              city: lp.city || '',
+              state: lp.state || '',
+            });
+            setBookmarked(saved);
+            Alert.alert(saved ? 'Bookmarked! 🔖' : 'Removed', saved ? 'Saved to bookmarks.' : 'Removed from bookmarks.');
+          }}
+        >
+          <Text style={ss.navDots}>{bookmarked ? '🔖' : '⋯'}</Text>
         </TouchableOpacity>
       </View>
 
@@ -167,11 +189,11 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
         {/* ── 2. INSTAGRAM HEADER ROW ────────────────────────────────────────── */}
         <View style={ss.igHeader}>
           {/* Left: avatar with gradient ring */}
-          <IGGrad style={ss.avatarRing}>
+          <OrangeGrad style={ss.avatarRing}>
             <View style={ss.avatarInner}>
               <Text style={{ fontSize: 36 }}>👨‍💼</Text>
             </View>
-          </IGGrad>
+          </OrangeGrad>
 
           {/* Right: 3 stats */}
           <View style={ss.igStats}>
@@ -230,7 +252,7 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
 
         {/* ── 7. ACTION BUTTONS ─────────────────────────────────────────────── */}
         <View style={ss.actionRow}>
-          <IGGrad style={ss.callBtn}>
+          <OrangeGrad style={ss.callBtn}>
             <TouchableOpacity
               style={ss.callBtnInner}
               onPress={handleChat}
@@ -238,7 +260,7 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
             >
               <Text style={ss.callBtnText}>💬  Message</Text>
             </TouchableOpacity>
-          </IGGrad>
+          </OrangeGrad>
 
           <TouchableOpacity
             style={ss.msgBtn}
@@ -540,7 +562,7 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
 
       {/* ── BOTTOM ACTION BAR ──────────────────────────────────────────────── */}
       <View style={ss.bottomBar}>
-        <IGGrad style={{ flex: 1, borderRadius: 14, overflow: 'hidden' }}>
+        <OrangeGrad style={{ flex: 1, borderRadius: 14, overflow: 'hidden' }}>
           <TouchableOpacity
             style={ss.bottomBarBtn}
             onPress={() => Alert.alert('Booking', 'Request sent to Vikram Desai!')}
@@ -549,7 +571,7 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
             <Text style={ss.bottomBarBtnText}>Book Now</Text>
             <Text style={ss.bottomBarBtnSub}>Usually responds within 1 hr</Text>
           </TouchableOpacity>
-        </IGGrad>
+        </OrangeGrad>
       </View>
     </View>
   );
@@ -557,24 +579,24 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const ss = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#FAFAFA' },
+  screen: { flex: 1, backgroundColor: '#F5F5F0' },
 
   // ── 1. TOP NAV
   nav: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 14, paddingTop: 52, paddingBottom: 12,
     backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1, borderBottomColor: '#E8E8E8',
+    borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
   },
   navBtn: {
     width: 36, height: 36, borderRadius: 10,
-    backgroundColor: '#F0F0F0', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#F5F5F0', alignItems: 'center', justifyContent: 'center',
   },
-  navBackArrow: { fontSize: 20, color: '#111', fontWeight: '700' },
-  navTitle: { flex: 1, textAlign: 'center', fontSize: 15, fontWeight: '800', color: '#111' },
-  navDots: { fontSize: 22, color: '#111', letterSpacing: 1 },
+  navBackArrow: { fontSize: 20, color: '#1A1A1A', fontWeight: '700' },
+  navTitle: { flex: 1, textAlign: 'center', fontSize: 15, fontWeight: '800', color: '#1A1A1A' },
+  navDots: { fontSize: 22, color: '#1A1A1A', letterSpacing: 1 },
 
-  // ── 2. INSTAGRAM HEADER ROW
+  // ── 2. HEADER ROW
   igHeader: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 16, paddingTop: 16, paddingBottom: 10,
@@ -587,36 +609,36 @@ const ss = StyleSheet.create({
   },
   avatarInner: {
     width: 72, height: 72, borderRadius: 36,
-    backgroundColor: '#F5F0FF',
+    backgroundColor: '#FFF3E0',
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 2, borderColor: '#FFFFFF',
   },
   igStats: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   igStat: { flex: 1, alignItems: 'center' },
-  igStatVal: { fontSize: 16, fontWeight: '900', color: '#111', marginBottom: 2 },
-  igStatLbl: { fontSize: 11, color: '#888', fontWeight: '500' },
-  igStatDivider: { width: 1, height: 28, backgroundColor: '#E8E8E8' },
+  igStatVal: { fontSize: 16, fontWeight: '800', color: '#1A1A1A', marginBottom: 2 },
+  igStatLbl: { fontSize: 11, color: '#888888', fontWeight: '500' },
+  igStatDivider: { width: 1, height: 28, backgroundColor: '#EFEFEF' },
 
   // ── 3–5. NAME / DESIGNATION / LOCATION
   namePad: { paddingHorizontal: 16, paddingBottom: 10, backgroundColor: '#FFFFFF' },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 },
-  name: { fontSize: 18, fontWeight: '900', color: '#111' },
+  name: { fontSize: 18, fontWeight: '800', color: '#1A1A1A' },
   verifiedBadge: {
-    backgroundColor: '#E8F5E9', borderRadius: 20, borderWidth: 1,
-    borderColor: '#4CAF50', paddingHorizontal: 8, paddingVertical: 2,
+    backgroundColor: '#F0FFF4', borderRadius: 20, borderWidth: 1,
+    borderColor: '#2ECC71', paddingHorizontal: 8, paddingVertical: 2,
   },
-  verifiedBadgeText: { fontSize: 11, fontWeight: '800', color: '#2E7D32' },
-  designation: { fontSize: 13, color: '#777', fontWeight: '500', marginBottom: 5 },
+  verifiedBadgeText: { fontSize: 11, fontWeight: '800', color: '#2ECC71' },
+  designation: { fontSize: 13, color: '#666666', fontWeight: '500', marginBottom: 5 },
   locationRow: { flexDirection: 'row', alignItems: 'center' },
-  locationText: { fontSize: 12, color: '#555' },
-  locationDot: { fontSize: 12, color: '#888' },
-  availDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#4CAF50', marginTop: 1 },
-  availText: { fontSize: 12, color: '#4CAF50', fontWeight: '600' },
+  locationText: { fontSize: 12, color: '#666666' },
+  locationDot: { fontSize: 12, color: '#888888' },
+  availDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#2ECC71', marginTop: 1 },
+  availText: { fontSize: 12, color: '#2ECC71', fontWeight: '600' },
 
   // ── 6. TRUST BADGES
   trustRow: {
     paddingHorizontal: 14, paddingVertical: 10, gap: 8,
-    backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
+    backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
   },
   trustPill: {
     paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
@@ -627,78 +649,81 @@ const ss = StyleSheet.create({
   actionRow: {
     flexDirection: 'row', gap: 10,
     paddingHorizontal: 14, paddingVertical: 12,
-    backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
+    backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
   },
-  callBtn: { flex: 1, borderRadius: 10, height: 42 },
+  callBtn: { flex: 1, borderRadius: 14, height: 44 },
   callBtnInner: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  callBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
+  callBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
   msgBtn: {
-    flex: 1, height: 42, borderRadius: 10, borderWidth: 1.5,
-    borderColor: '#C13584', alignItems: 'center', justifyContent: 'center',
+    flex: 1, height: 44, borderRadius: 14, borderWidth: 2,
+    borderColor: '#1A1A2E', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
   },
-  msgBtnText: { color: '#C13584', fontWeight: '800', fontSize: 14 },
+  msgBtnText: { color: '#1A1A2E', fontWeight: '700', fontSize: 14 },
   bookmarkBtn: {
-    width: 42, height: 42, borderRadius: 10, borderWidth: 1.5,
-    borderColor: '#E0E0E0', alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#FAFAFA',
+    width: 44, height: 44, borderRadius: 14, borderWidth: 2,
+    borderColor: '#EFEFEF', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
   },
 
-  // ── 8. VERIFIED WORK CARD
+  // ── 8. VERIFIED WORK CARD (dark navy)
   verCard: {
     marginHorizontal: 14, marginTop: 16, borderRadius: 14,
-    overflow: 'hidden', borderWidth: 1, borderColor: '#A5D6A7',
+    overflow: 'hidden', backgroundColor: '#1A1A2E',
   },
-  verHeader: { backgroundColor: '#4CAF50', paddingVertical: 9, paddingHorizontal: 14 },
-  verHeaderText: { color: '#FFFFFF', fontWeight: '800', fontSize: 12, textAlign: 'center' },
+  verHeader: { paddingVertical: 9, paddingHorizontal: 14 },
+  verHeaderText: { color: 'rgba(255,255,255,0.6)', fontWeight: '700', fontSize: 11, textAlign: 'center', textTransform: 'uppercase', letterSpacing: 1 },
   verBody: {
-    backgroundColor: '#E8F5E9', flexDirection: 'row',
+    flexDirection: 'row',
     paddingVertical: 16, alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
   },
   verStat: { flex: 1, alignItems: 'center' },
-  verAmt: { fontSize: 22, fontWeight: '900', color: '#1B5E20' },
-  verCount: { fontSize: 22, fontWeight: '900', color: '#2E7D32' },
-  verStatLbl: { fontSize: 11, color: '#388E3C', fontWeight: '600', marginTop: 2 },
-  verDivider: { width: 1, height: 36, backgroundColor: '#A5D6A7' },
+  verAmt: { fontSize: 22, fontWeight: '800', color: '#FFFFFF' },
+  verCount: { fontSize: 22, fontWeight: '800', color: '#FFFFFF' },
+  verStatLbl: { fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: '600', marginTop: 2 },
+  verDivider: { width: 1, height: 36, backgroundColor: 'rgba(255,255,255,0.1)' },
 
   // ── Section shared
   section: {
-    marginHorizontal: 14, marginTop: 20,
+    marginHorizontal: 14, marginTop: 16,
     backgroundColor: '#FFFFFF', borderRadius: 14,
-    padding: 14, borderWidth: 1, borderColor: '#E8E8E8',
+    padding: 14, borderWidth: 1, borderColor: '#EFEFEF',
   },
   sectionLabel: {
-    fontSize: 9, color: '#888', fontWeight: '700',
-    letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 10,
+    fontSize: 9, color: '#888888', fontWeight: '700',
+    letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 10,
   },
 
   // ── 9. ABOUT
-  aboutText: { fontSize: 13, color: '#555', lineHeight: 20 },
+  aboutText: { fontSize: 13, color: '#666666', lineHeight: 20 },
 
   // ── 10. SPECIALIZATION tags
   tagsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   specTag: {
-    backgroundColor: '#F0F4FF', borderRadius: 20,
-    paddingHorizontal: 12, paddingVertical: 5,
-  },
-  specTagText: { fontSize: 12, color: '#3949AB', fontWeight: '600' },
-
-  // ── 11. SKILLS tags
-  skillTag: {
     backgroundColor: '#FFF3E0', borderRadius: 20,
     paddingHorizontal: 12, paddingVertical: 5,
   },
-  skillTagText: { fontSize: 12, color: '#E65100', fontWeight: '600' },
+  specTagText: { fontSize: 12, color: '#FF6B2B', fontWeight: '600' },
+
+  // ── 11. SKILLS tags
+  skillTag: {
+    backgroundColor: '#F5F5F0', borderRadius: 20,
+    paddingHorizontal: 12, paddingVertical: 5,
+    borderWidth: 1, borderColor: '#EFEFEF',
+  },
+  skillTagText: { fontSize: 12, color: '#1A1A2E', fontWeight: '600' },
 
   // ── 12. WORK PHOTOS
   igTabBar: {
     flexDirection: 'row', backgroundColor: '#FFFFFF',
-    borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#E8E8E8',
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#EFEFEF',
   },
   igTab: { flex: 1, paddingVertical: 11, alignItems: 'center' },
-  igTabActive: { borderBottomWidth: 2, borderBottomColor: '#111' },
-  igTabText: { fontSize: 12, fontWeight: '600', color: '#999' },
-  igTabTextActive: { color: '#111', fontWeight: '800' },
-  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', backgroundColor: '#FAFAFA' },
+  igTabActive: { borderBottomWidth: 2, borderBottomColor: '#FF6B2B' },
+  igTabText: { fontSize: 12, fontWeight: '600', color: '#888888' },
+  igTabTextActive: { color: '#FF6B2B', fontWeight: '800' },
+  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', backgroundColor: '#F5F5F0' },
   photoCell: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   // ── 13. SERVICES & PRICING
@@ -707,115 +732,115 @@ const ss = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     paddingVertical: 12, gap: 12,
   },
-  serviceRowBorder: { borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  serviceRowBorder: { borderBottomWidth: 1, borderBottomColor: '#EFEFEF' },
   serviceIconBox: {
     width: 44, height: 44, borderRadius: 10,
-    backgroundColor: '#F5F5F5', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FFF3E0', alignItems: 'center', justifyContent: 'center',
   },
-  serviceName: { fontSize: 13, fontWeight: '700', color: '#222', marginBottom: 2 },
-  serviceDesc: { fontSize: 11, color: '#888' },
-  servicePrice: { fontSize: 15, fontWeight: '900', color: '#E8A900' },
-  serviceUnit: { fontSize: 10, color: '#AAA', textAlign: 'right' },
+  serviceName: { fontSize: 13, fontWeight: '700', color: '#1A1A1A', marginBottom: 2 },
+  serviceDesc: { fontSize: 11, color: '#888888' },
+  servicePrice: { fontSize: 15, fontWeight: '800', color: '#FFB830' },
+  serviceUnit: { fontSize: 10, color: '#AAAAAA', textAlign: 'right' },
 
   // ── 14. EXPERIENCE TIMELINE
   timeline: { paddingLeft: 4 },
   timelineEntry: { flexDirection: 'row', marginBottom: 4 },
   timelineLeft: { width: 20, alignItems: 'center' },
-  timelineDot: { width: 12, height: 12, borderRadius: 6, marginTop: 3, zIndex: 1 },
-  timelineLine: { width: 2, flex: 1, backgroundColor: '#E0E0E0', marginTop: 2, marginBottom: -4 },
+  timelineDot: { width: 12, height: 12, borderRadius: 6, marginTop: 3, zIndex: 1, backgroundColor: '#2ECC71' },
+  timelineLine: { width: 2, flex: 1, backgroundColor: '#EFEFEF', marginTop: 2, marginBottom: -4 },
   timelineContent: { flex: 1, paddingLeft: 12, paddingBottom: 18 },
-  timelineCompany: { fontSize: 13, fontWeight: '800', color: '#111' },
-  timelineRole: { fontSize: 12, fontWeight: '600', color: '#555', marginTop: 1 },
-  timelineYears: { fontSize: 11, color: '#E8A900', fontWeight: '700', marginTop: 2, marginBottom: 4 },
-  timelineDesc: { fontSize: 12, color: '#777', lineHeight: 17 },
+  timelineCompany: { fontSize: 13, fontWeight: '800', color: '#1A1A1A' },
+  timelineRole: { fontSize: 12, fontWeight: '600', color: '#666666', marginTop: 1 },
+  timelineYears: { fontSize: 11, color: '#FFB830', fontWeight: '700', marginTop: 2, marginBottom: 4 },
+  timelineDesc: { fontSize: 12, color: '#888888', lineHeight: 17 },
 
   // ── 15. COURSES
   courseCard: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#FAFAFA', borderRadius: 10,
-    padding: 12, gap: 12, borderWidth: 1, borderColor: '#F0F0F0',
+    backgroundColor: '#F5F5F0', borderRadius: 10,
+    padding: 12, gap: 12, borderWidth: 1, borderColor: '#EFEFEF',
   },
   courseIconBox: {
     width: 44, height: 44, borderRadius: 10,
-    backgroundColor: '#FFF8E1', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FFF3E0', alignItems: 'center', justifyContent: 'center',
   },
-  courseName: { fontSize: 13, fontWeight: '700', color: '#222', marginBottom: 2 },
-  courseInstitute: { fontSize: 11, color: '#888' },
+  courseName: { fontSize: 13, fontWeight: '700', color: '#1A1A1A', marginBottom: 2 },
+  courseInstitute: { fontSize: 11, color: '#888888' },
   courseDoneBadge: {
-    backgroundColor: '#E8F5E9', borderRadius: 20, borderWidth: 1,
-    borderColor: '#4CAF50', paddingHorizontal: 8, paddingVertical: 3,
+    backgroundColor: '#F0FFF4', borderRadius: 20, borderWidth: 1,
+    borderColor: '#2ECC71', paddingHorizontal: 8, paddingVertical: 3,
   },
-  courseDoneText: { fontSize: 11, fontWeight: '800', color: '#2E7D32' },
+  courseDoneText: { fontSize: 11, fontWeight: '800', color: '#2ECC71' },
 
   // ── 16. LINKS
   linksRow: { flexDirection: 'row', justifyContent: 'space-between' },
   linkBtn: { alignItems: 'center', gap: 5 },
   linkIconBox: {
     width: 44, height: 44, borderRadius: 22,
-    backgroundColor: '#F5F5F5', alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: '#E8E8E8',
+    backgroundColor: '#F5F5F0', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: '#EFEFEF',
   },
-  linkLabel: { fontSize: 10, color: '#555', fontWeight: '600' },
+  linkLabel: { fontSize: 10, color: '#666666', fontWeight: '600' },
 
   // ── 17. CC TRUST SCORE
   trustScoreHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  trustScoreNum: { fontSize: 20, fontWeight: '900', color: '#4CAF50' },
+  trustScoreNum: { fontSize: 20, fontWeight: '800', color: '#2ECC71' },
   trustBarTrack: {
-    height: 12, backgroundColor: '#F0F0F0', borderRadius: 6,
+    height: 12, backgroundColor: '#EFEFEF', borderRadius: 6,
     overflow: 'hidden', marginBottom: 14,
   },
   trustMetrics: { flexDirection: 'row', gap: 8 },
   trustMetricBox: {
-    flex: 1, backgroundColor: '#FAFAFA', borderRadius: 10,
-    borderWidth: 1, borderColor: '#F0F0F0',
+    flex: 1, backgroundColor: '#F5F5F0', borderRadius: 10,
+    borderWidth: 1, borderColor: '#EFEFEF',
     paddingVertical: 10, alignItems: 'center', gap: 3,
   },
   trustMetricIcon: { fontSize: 16 },
-  trustMetricVal: { fontSize: 13, fontWeight: '900', color: '#111' },
-  trustMetricLbl: { fontSize: 9, color: '#888', fontWeight: '600', textAlign: 'center' },
+  trustMetricVal: { fontSize: 13, fontWeight: '800', color: '#1A1A1A' },
+  trustMetricLbl: { fontSize: 9, color: '#888888', fontWeight: '600', textAlign: 'center' },
 
   // ── 18. REVIEWS
   reviewsHeader: { marginBottom: 12 },
   reviewsOverall: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6 },
-  reviewsOverallNum: { fontSize: 36, fontWeight: '900', color: '#111' },
-  reviewsStars: { fontSize: 14, color: '#E8A900' },
-  reviewsCount: { fontSize: 12, color: '#888', fontWeight: '500' },
+  reviewsOverallNum: { fontSize: 36, fontWeight: '800', color: '#1A1A1A' },
+  reviewsStars: { fontSize: 14, color: '#FFB830' },
+  reviewsCount: { fontSize: 12, color: '#888888', fontWeight: '500' },
   ratingBarRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 5,
   },
-  ratingBarLabel: { fontSize: 11, color: '#888', width: 20, textAlign: 'right' },
+  ratingBarLabel: { fontSize: 11, color: '#888888', width: 20, textAlign: 'right' },
   ratingBarTrack: {
-    flex: 1, height: 6, backgroundColor: '#F0F0F0', borderRadius: 3, overflow: 'hidden',
+    flex: 1, height: 6, backgroundColor: '#EFEFEF', borderRadius: 3, overflow: 'hidden',
   },
-  ratingBarFill: { height: '100%', backgroundColor: '#E8A900', borderRadius: 3 },
-  ratingBarPct: { fontSize: 10, color: '#AAA', width: 28, textAlign: 'right' },
+  ratingBarFill: { height: '100%', backgroundColor: '#FFB830', borderRadius: 3 },
+  ratingBarPct: { fontSize: 10, color: '#AAAAAA', width: 28, textAlign: 'right' },
   reviewCard: {
-    backgroundColor: '#FAFAFA', borderRadius: 10,
-    borderWidth: 1, borderColor: '#F0F0F0', padding: 12,
+    backgroundColor: '#F5F5F0', borderRadius: 10,
+    borderWidth: 1, borderColor: '#EFEFEF', padding: 12,
   },
   reviewCardTop: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
   reviewAvatar: {
     width: 36, height: 36, borderRadius: 18,
-    backgroundColor: '#EDE7F6', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FFF3E0', alignItems: 'center', justifyContent: 'center',
   },
-  reviewName: { fontSize: 13, fontWeight: '700', color: '#111' },
-  reviewDate: { fontSize: 11, color: '#AAA' },
-  reviewStars: { fontSize: 13, color: '#E8A900' },
-  reviewText: { fontSize: 12, color: '#555', lineHeight: 18 },
+  reviewName: { fontSize: 13, fontWeight: '700', color: '#1A1A1A' },
+  reviewDate: { fontSize: 11, color: '#AAAAAA' },
+  reviewStars: { fontSize: 13, color: '#FFB830' },
+  reviewText: { fontSize: 12, color: '#666666', lineHeight: 18 },
   seeAllBtn: {
     marginTop: 12, paddingVertical: 10, alignItems: 'center',
-    borderTopWidth: 1, borderTopColor: '#F0F0F0',
+    borderTopWidth: 1, borderTopColor: '#EFEFEF',
   },
-  seeAllText: { fontSize: 13, fontWeight: '700', color: '#C13584' },
+  seeAllText: { fontSize: 13, fontWeight: '700', color: '#FF6B2B' },
 
   // ── BOTTOM ACTION BAR
   bottomBar: {
     paddingHorizontal: 16, paddingBottom: 28, paddingTop: 10,
-    backgroundColor: '#FAFAFA', borderTopWidth: 1, borderTopColor: '#E8E8E8',
+    backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#EFEFEF',
   },
   bottomBarBtn: {
     height: 54, alignItems: 'center', justifyContent: 'center',
   },
-  bottomBarBtnText: { color: '#FFFFFF', fontWeight: '900', fontSize: 17 },
+  bottomBarBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 17 },
   bottomBarBtnSub: { color: 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: '600', marginTop: 2 },
 });

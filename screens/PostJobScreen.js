@@ -7,15 +7,14 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { postJob } from '../services/jobService';
 
-import { BLUE } from '../constants/colors';
-
-const LIGHT_BLUE = '#E0F5FE';
-const GREY_BG = '#F2F0ED';
-const BORDER = '#E2E8F0';
-const TEXT_DARK = '#1A202C';
-const TEXT_MID = '#4A5568';
-const TEXT_LIGHT = '#A0ADB8';
-const GREEN = '#38A169';
+const BLUE = '#FF6B2B';
+const LIGHT_BLUE = '#FFF3E0';
+const GREY_BG = '#F5F5F0';
+const BORDER = '#EFEFEF';
+const TEXT_DARK = '#1A1A1A';
+const TEXT_MID = '#666666';
+const TEXT_LIGHT = '#888888';
+const GREEN = '#2ECC71';
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -304,11 +303,17 @@ export default function PostJobScreen({ navigation }) {
   const canPost = filledCount === REQUIRED.length;
 
   const handlePost = async () => {
-    if (!canPost) return;
+    if (!canPost) {
+      Alert.alert('Missing Info', 'Please fill all required fields before posting.');
+      return;
+    }
     setPosting(true);
     try {
-      const uid = await AsyncStorage.getItem('uid');
-      await postJob({ ...form, postedBy: uid });
+      const [uid, posterName] = await Promise.all([
+        AsyncStorage.getItem('uid'),
+        AsyncStorage.getItem('userName'),
+      ]);
+      await postJob({ ...form, postedBy: uid, company: posterName || 'Company', status: 'active' });
       setPosted(true);
     } catch (err) {
       Alert.alert('Error', err.message || 'Failed to post job. Please try again.');

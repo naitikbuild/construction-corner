@@ -1,7 +1,7 @@
 import { db } from '../config/firebase';
 import {
   collection, addDoc, doc, getDoc, updateDoc,
-  getDocs, query, where, serverTimestamp,
+  getDocs, query, where, serverTimestamp, increment,
 } from 'firebase/firestore';
 
 export const markWorkComplete = async (workData) => {
@@ -36,6 +36,13 @@ export const confirmWork = async (workId, commission) => {
     verifiedAt: serverTimestamp(),
   });
   await updateDoc(pendingRef, { status: 'confirmed' });
+
+  // Update provider's totalVerifiedAmount on their profile
+  if (workData.providerId) {
+    await updateDoc(doc(db, 'users', workData.providerId), {
+      totalVerifiedAmount: increment(workData.amount || 0),
+    }).catch(() => {});
+  }
 
   if (workData.customerId) {
     await addDoc(collection(db, 'notifications', workData.customerId, 'items'), {

@@ -4,17 +4,17 @@ import {
   StyleSheet, StatusBar, Alert, ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getProfile } from '../services/userService';
+import { getProfile, recordProfileView } from '../services/userService';
 import { getTotalVerifiedAmount } from '../services/workService';
 import { createChat } from '../services/chatService';
 import { auth } from '../config/firebase';
 
-// ─── Gradient Button ──────────────────────────────────────────────────────────
+// ─── Orange Gradient Button ───────────────────────────────────────────────────
 function GradBtn({ label, subLabel, onPress }) {
   return (
     <TouchableOpacity style={ss.gradWrap} onPress={onPress} activeOpacity={0.88}>
       <View style={ss.gradBg} pointerEvents="none">
-        {['#833AB4', '#C13584', '#FD1D1D', '#F77737'].map((c, i) => (
+        {['#FF6B2B', '#FF7A35', '#FF8840', '#FF8C00'].map((c, i) => (
           <View key={i} style={{ flex: 1, backgroundColor: c }} />
         ))}
       </View>
@@ -100,6 +100,7 @@ export default function SupplierProfileScreen({ navigation, route }) {
       const me = await AsyncStorage.getItem('uid');
       setMyUid(me);
       if (!uid) { setLoading(false); return; }
+      if (uid !== me) recordProfileView(uid, me);
       const [profile, totalAmt] = await Promise.all([getProfile(uid), getTotalVerifiedAmount(uid)]);
       if (profile) setLiveProfile(profile);
       setVerifiedAmt(totalAmt > 0 ? `₹${totalAmt.toLocaleString('en-IN')}` : '₹0');
@@ -139,7 +140,7 @@ export default function SupplierProfileScreen({ navigation, route }) {
   if (loading) {
     return (
       <View style={[ss.screen, { alignItems: 'center', justifyContent: 'center' }]}>
-        <ActivityIndicator size="large" color="#C13584" />
+        <ActivityIndicator size="large" color="#FF6B2B" />
         <Text style={{ marginTop: 12, color: '#888', fontSize: 14 }}>Loading profile...</Text>
       </View>
     );
@@ -154,7 +155,7 @@ export default function SupplierProfileScreen({ navigation, route }) {
           Please complete your supplier profile to appear in search results and attract buyers.
         </Text>
         <TouchableOpacity
-          style={{ backgroundColor: '#C13584', paddingVertical: 14, paddingHorizontal: 28, borderRadius: 12 }}
+          style={{ backgroundColor: '#FF6B2B', paddingVertical: 14, paddingHorizontal: 28, borderRadius: 14 }}
           onPress={() => navigation.navigate('EditProfile')}
         >
           <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>Complete Profile →</Text>
@@ -350,47 +351,47 @@ export default function SupplierProfileScreen({ navigation, route }) {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const ss = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#FAFAFA' },
+  screen: { flex: 1, backgroundColor: '#F5F5F0' },
 
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, backgroundColor: '#FAFAFA', borderBottomWidth: 1, borderBottomColor: '#E8E8E8' },
-  backBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#F0F0F0', alignItems: 'center', justifyContent: 'center' },
-  backArrow: { fontSize: 20, color: '#111', fontWeight: '700' },
-  headerTitle: { flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '800', color: '#111' },
-  moreBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#F0F0F0', alignItems: 'center', justifyContent: 'center' },
-  moreIcon: { fontSize: 20, color: '#111', letterSpacing: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, backgroundColor: '#F5F5F0', borderBottomWidth: 1, borderBottomColor: '#EFEFEF' },
+  backBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  backArrow: { fontSize: 20, color: '#1A1A1A', fontWeight: '700' },
+  headerTitle: { flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '800', color: '#1A1A1A' },
+  moreBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  moreIcon: { fontSize: 20, color: '#1A1A1A', letterSpacing: 1 },
 
-  heroCard: { backgroundColor: '#FFFFFF', margin: 14, borderRadius: 18, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#E8E8E8', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
-  companyLogoWrap: { width: 90, height: 90, borderRadius: 18, backgroundColor: '#FFF7ED', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#E8E8E8', marginBottom: 12 },
-  profileName: { fontSize: 19, fontWeight: '900', color: '#111', marginBottom: 4, textAlign: 'center' },
-  profileDesig: { fontSize: 13, fontWeight: '700', color: '#555', marginBottom: 4 },
-  profileLoc: { fontSize: 13, color: '#888', marginBottom: 12 },
+  heroCard: { backgroundColor: '#FFFFFF', margin: 14, borderRadius: 18, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#EFEFEF', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
+  companyLogoWrap: { width: 90, height: 90, borderRadius: 18, backgroundColor: '#FFF3E0', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#EFEFEF', marginBottom: 12 },
+  profileName: { fontSize: 19, fontWeight: '800', color: '#1A1A1A', marginBottom: 4, textAlign: 'center' },
+  profileDesig: { fontSize: 13, fontWeight: '600', color: '#666666', marginBottom: 4 },
+  profileLoc: { fontSize: 13, color: '#888888', marginBottom: 12 },
   badgesRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', justifyContent: 'center' },
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, borderWidth: 1 },
   badgeText: { fontSize: 11, fontWeight: '700' },
 
-  statsCard: { flexDirection: 'row', backgroundColor: '#FFFFFF', marginHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: '#E8E8E8', overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, elevation: 1 },
+  statsCard: { flexDirection: 'row', backgroundColor: '#FFFFFF', marginHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: '#EFEFEF', overflow: 'hidden' },
   statItem: { flex: 1, alignItems: 'center', paddingVertical: 14 },
-  statBorder: { borderRightWidth: 1, borderRightColor: '#E8E8E8' },
-  statVal: { fontSize: 14, fontWeight: '900', color: '#111', marginBottom: 2 },
-  statLbl: { fontSize: 10, color: '#888', fontWeight: '600' },
+  statBorder: { borderRightWidth: 1, borderRightColor: '#EFEFEF' },
+  statVal: { fontSize: 14, fontWeight: '800', color: '#1A1A1A', marginBottom: 2 },
+  statLbl: { fontSize: 10, color: '#888888', fontWeight: '600' },
 
   scorePad: { marginHorizontal: 14, marginTop: 12, marginBottom: 4 },
   scoreRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  scoreLabel: { fontSize: 12, fontWeight: '700', color: '#555' },
-  scoreNum: { fontSize: 12, fontWeight: '800', color: '#4CAF50' },
-  scoreTrack: { height: 10, backgroundColor: '#F0F0F0', borderRadius: 5, overflow: 'hidden' },
+  scoreLabel: { fontSize: 12, fontWeight: '700', color: '#666666' },
+  scoreNum: { fontSize: 12, fontWeight: '800', color: '#2ECC71' },
+  scoreTrack: { height: 10, backgroundColor: '#EFEFEF', borderRadius: 5, overflow: 'hidden' },
 
-  verifiedCard: { marginHorizontal: 14, marginTop: 14, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: '#A5D6A7' },
-  verifiedHeader: { backgroundColor: '#4CAF50', paddingVertical: 8, paddingHorizontal: 14 },
-  verifiedHeaderTxt: { color: '#FFFFFF', fontWeight: '800', fontSize: 12, textAlign: 'center' },
-  verifiedBody: { backgroundColor: '#E8F5E9', flexDirection: 'row', paddingVertical: 14 },
+  verifiedCard: { marginHorizontal: 14, marginTop: 14, borderRadius: 16, overflow: 'hidden', backgroundColor: '#1A1A2E' },
+  verifiedHeader: { paddingVertical: 8, paddingHorizontal: 14 },
+  verifiedHeaderTxt: { color: 'rgba(255,255,255,0.6)', fontWeight: '700', fontSize: 11, textAlign: 'center', textTransform: 'uppercase', letterSpacing: 1 },
+  verifiedBody: { flexDirection: 'row', paddingVertical: 14, backgroundColor: 'rgba(255,255,255,0.04)' },
   verifiedStat: { flex: 1, alignItems: 'center' },
-  verifiedAmt: { fontSize: 17, fontWeight: '900', color: '#1B5E20' },
-  verifiedLbl: { fontSize: 11, color: '#2E7D32', fontWeight: '600', marginTop: 2 },
-  verifiedDivider: { width: 1, backgroundColor: '#A5D6A7' },
+  verifiedAmt: { fontSize: 17, fontWeight: '800', color: '#FFFFFF' },
+  verifiedLbl: { fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: '600', marginTop: 2 },
+  verifiedDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.1)' },
 
   linksSection: { marginHorizontal: 14, marginTop: 14 },
-  sectionTitle: { fontSize: 15, fontWeight: '900', color: '#111', borderLeftWidth: 3, borderLeftColor: '#C13584', paddingLeft: 8, marginBottom: 12 },
+  sectionTitle: { fontSize: 15, fontWeight: '800', color: '#1A1A1A', borderLeftWidth: 3, borderLeftColor: '#FF6B2B', paddingLeft: 8, marginBottom: 12 },
   linksGrid: { flexDirection: 'row', gap: 10 },
   bigLinkBtn: { flex: 1, borderRadius: 14, paddingVertical: 14, alignItems: 'center', borderWidth: 1.5 },
   bigLinkLabel: { fontSize: 11, fontWeight: '700', color: '#333', textAlign: 'center', lineHeight: 15 },
@@ -398,37 +399,37 @@ const ss = StyleSheet.create({
   highlightsContent: { paddingHorizontal: 14, paddingVertical: 16, gap: 14 },
   highlight: { alignItems: 'center', gap: 6 },
   highlightRing: { width: 72, height: 72, borderRadius: 36, borderWidth: 2.5, alignItems: 'center', justifyContent: 'center' },
-  highlightCircle: { width: 62, height: 62, borderRadius: 31, backgroundColor: '#F5F5F5', alignItems: 'center', justifyContent: 'center' },
-  highlightLabel: { fontSize: 10, fontWeight: '700', color: '#444' },
+  highlightCircle: { width: 62, height: 62, borderRadius: 31, backgroundColor: '#F5F5F0', alignItems: 'center', justifyContent: 'center' },
+  highlightLabel: { fontSize: 10, fontWeight: '700', color: '#666666' },
 
-  tabBar: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#E8E8E8', backgroundColor: '#FFFFFF', marginTop: 4 },
+  tabBar: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#EFEFEF', backgroundColor: '#FFFFFF', marginTop: 4 },
   tab: { flex: 1, paddingVertical: 12, alignItems: 'center' },
-  tabActive: { borderBottomWidth: 2, borderBottomColor: '#C13584' },
-  tabText: { fontSize: 13, fontWeight: '600', color: '#888' },
-  tabTextActive: { color: '#C13584', fontWeight: '800' },
+  tabActive: { borderBottomWidth: 2, borderBottomColor: '#FF6B2B' },
+  tabText: { fontSize: 13, fontWeight: '600', color: '#888888' },
+  tabTextActive: { color: '#FF6B2B', fontWeight: '800' },
 
-  priceListWrap: { backgroundColor: '#FFFFFF', marginHorizontal: 14, marginTop: 12, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: '#E8E8E8' },
-  priceRowHead: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#F5F5F5', borderBottomWidth: 1, borderBottomColor: '#E8E8E8' },
-  priceRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  priceListWrap: { backgroundColor: '#FFFFFF', marginHorizontal: 14, marginTop: 12, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: '#EFEFEF' },
+  priceRowHead: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#F5F5F0', borderBottomWidth: 1, borderBottomColor: '#EFEFEF' },
+  priceRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#EFEFEF' },
   priceColMat: { flex: 2 },
-  priceColBrand: { flex: 1, fontSize: 11, color: '#888', fontWeight: '600', textAlign: 'center' },
-  priceColPrice: { flex: 1, fontSize: 14, fontWeight: '900', color: '#E8A900', textAlign: 'right' },
-  matName: { fontSize: 12, fontWeight: '700', color: '#111', lineHeight: 16 },
-  matUnit: { fontSize: 10, color: '#888', marginTop: 1 },
-  priceNote: { fontSize: 10, color: '#AAA', padding: 12, fontStyle: 'italic' },
+  priceColBrand: { flex: 1, fontSize: 11, color: '#888888', fontWeight: '600', textAlign: 'center' },
+  priceColPrice: { flex: 1, fontSize: 14, fontWeight: '800', color: '#FFB830', textAlign: 'right' },
+  matName: { fontSize: 12, fontWeight: '700', color: '#1A1A1A', lineHeight: 16 },
+  matUnit: { fontSize: 10, color: '#888888', marginTop: 1 },
+  priceNote: { fontSize: 10, color: '#AAAAAA', padding: 12, fontStyle: 'italic' },
 
-  aboutCard: { backgroundColor: '#FFFFFF', marginHorizontal: 14, marginTop: 12, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#E8E8E8' },
-  aboutText: { fontSize: 13, color: '#555', lineHeight: 20 },
+  aboutCard: { backgroundColor: '#FFFFFF', marginHorizontal: 14, marginTop: 12, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#EFEFEF' },
+  aboutText: { fontSize: 13, color: '#666666', lineHeight: 20 },
 
   gradWrap: { borderRadius: 14, overflow: 'hidden', height: 56 },
   gradBg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, flexDirection: 'row' },
   gradContent: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  gradLabel: { color: '#FFFFFF', fontWeight: '900', fontSize: 17 },
+  gradLabel: { color: '#FFFFFF', fontWeight: '700', fontSize: 17 },
   gradSub: { color: 'rgba(255,255,255,0.75)', fontSize: 11, fontWeight: '600', marginTop: 2 },
 
-  bookBar: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingBottom: 28, paddingTop: 10, backgroundColor: '#FAFAFA', borderTopWidth: 1, borderTopColor: '#E8E8E8' },
-  viewHistoryBtn: { backgroundColor: '#E8F5E9', paddingVertical: 10, alignItems: 'center', borderTopWidth: 1, borderTopColor: '#A5D6A7' },
-  viewHistoryText: { fontSize: 12, fontWeight: '800', color: '#2E7D32' },
-  markCompleteBtn: { width: 72, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E8F5E9', borderWidth: 2, borderColor: '#4CAF50' },
-  markCompleteBtnText: { fontSize: 11, fontWeight: '900', color: '#2E7D32', textAlign: 'center', lineHeight: 16 },
+  bookBar: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingBottom: 28, paddingTop: 10, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#EFEFEF' },
+  viewHistoryBtn: { paddingVertical: 10, alignItems: 'center', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)' },
+  viewHistoryText: { fontSize: 12, fontWeight: '800', color: '#FF6B2B' },
+  markCompleteBtn: { width: 72, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F0FFF4', borderWidth: 2, borderColor: '#2ECC71' },
+  markCompleteBtnText: { fontSize: 11, fontWeight: '800', color: '#2ECC71', textAlign: 'center', lineHeight: 16 },
 });

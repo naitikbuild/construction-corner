@@ -5,6 +5,8 @@ import {
 import { useState, useEffect } from 'react';
 import { getAllJobs } from '../services/jobService';
 
+const ORANGE = '#FF6B2B';
+
 const filters = ['All', 'Full Time', 'Part Time', 'Contract', 'Urgent'];
 
 const jobs = [
@@ -163,7 +165,7 @@ export default function JobsScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0EA5E9" />
+      <StatusBar barStyle="light-content" backgroundColor={ORANGE} />
 
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
@@ -278,82 +280,83 @@ export default function JobsScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F5' },
+  container: { flex: 1, backgroundColor: '#F5F5F0' },
 
   // Header
-  header: { backgroundColor: '#0EA5E9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 48, paddingBottom: 14, gap: 12 },
+  header: { backgroundColor: ORANGE, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 48, paddingBottom: 14, gap: 12 },
   backBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
   backText: { fontSize: 18, color: 'white', fontWeight: '700' },
   headerCenter: { flex: 1 },
-  headerTitle: { fontSize: 17, fontWeight: '900', color: 'white' },
+  headerTitle: { fontSize: 17, fontWeight: '800', color: 'white' },
   headerSub: { fontSize: 11, color: 'rgba(255,255,255,0.65)', fontWeight: '500' },
-  postJobBtn: { backgroundColor: '#FC8019', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10 },
+  postJobBtn: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.4)' },
   postJobText: { fontSize: 12, fontWeight: '800', color: 'white' },
 
   // Search
-  searchWrap: { backgroundColor: '#0EA5E9', paddingHorizontal: 14, paddingBottom: 14 },
-  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
-  searchInput: { flex: 1, fontSize: 13, color: '#111', fontWeight: '500' },
+  searchWrap: { backgroundColor: ORANGE, paddingHorizontal: 14, paddingBottom: 14 },
+  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
+  searchInput: { flex: 1, fontSize: 13, color: '#1A1A1A', fontWeight: '500' },
 
-  // Stats — single compact line
+  // Stats
   statsRow: {
     flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap',
-    backgroundColor: 'white', marginHorizontal: 14, borderRadius: 12,
+    backgroundColor: '#FFFFFF', marginHorizontal: 14, borderRadius: 12,
     paddingHorizontal: 14, paddingVertical: 9, marginTop: 12,
     gap: 6,
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
   },
-  statInline: { fontSize: 12, color: '#666', fontWeight: '500' },
-  statNum: { fontSize: 12, fontWeight: '800', color: '#0EA5E9' },
+  statInline: { fontSize: 12, color: '#666666', fontWeight: '500' },
+  statNum: { fontSize: 12, fontWeight: '800', color: ORANGE },
   statDot: { fontSize: 12, color: '#CCC', fontWeight: '700' },
 
-  // Filter chips — compact Zomato style
+  // Filter chips
   filterScroll: { paddingVertical: 10 },
-  filterChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 99, backgroundColor: 'white', borderWidth: 1, borderColor: '#E8E8E8' },
-  filterChipActive: { backgroundColor: '#0EA5E9', borderColor: '#0EA5E9' },
-  filterChipUrgent: { borderColor: '#F97316' },
-  filterChipUrgentActive: { backgroundColor: '#F97316', borderColor: '#F97316' },
+  filterChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 99, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#EFEFEF' },
+  filterChipActive: { backgroundColor: ORANGE, borderColor: ORANGE },
+  filterChipUrgent: { borderColor: '#E74C3C' },
+  filterChipUrgentActive: { backgroundColor: '#E74C3C', borderColor: '#E74C3C' },
   filterText: { fontSize: 12, fontWeight: '600', color: '#555' },
   filterTextActive: { color: 'white' },
-  filterTextUrgent: { color: '#F97316' },
+  filterTextUrgent: { color: '#E74C3C' },
 
   // List
   scroll: { flex: 1 },
   resultsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 6 },
   resultsText: { fontSize: 12, fontWeight: '600', color: '#888' },
-  sortBtn: { backgroundColor: '#EEEEEE', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
+  sortBtn: { backgroundColor: '#F5F5F0', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
   sortText: { fontSize: 11, fontWeight: '700', color: '#555' },
 
-  // Cards — Zomato compact
+  // Cards
   jobsList: { paddingHorizontal: 14, gap: 10 },
   jobCard: {
-    backgroundColor: 'white', borderRadius: 14,
+    backgroundColor: '#FFFFFF', borderRadius: 14,
     padding: 14,
-    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2,
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
+    borderWidth: 1, borderColor: '#EFEFEF',
   },
   jobCardTop: { flexDirection: 'row', gap: 12, marginBottom: 10 },
   jobAvatar: { width: 60, height: 60, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   jobInfo: { flex: 1, justifyContent: 'center' },
   jobTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3, flexWrap: 'wrap' },
-  jobTitle: { fontSize: 14, fontWeight: '800', color: '#111' },
+  jobTitle: { fontSize: 14, fontWeight: '800', color: '#1A1A1A' },
   urgentBadge: { backgroundColor: '#FFF3E0', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 },
-  urgentText: { fontSize: 10, fontWeight: '700', color: '#E65100' },
-  jobCompany: { fontSize: 12, color: '#555', fontWeight: '600', marginBottom: 2 },
-  jobLocation: { fontSize: 11, color: '#999' },
+  urgentText: { fontSize: 10, fontWeight: '700', color: ORANGE },
+  jobCompany: { fontSize: 12, color: '#666666', fontWeight: '600', marginBottom: 2 },
+  jobLocation: { fontSize: 11, color: '#888' },
   saveBtn: { padding: 2, alignSelf: 'flex-start' },
 
   // Footer row
   jobFooter: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    borderTopWidth: 1, borderTopColor: '#F5F5F5', paddingTop: 10,
+    borderTopWidth: 1, borderTopColor: '#EFEFEF', paddingTop: 10,
   },
   jobMetaLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   jobTypeBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   jobTypeText: { fontSize: 10, fontWeight: '700' },
-  jobPosted: { fontSize: 11, color: '#AAAAAA', fontWeight: '500' },
-  jobApplicants: { fontSize: 11, color: '#AAAAAA', fontWeight: '500' },
+  jobPosted: { fontSize: 11, color: '#888', fontWeight: '500' },
+  jobApplicants: { fontSize: 11, color: '#888', fontWeight: '500' },
   jobMetaRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  jobPay: { fontSize: 13, fontWeight: '900', color: '#2E7D32' },
-  applyBtn: { backgroundColor: '#E8F5E9', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
-  applyBtnText: { fontSize: 12, fontWeight: '700', color: '#2E7D32' },
+  jobPay: { fontSize: 13, fontWeight: '800', color: '#2ECC71' },
+  applyBtn: { backgroundColor: '#F0FFF4', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  applyBtnText: { fontSize: 12, fontWeight: '700', color: '#2ECC71' },
 });

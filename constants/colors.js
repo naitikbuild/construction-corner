@@ -1,26 +1,45 @@
 // ConstructionCorner Design System — Color Tokens
 
-// Blues
-export const BLUE       = '#0EA5E9';
-export const BLUE_MID   = '#0EA5E9';
-export const BLUE_LIGHT = '#38BDF8';
-export const BLUE_DARK  = '#0284C7';
-export const BLUE_DIM   = '#A8C4EE';
+// Primary Orange (CTA buttons, active nav, highlights)
+export const ORANGE        = '#FF6B2B';
+export const ORANGE_END    = '#FF8C00';
+export const ORANGE_LIGHT  = '#FFF3E0';
+export const ORANGE_MID    = '#FFE0C4';
 
-// Greens
-export const GREEN       = '#22C55E';
-export const GREEN_LIGHT = '#DCFCE7';
-export const GREEN_MID   = '#86EFAC';
-export const GREEN_DARK  = '#15803D';
+// Dark Navy (verified work cards, secondary buttons, headers)
+export const NAVY          = '#1A1A2E';
+export const NAVY_END      = '#2C3E50';
 
-// Oranges / Amber
-export const ORANGE       = '#EA580C';
-export const ORANGE_LIGHT = '#FFF7ED';
-export const ORANGE_MID   = '#FED7AA';
-export const AMBER        = '#F5A623';
+// Legacy blue aliases (kept for backward compatibility, now orange)
+export const BLUE          = '#FF6B2B';
+export const BLUE_MID      = '#FF6B2B';
+export const BLUE_LIGHT    = '#FFF3E0';
+export const BLUE_DARK     = '#E85A1E';
+export const BLUE_DIM      = '#FFCBA8';
 
-// Neutral / Concrete
-export const CONCRETE        = '#F2F0ED';
-export const CONCRETE_BORDER = '#D9D4CC';
-export const CONCRETE_TEXT   = '#6B6560';
-export const TEXT_PRIMARY    = '#1A1A1A';
+// Green (verified badges, available status, success)
+export const GREEN         = '#2ECC71';
+export const GREEN_LIGHT   = '#F0FFF4';
+export const GREEN_MID     = '#A8E6C3';
+export const GREEN_DARK    = '#1A9E55';
+
+// Backgrounds
+export const BG            = '#F5F5F0'; // warm cement white
+export const CARD          = '#FFFFFF';
+export const BORDER        = '#EFEFEF';
+
+// Text
+export const TEXT_PRIMARY   = '#1A1A1A';
+export const TEXT_SECONDARY = '#666666';
+export const TEXT_MUTED     = '#888888';
+
+// Ratings
+export const STAR           = '#FFB830';
+
+// Alert / Error
+export const ALERT          = '#E74C3C';
+
+// Neutral / Concrete (legacy)
+export const CONCRETE        = '#F5F5F0';
+export const CONCRETE_BORDER = '#EFEFEF';
+export const CONCRETE_TEXT   = '#666666';

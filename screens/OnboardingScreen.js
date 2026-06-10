@@ -3,6 +3,7 @@ import {
   View, Text, TouchableOpacity, StyleSheet,
   StatusBar, SafeAreaView, BackHandler, Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { BLUE, BLUE_DIM } from '../constants/colors';
 
@@ -39,9 +40,14 @@ export default function OnboardingScreen({ navigation }) {
     return () => sub.remove();
   }, [step]);
 
+  const markSeenAndGo = async () => {
+    await AsyncStorage.setItem('hasSeenOnboarding', '1').catch(() => {});
+    navigation.replace('AccountType');
+  };
+
   function next() {
     if (step < SLIDES.length - 1) setStep(s => s + 1);
-    else navigation.replace('AccountType');
+    else markSeenAndGo();
   }
 
   const slide = SLIDES[step];
@@ -50,7 +56,7 @@ export default function OnboardingScreen({ navigation }) {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      <TouchableOpacity style={styles.skipBtn} onPress={() => navigation.replace('AccountType')}>
+      <TouchableOpacity style={styles.skipBtn} onPress={markSeenAndGo}>
         <Text style={styles.skipText}>Skip</Text>
       </TouchableOpacity>
 

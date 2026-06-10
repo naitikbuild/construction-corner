@@ -512,7 +512,7 @@ export default function HomeScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFFFFF' },
-  scroll: { flex: 1, backgroundColor: '#FAFAFA' },
+  scroll: { flex: 1, backgroundColor: '#F5F5F0' },
 
   // Header
   header: {
@@ -520,7 +520,7 @@ const styles = StyleSheet.create({
     paddingTop: 48,
     paddingBottom: 0,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    borderBottomColor: '#EFEFEF',
     shadowColor: '#000',
     shadowOpacity: 0.04,
     shadowRadius: 4,
@@ -539,11 +539,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF3E0',
     alignItems: 'center', justifyContent: 'center',
   },
-  brandName: { fontSize: 18, fontWeight: '900', color: '#111' },
+  brandName: { fontSize: 18, fontWeight: '900', color: '#1A1A1A' },
   headerIcons: { flexDirection: 'row', gap: 8 },
   iconBtn: {
     width: 36, height: 36, borderRadius: 10,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#F5F5F0',
     alignItems: 'center', justifyContent: 'center',
   },
 
@@ -553,17 +553,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginHorizontal: 14,
     marginBottom: 10,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#F5F5F0',
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: '#EEEEEE',
+    borderColor: '#EFEFEF',
   },
-  searchPlaceholder: { flex: 1, fontSize: 14, color: '#AAAAAA' },
+  searchPlaceholder: { flex: 1, fontSize: 14, color: '#888888' },
   filterBtn: {
     width: 28, height: 28, borderRadius: 8,
-    backgroundColor: '#EEEEEE',
+    backgroundColor: '#EFEFEF',
     alignItems: 'center', justifyContent: 'center',
   },
 
@@ -572,11 +572,11 @@ const styles = StyleSheet.create({
   navTab: {
     paddingHorizontal: 14, paddingVertical: 6,
     borderRadius: 20, marginRight: 8,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#F5F5F0',
   },
-  navTabActive: { backgroundColor: '#111111' },
-  navTabText: { fontSize: 13, fontWeight: '600', color: '#666' },
-  navTabTextActive: { color: '#FFFFFF' },
+  navTabActive: { backgroundColor: '#FF6B2B' },
+  navTabText: { fontSize: 13, fontWeight: '600', color: '#666666' },
+  navTabTextActive: { color: '#FFFFFF', fontWeight: '700' },
 
   // Section layout
   sectionPad: { paddingHorizontal: 14, paddingBottom: 4 },
@@ -588,9 +588,9 @@ const styles = StyleSheet.create({
     marginTop: 20,
     marginBottom: 4,
   },
-  secTitle: { fontSize: 18, fontWeight: '700', color: '#111111' },
-  secLink: { fontSize: 13, fontWeight: '600', color: '#FC8019' },
-  secSubtitle: { fontSize: 12, color: '#888', paddingHorizontal: 14, marginBottom: 10 },
+  secTitle: { fontSize: 18, fontWeight: '800', color: '#1A1A1A' },
+  secLink: { fontSize: 13, fontWeight: '600', color: '#FF6B2B' },
+  secSubtitle: { fontSize: 12, color: '#888888', paddingHorizontal: 14, marginBottom: 10 },
 
   // Icon grid
   iconsGrid: {
@@ -603,23 +603,28 @@ const styles = StyleSheet.create({
   iconBox: {
     width: '100%',
     aspectRatio: 1,
-    borderRadius: 12,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 5,
+    borderWidth: 0.5,
+    borderColor: '#EFEFEF',
   },
   profIconBox: {
     width: '100%',
     aspectRatio: 1,
-    borderRadius: 12,
-    backgroundColor: '#EBF5FB',
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 5,
+    borderWidth: 0.5,
+    borderColor: '#EFEFEF',
   },
-  iconEmoji: { fontSize: 30 },
-  iconName: { fontSize: 10, fontWeight: '700', color: '#111', textAlign: 'center', lineHeight: 14 },
-  profCount: { fontSize: 9, color: '#888', fontWeight: '600', marginTop: 1 },
+  iconEmoji: { fontSize: 28 },
+  iconName: { fontSize: 9, fontWeight: '700', color: '#1A1A1A', textAlign: 'center', lineHeight: 13 },
+  profCount: { fontSize: 8, color: '#2ECC71', fontWeight: '600', marginTop: 1 },
 
   seeMoreBtn: {
     marginTop: 10,
@@ -628,10 +633,10 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#E0E0E0',
+    borderColor: '#EFEFEF',
     backgroundColor: '#FFFFFF',
   },
-  seeMoreText: { fontSize: 13, fontWeight: '600', color: '#444' },
+  seeMoreText: { fontSize: 13, fontWeight: '600', color: '#1A1A1A' },
 
   // Banner
   bannerSlide: {
@@ -653,7 +658,7 @@ const styles = StyleSheet.create({
   bannerEmoji: { fontSize: 52 },
   dotsRow: { flexDirection: 'row', justifyContent: 'center', gap: 5, marginTop: 8 },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#D0D0D0' },
-  dotActive: { backgroundColor: '#FC8019', width: 16 },
+  dotActive: { backgroundColor: '#FF6B2B', width: 16 },
 
   // Featured Materials
   materialsRow: { paddingHorizontal: 14, gap: 10, paddingBottom: 8 },
@@ -667,9 +672,9 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   materialEmoji: { fontSize: 32, marginBottom: 6 },
-  materialName: { fontSize: 13, fontWeight: '800', color: '#111', marginBottom: 2, lineHeight: 17 },
-  materialCat: { fontSize: 11, color: '#888', fontWeight: '500', marginBottom: 4 },
-  materialPrice: { fontSize: 13, fontWeight: '900', color: '#FC8019', marginBottom: 6 },
+  materialName: { fontSize: 13, fontWeight: '800', color: '#1A1A1A', marginBottom: 2, lineHeight: 17 },
+  materialCat: { fontSize: 11, color: '#888888', fontWeight: '500', marginBottom: 4 },
+  materialPrice: { fontSize: 13, fontWeight: '900', color: '#FF6B2B', marginBottom: 6 },
   materialMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   materialRating: { fontSize: 11, fontWeight: '700', color: '#333' },
   materialLoc: { fontSize: 10, color: '#999', flex: 1, textAlign: 'right' },
@@ -681,7 +686,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#F0F0F0',
+    borderColor: '#EFEFEF',
     padding: 14,
     marginBottom: 10,
     gap: 12,
@@ -696,46 +701,46 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   jobInfo: { flex: 1 },
-  jobTitle: { fontSize: 14, fontWeight: '800', color: '#111', marginBottom: 2 },
-  jobCompany: { fontSize: 12, color: '#555', fontWeight: '600', marginBottom: 3 },
-  jobMeta: { fontSize: 11, color: '#999', marginBottom: 6 },
+  jobTitle: { fontSize: 14, fontWeight: '800', color: '#1A1A1A', marginBottom: 2 },
+  jobCompany: { fontSize: 12, color: '#666666', fontWeight: '600', marginBottom: 3 },
+  jobMeta: { fontSize: 11, color: '#888888', marginBottom: 6 },
   jobTags: { flexDirection: 'row', gap: 6 },
   jobTag: {
     paddingHorizontal: 8, paddingVertical: 3,
-    borderRadius: 6, backgroundColor: '#F0F0F0',
+    borderRadius: 6, backgroundColor: '#F5F5F0',
   },
-  jobTagText: { fontSize: 10, fontWeight: '700', color: '#555' },
+  jobTagText: { fontSize: 10, fontWeight: '700', color: '#666666' },
   jobArrow: { fontSize: 24, color: '#CCC', fontWeight: '300' },
 
   // Location bar
   locationBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#F5F5F0',
     paddingHorizontal: 14, paddingVertical: 8,
     marginBottom: 10,
   },
-  locationText: { fontSize: 13, fontWeight: '700', color: '#222' },
-  locationChange: { fontSize: 13, fontWeight: '700', color: '#4CAF50' },
+  locationText: { fontSize: 13, fontWeight: '700', color: '#1A1A1A' },
+  locationChange: { fontSize: 13, fontWeight: '700', color: '#2ECC71' },
 
   // Horizontal scroll common padding
   hScrollRow: { paddingHorizontal: 14, gap: 10, paddingBottom: 12 },
 
   // Course of the day
   courseCard: {
-    backgroundColor: '#1A237E',
+    backgroundColor: '#1A1A2E',
     borderRadius: 16, padding: 18,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8, elevation: 3,
+    shadowColor: '#1A1A2E', shadowOpacity: 0.3, shadowRadius: 8, elevation: 4,
   },
   courseLeft: { flex: 1 },
-  courseTag: { fontSize: 10, fontWeight: '800', color: 'rgba(255,255,255,0.6)', letterSpacing: 1, marginBottom: 6 },
+  courseTag: { fontSize: 9, fontWeight: '800', color: 'rgba(255,255,255,0.5)', letterSpacing: 1.5, marginBottom: 6, textTransform: 'uppercase' },
   courseName: { fontSize: 16, fontWeight: '900', color: '#FFFFFF', lineHeight: 22, marginBottom: 4 },
   courseInstructor: { fontSize: 12, color: 'rgba(255,255,255,0.7)', marginBottom: 6 },
   courseRating: { fontSize: 12, color: 'rgba(255,255,255,0.8)', fontWeight: '600', marginBottom: 8 },
   coursePriceRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
   coursePrice: { fontSize: 18, fontWeight: '900', color: '#FFFFFF' },
   courseMrp: { fontSize: 13, color: 'rgba(255,255,255,0.4)', textDecorationLine: 'line-through' },
-  enrollBtn: { backgroundColor: '#FC8019', borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8, alignSelf: 'flex-start' },
+  enrollBtn: { backgroundColor: '#FF6B2B', borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8, alignSelf: 'flex-start' },
   enrollBtnText: { fontSize: 13, fontWeight: '800', color: '#FFFFFF' },
   courseEmoji: { fontSize: 56, marginLeft: 12 },
 

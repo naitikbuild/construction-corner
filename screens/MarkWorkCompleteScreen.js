@@ -5,13 +5,15 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { BLUE, BLUE_LIGHT, BLUE_MID, GREEN, GREEN_LIGHT } from '../constants/colors';
 import { markWorkComplete } from '../services/workService';
 
-const BORDER = '#E2E8F0';
-const CARD = '#F8FAFC';
-const TEXT = '#0F172A';
-const MUTED = '#64748B';
+const ORANGE = '#FF6B2B';
+const GREEN = '#2ECC71';
+const GREEN_LIGHT = '#F0FFF4';
+const BORDER = '#EFEFEF';
+const CARD = '#FFFFFF';
+const TEXT = '#1A1A1A';
+const MUTED = '#666666';
 
 const DEFAULT_PROVIDER = {
   name: 'Ramesh Vishwakarma',
@@ -272,7 +274,7 @@ export default function MarkWorkCompleteScreen({ navigation, route }) {
         {/* SUBMIT BUTTON — Instagram gradient */}
         <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit} activeOpacity={0.85} disabled={submitting}>
           <View style={styles.submitGrad} pointerEvents="none">
-            {['#833AB4', '#C13584', '#FD1D1D', '#F77737'].map((c, i) => (
+            {['#FF6B2B', '#FF7A35', '#FF8840', '#FF8C00'].map((c, i) => (
               <View key={i} style={{ flex: 1, backgroundColor: c }} />
             ))}
           </View>
@@ -288,62 +290,62 @@ export default function MarkWorkCompleteScreen({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#fff' },
+  root: { flex: 1, backgroundColor: '#F5F5F0' },
 
   // HEADER
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingTop: 50, paddingBottom: 14,
-    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: BORDER,
+    backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: BORDER,
   },
   backBtn: {
     width: 36, height: 36, borderRadius: 18,
-    backgroundColor: BLUE_LIGHT, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FFF3E0', alignItems: 'center', justifyContent: 'center',
   },
-  backArrow: { fontSize: 18, color: BLUE, fontWeight: '900' },
-  headerTitle: { fontSize: 17, fontWeight: '900', color: TEXT },
+  backArrow: { fontSize: 18, color: ORANGE, fontWeight: '800' },
+  headerTitle: { fontSize: 17, fontWeight: '800', color: TEXT },
 
   // PROVIDER CARD
   providerCard: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
     margin: 16, padding: 16,
-    backgroundColor: BLUE_LIGHT, borderRadius: 16,
-    borderWidth: 1.5, borderColor: BLUE_MID,
+    backgroundColor: '#FFF3E0', borderRadius: 16,
+    borderWidth: 1, borderColor: '#FFE0C4',
   },
   providerAvatar: {
     width: 56, height: 56, borderRadius: 28,
-    backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: BLUE,
+    backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: ORANGE,
   },
   providerEmoji: { fontSize: 28 },
   providerInfo: { flex: 1 },
-  providerName: { fontSize: 15, fontWeight: '900', color: TEXT, marginBottom: 2 },
-  providerDesig: { fontSize: 12, color: BLUE, fontWeight: '700', marginBottom: 3 },
+  providerName: { fontSize: 15, fontWeight: '800', color: TEXT, marginBottom: 2 },
+  providerDesig: { fontSize: 12, color: ORANGE, fontWeight: '700', marginBottom: 3 },
   providerLoc: { fontSize: 11, color: MUTED },
   verifiedPill: {
     backgroundColor: GREEN_LIGHT, paddingHorizontal: 10, paddingVertical: 5,
-    borderRadius: 99, borderWidth: 1, borderColor: '#86EFAC',
+    borderRadius: 99, borderWidth: 1, borderColor: '#2ECC7155',
   },
-  verifiedPillText: { fontSize: 11, color: '#16A34A', fontWeight: '800' },
+  verifiedPillText: { fontSize: 11, color: '#2ECC71', fontWeight: '800' },
 
   // SECTION HEADER
   sectionHead: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 20, paddingBottom: 8 },
-  sectionBar: { width: 4, height: 18, borderRadius: 2, backgroundColor: BLUE },
-  sectionTitle: { fontSize: 15, fontWeight: '900', color: TEXT },
+  sectionBar: { width: 4, height: 18, borderRadius: 2, backgroundColor: ORANGE },
+  sectionTitle: { fontSize: 15, fontWeight: '800', color: TEXT },
 
   // FIELDS
   fieldWrap: { paddingHorizontal: 16, marginBottom: 16 },
   fieldLabel: { fontSize: 13, fontWeight: '700', color: TEXT, marginBottom: 8 },
-  required: { color: '#EF4444' },
+  required: { color: '#E74C3C' },
   fieldHint: { fontSize: 11, color: MUTED, marginTop: 6 },
 
   amountInputRow: {
     flexDirection: 'row', alignItems: 'center',
-    borderWidth: 2, borderColor: BORDER, borderRadius: 12,
+    borderWidth: 1.5, borderColor: BORDER, borderRadius: 12,
     backgroundColor: CARD, paddingHorizontal: 14,
   },
-  rupeeSign: { fontSize: 22, color: BLUE, fontWeight: '900', marginRight: 4 },
-  amountInput: { flex: 1, fontSize: 26, fontWeight: '900', color: TEXT, paddingVertical: 12 },
+  rupeeSign: { fontSize: 22, color: ORANGE, fontWeight: '800', marginRight: 4 },
+  amountInput: { flex: 1, fontSize: 26, fontWeight: '800', color: TEXT, paddingVertical: 12 },
 
   textArea: {
     borderWidth: 1.5, borderColor: BORDER, borderRadius: 12,
@@ -363,7 +365,7 @@ const styles = StyleSheet.create({
   starRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
   starBtn: { padding: 2 },
   starIcon: { fontSize: 36, color: '#CBD5E1' },
-  starActive: { color: '#FBBF24' },
+  starActive: { color: '#FFB830' },
   starLabel: { fontSize: 13, color: MUTED, fontWeight: '600', marginLeft: 4 },
 
   // PHOTOS
@@ -410,7 +412,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 16, marginTop: 8,
     borderRadius: 14, overflow: 'hidden',
     height: 56, alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#C13584', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5,
+    shadowColor: '#FF6B2B', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 5,
   },
   submitGrad: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, flexDirection: 'row' },
   submitBtnText: { fontSize: 16, fontWeight: '900', color: '#fff', zIndex: 1 },

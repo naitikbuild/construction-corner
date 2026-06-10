@@ -7,9 +7,8 @@ import { searchUsers } from '../services/userService';
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 
-import { BLUE } from '../constants/colors';
-
-const ORANGE = '#FF6B35';
+const ORANGE = '#FF6B2B';
+const BLUE = '#FF6B2B';
 const BG      = '#FFFFFF';
 const SURFACE = '#F6F7FB';
 const DARK    = '#1A1A2E';

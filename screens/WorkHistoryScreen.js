@@ -5,12 +5,15 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { BLUE, BLUE_LIGHT, BLUE_MID, GREEN, GREEN_LIGHT, GREEN_DARK } from '../constants/colors';
 import { getVerifiedWork } from '../services/workService';
-const BORDER = '#E2E8F0';
-const CARD = '#F8FAFC';
-const TEXT = '#0F172A';
-const MUTED = '#64748B';
+const ORANGE = '#FF6B2B';
+const GREEN = '#2ECC71';
+const GREEN_LIGHT = '#F0FFF4';
+const GREEN_DARK = '#1A7A4A';
+const BORDER = '#EFEFEF';
+const CARD = '#FFFFFF';
+const TEXT = '#1A1A1A';
+const MUTED = '#666666';
 
 const WORK_JOBS = [
   { id: 1, type: 'RCC Slab Work', location: 'Bopal, Ahmedabad', date: '04 Apr 2026', amount: 20000, year: '2026', customer: 'Naitik R.' },
@@ -213,20 +216,20 @@ export default function WorkHistoryScreen({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#fff' },
+  root: { flex: 1, backgroundColor: '#F5F5F0' },
 
   // HEADER
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingTop: 50, paddingBottom: 14,
-    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: BORDER,
+    backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: BORDER,
   },
   backBtn: {
     width: 36, height: 36, borderRadius: 18,
-    backgroundColor: BLUE_LIGHT, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FFF3E0', alignItems: 'center', justifyContent: 'center',
   },
-  backArrow: { fontSize: 18, color: BLUE, fontWeight: '900' },
-  headerTitle: { fontSize: 17, fontWeight: '900', color: TEXT },
+  backArrow: { fontSize: 18, color: ORANGE, fontWeight: '800' },
+  headerTitle: { fontSize: 17, fontWeight: '800', color: TEXT },
 
   // TOTAL CARD
   totalCard: {
@@ -278,10 +281,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 12,
     marginHorizontal: 16, marginBottom: 16, padding: 14,
     backgroundColor: GREEN_LIGHT, borderRadius: 12,
-    borderWidth: 1, borderColor: '#86EFAC',
+    borderWidth: 1, borderColor: '#2ECC7155',
   },
   filteredLabel: { fontSize: 13, color: GREEN_DARK, fontWeight: '700', flex: 1 },
-  filteredAmount: { fontSize: 18, fontWeight: '900', color: GREEN_DARK },
+  filteredAmount: { fontSize: 18, fontWeight: '800', color: GREEN_DARK },
   filteredCount: { fontSize: 12, color: GREEN_DARK, fontWeight: '700' },
 
   // JOB LIST
@@ -289,7 +292,7 @@ const styles = StyleSheet.create({
   jobCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     padding: 14, borderRadius: 14,
-    backgroundColor: '#fff', borderWidth: 1.5, borderColor: BORDER,
+    backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: BORDER,
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
   },
   jobIconBox: {
@@ -302,23 +305,23 @@ const styles = StyleSheet.create({
   jobLocation: { fontSize: 11, color: MUTED },
   jobDate: { fontSize: 11, color: MUTED },
   jobRight: { alignItems: 'flex-end', gap: 6 },
-  jobAmount: { fontSize: 16, fontWeight: '900', color: GREEN_DARK },
+  jobAmount: { fontSize: 16, fontWeight: '800', color: GREEN_DARK },
   verifiedBadge: {
     backgroundColor: GREEN_LIGHT, paddingHorizontal: 8, paddingVertical: 3,
-    borderRadius: 6, borderWidth: 1, borderColor: '#86EFAC',
+    borderRadius: 6, borderWidth: 1, borderColor: '#2ECC7155',
   },
   verifiedBadgeText: { fontSize: 10, color: GREEN_DARK, fontWeight: '800' },
 
   // COMMISSION FOOTER
   commissionFooter: {
     margin: 16, marginTop: 24, padding: 18,
-    backgroundColor: BLUE_LIGHT, borderRadius: 16,
-    borderWidth: 1.5, borderColor: BLUE_MID,
+    backgroundColor: '#FFF3E0', borderRadius: 16,
+    borderWidth: 1, borderColor: '#FFE0C4',
   },
   commFootRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   commFootLabel: { fontSize: 13, fontWeight: '800', color: TEXT, marginBottom: 3 },
   commFootSub: { fontSize: 11, color: MUTED },
-  commFootAmount: { fontSize: 22, fontWeight: '900', color: BLUE },
-  commFootNote: { paddingTop: 10, borderTopWidth: 1, borderTopColor: BLUE_MID },
-  commFootNoteText: { fontSize: 11, color: BLUE, fontWeight: '600' },
+  commFootAmount: { fontSize: 22, fontWeight: '800', color: ORANGE },
+  commFootNote: { paddingTop: 10, borderTopWidth: 1, borderTopColor: '#FFE0C4' },
+  commFootNoteText: { fontSize: 11, color: ORANGE, fontWeight: '600' },
 });

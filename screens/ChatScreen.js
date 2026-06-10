@@ -5,8 +5,9 @@ import {
 import { useState, useRef, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { BLUE } from '../constants/colors';
 import { sendMessage, getChatMessages, createChat } from '../services/chatService';
+
+const ORANGE = '#FF6B2B';
 
 // ─── Sample Messages per conversation ────────────────────────────────────────
 
@@ -163,7 +164,7 @@ export default function ChatScreen({ navigation, route }) {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={BLUE} />
+      <StatusBar barStyle="light-content" backgroundColor={ORANGE} />
 
       {/* Header */}
       <View style={styles.header}>
@@ -310,12 +311,12 @@ export default function ChatScreen({ navigation, route }) {
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F0F4F8' },
+  container: { flex: 1, backgroundColor: '#F5F5F0' },
 
   // Header
   header: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: BLUE,
+    backgroundColor: ORANGE,
     paddingTop: 52, paddingBottom: 14,
     paddingHorizontal: 14,
   },
@@ -334,7 +335,7 @@ const styles = StyleSheet.create({
   headerOnlineDot: {
     position: 'absolute', bottom: 0, right: 0,
     width: 12, height: 12, borderRadius: 6,
-    backgroundColor: '#38A169', borderWidth: 2, borderColor: BLUE,
+    backgroundColor: '#2ECC71', borderWidth: 2, borderColor: ORANGE,
   },
   headerInfo: { flex: 1 },
   headerName: { fontSize: 16, fontWeight: '800', color: 'white', marginBottom: 2 },
@@ -352,8 +353,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingHorizontal: 20, paddingVertical: 12,
   },
-  dateDividerLine: { flex: 1, height: 1, backgroundColor: '#CBD5E0' },
-  dateDividerText: { fontSize: 11, fontWeight: '700', color: '#718096' },
+  dateDividerLine: { flex: 1, height: 1, backgroundColor: '#EFEFEF' },
+  dateDividerText: { fontSize: 11, fontWeight: '700', color: '#888' },
 
   // Messages
   messageList: { paddingHorizontal: 14, paddingBottom: 8, flexGrow: 1, justifyContent: 'flex-end' },
@@ -364,14 +365,14 @@ const styles = StyleSheet.create({
     maxWidth: '78%', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 9,
     shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, elevation: 1,
   },
-  bubbleSent: { backgroundColor: BLUE, borderBottomRightRadius: 4 },
-  bubbleReceived: { backgroundColor: 'white', borderBottomLeftRadius: 4 },
+  bubbleSent: { backgroundColor: ORANGE, borderBottomRightRadius: 4 },
+  bubbleReceived: { backgroundColor: '#FFFFFF', borderBottomLeftRadius: 4 },
   bubbleText: { fontSize: 14, lineHeight: 20 },
   bubbleTextSent: { color: 'white' },
-  bubbleTextReceived: { color: '#2D3748' },
+  bubbleTextReceived: { color: '#1A1A1A' },
   bubbleTime: { fontSize: 10, fontWeight: '600', marginTop: 3 },
   bubbleTimeSent: { color: 'rgba(255,255,255,0.6)', textAlign: 'right' },
-  bubbleTimeReceived: { color: '#A0ADB8' },
+  bubbleTimeReceived: { color: '#888' },
 
   // Typing indicator
   typingWrap: {
@@ -380,48 +381,48 @@ const styles = StyleSheet.create({
   },
   typingAvatar: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   typingBubble: {
-    backgroundColor: 'white', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 8,
+    backgroundColor: '#FFFFFF', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 8,
     shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, elevation: 1,
   },
-  typingDots: { fontSize: 8, color: '#A0ADB8', letterSpacing: 3 },
+  typingDots: { fontSize: 8, color: '#888', letterSpacing: 3 },
 
   // Mark work complete banner
   markWorkBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     marginHorizontal: 14, marginBottom: 8, padding: 12,
-    backgroundColor: '#DCFCE7', borderRadius: 12,
-    borderWidth: 1.5, borderColor: '#86EFAC',
+    backgroundColor: '#F0FFF4', borderRadius: 12,
+    borderWidth: 1.5, borderColor: '#2ECC71',
   },
   markWorkIcon: { fontSize: 22 },
   markWorkInfo: { flex: 1 },
-  markWorkTitle: { fontSize: 13, fontWeight: '800', color: '#15803D' },
-  markWorkSub: { fontSize: 11, color: '#16A34A', marginTop: 1 },
-  markWorkArrow: { fontSize: 22, color: '#15803D', fontWeight: '900' },
+  markWorkTitle: { fontSize: 13, fontWeight: '800', color: '#1A1A2E' },
+  markWorkSub: { fontSize: 11, color: '#2ECC71', marginTop: 1 },
+  markWorkArrow: { fontSize: 22, color: '#1A1A2E', fontWeight: '900' },
 
   // Input bar
   inputBar: {
     flexDirection: 'row', alignItems: 'flex-end', gap: 8,
-    backgroundColor: 'white', paddingHorizontal: 12, paddingVertical: 10,
+    backgroundColor: '#FFFFFF', paddingHorizontal: 12, paddingVertical: 10,
     paddingBottom: Platform.OS === 'ios' ? 28 : 14,
-    borderTopWidth: 1, borderTopColor: '#E2E8F0',
+    borderTopWidth: 1, borderTopColor: '#EFEFEF',
   },
   attachBtn: {
-    width: 40, height: 40, borderRadius: 12, backgroundColor: '#F2F0ED',
+    width: 40, height: 40, borderRadius: 12, backgroundColor: '#F5F5F0',
     alignItems: 'center', justifyContent: 'center',
   },
   attachIcon: { fontSize: 18 },
   textInput: {
     flex: 1, minHeight: 40, maxHeight: 110,
-    backgroundColor: '#F2F0ED', borderRadius: 20,
+    backgroundColor: '#F5F5F0', borderRadius: 20,
     paddingHorizontal: 16, paddingVertical: 10,
-    fontSize: 14, color: '#2D3748', fontWeight: '500',
-    borderWidth: 1.5, borderColor: '#E2E8F0',
+    fontSize: 14, color: '#1A1A1A', fontWeight: '500',
+    borderWidth: 1, borderColor: '#EFEFEF',
   },
   sendBtn: {
-    width: 42, height: 42, borderRadius: 21, backgroundColor: BLUE,
+    width: 42, height: 42, borderRadius: 21, backgroundColor: ORANGE,
     alignItems: 'center', justifyContent: 'center',
   },
-  sendBtnDisabled: { backgroundColor: '#A0BFEE' },
+  sendBtnDisabled: { backgroundColor: '#FFCBA8' },
   sendIcon: { fontSize: 16, color: 'white' },
 
   // 3-dot menu
@@ -430,7 +431,7 @@ const styles = StyleSheet.create({
   },
   menuDropdown: {
     position: 'absolute', top: 96, right: 14,
-    backgroundColor: 'white', borderRadius: 14, minWidth: 220,
+    backgroundColor: '#FFFFFF', borderRadius: 14, minWidth: 220,
     shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.18, shadowRadius: 16, elevation: 12,
     overflow: 'hidden',
   },
@@ -439,6 +440,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 14,
   },
   menuItemIcon: { fontSize: 18 },
-  menuItemText: { fontSize: 14, fontWeight: '700', color: '#1A202C' },
-  menuSep: { height: 1, backgroundColor: '#F0F4F8', marginHorizontal: 14 },
+  menuItemText: { fontSize: 14, fontWeight: '700', color: '#1A1A1A' },
+  menuSep: { height: 1, backgroundColor: '#EFEFEF', marginHorizontal: 14 },
 });

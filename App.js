@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, BackHandler } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -57,21 +57,41 @@ import CommissionWalletScreen from './screens/CommissionWalletScreen';
 import LeaveReviewScreen from './screens/LeaveReviewScreen';
 import ReviewsListScreen from './screens/ReviewsListScreen';
 
+// Legal & Info (Play Store required)
+import PrivacyPolicyScreen from './screens/PrivacyPolicyScreen';
+import TermsScreen from './screens/TermsScreen';
+import AboutScreen from './screens/AboutScreen';
+
 const Stack = createNativeStackNavigator();
 
 export default function App() {
   const [initialRoute, setInitialRoute] = useState(null);
 
   useEffect(() => {
-    AsyncStorage.getItem('uid').then(uid => {
-      setInitialRoute(uid ? 'Home' : 'AccountType');
-    });
+    determineInitialRoute();
   }, []);
+
+  const determineInitialRoute = async () => {
+    try {
+      const uid = await AsyncStorage.getItem('uid');
+      const hasSeenOnboarding = await AsyncStorage.getItem('hasSeenOnboarding');
+
+      if (uid) {
+        setInitialRoute('Home');
+      } else if (!hasSeenOnboarding) {
+        setInitialRoute('Login'); // LoginScreen handles onboarding internally
+      } else {
+        setInitialRoute('AccountType');
+      }
+    } catch (_) {
+      setInitialRoute('AccountType');
+    }
+  };
 
   if (!initialRoute) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' }}>
-        <ActivityIndicator size="large" color="#1565C0" />
+        <ActivityIndicator size="large" color="#0EA5E9" />
       </View>
     );
   }
@@ -134,6 +154,11 @@ export default function App() {
         <Stack.Screen name="CommissionWallet" component={CommissionWalletScreen} />
         <Stack.Screen name="LeaveReview" component={LeaveReviewScreen} />
         <Stack.Screen name="ReviewsList" component={ReviewsListScreen} />
+
+        {/* Legal & Info */}
+        <Stack.Screen name="Privacy" component={PrivacyPolicyScreen} />
+        <Stack.Screen name="Terms" component={TermsScreen} />
+        <Stack.Screen name="About" component={AboutScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

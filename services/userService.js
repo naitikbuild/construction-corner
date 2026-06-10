@@ -1,7 +1,7 @@
 import { db } from '../config/firebase';
 import {
   doc, setDoc, getDoc, updateDoc,
-  collection, query, where, getDocs,
+  collection, query, where, getDocs, increment,
 } from 'firebase/firestore';
 
 export const saveProfile = async (uid, profileData) => {
@@ -45,6 +45,15 @@ export const getAllUsers = async (profileType, category) => {
 
 export const getUserById = async (uid) => {
   return getProfile(uid);
+};
+
+export const recordProfileView = async (viewedUid, viewerUid) => {
+  if (!viewedUid || viewedUid === viewerUid) return;
+  try {
+    await updateDoc(doc(db, 'users', viewedUid), {
+      profileViews: increment(1),
+    });
+  } catch (_) {}
 };
 
 export const searchUsers = async (searchQuery) => {

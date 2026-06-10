@@ -5,11 +5,11 @@ import {
 import { useState, useMemo, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { BLUE } from '../constants/colors';
 import { db } from '../config/firebase';
 import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 
-const LIGHT_BLUE = '#E0F5FE';
+const ORANGE = '#FF6B2B';
+const ORANGE_LIGHT = '#FFF3E0';
 
 // ─── Sample Data ─────────────────────────────────────────────────────────────
 
@@ -254,7 +254,7 @@ export default function ChatListScreen({ navigation }) {
       {/* List */}
       {loading && (
         <View style={{ alignItems: 'center', paddingTop: 40 }}>
-          <ActivityIndicator size="large" color={BLUE} />
+          <ActivityIndicator size="large" color={ORANGE} />
           <Text style={{ marginTop: 10, color: '#888', fontSize: 13 }}>Loading chats...</Text>
         </View>
       )}
@@ -285,23 +285,23 @@ export default function ChatListScreen({ navigation }) {
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: 'white' },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
 
   // Header
   header: {
-    backgroundColor: 'white',
+    backgroundColor: '#FFFFFF',
     paddingTop: 52,
     borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    borderBottomColor: '#EFEFEF',
   },
   headerTop: {
     flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingBottom: 14,
   },
-  headerTitle: { fontSize: 24, fontWeight: '900', color: '#1A202C' },
-  headerSub: { fontSize: 12, fontWeight: '600', color: BLUE, marginTop: 2 },
+  headerTitle: { fontSize: 24, fontWeight: '800', color: '#1A1A1A' },
+  headerSub: { fontSize: 12, fontWeight: '600', color: ORANGE, marginTop: 2 },
   composeBtn: {
-    width: 40, height: 40, borderRadius: 12, backgroundColor: LIGHT_BLUE,
+    width: 40, height: 40, borderRadius: 12, backgroundColor: ORANGE_LIGHT,
     alignItems: 'center', justifyContent: 'center',
   },
   composeBtnText: { fontSize: 18 },
@@ -309,57 +309,57 @@ const styles = StyleSheet.create({
   // Search
   searchBar: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: '#F2F0ED', borderRadius: 12, marginHorizontal: 16,
+    backgroundColor: '#F5F5F0', borderRadius: 12, marginHorizontal: 16,
     paddingHorizontal: 14, paddingVertical: 11, marginBottom: 12,
-    borderWidth: 1.5, borderColor: '#E2E8F0',
+    borderWidth: 1, borderColor: '#EFEFEF',
   },
   searchIcon: { fontSize: 15 },
-  searchInput: { flex: 1, fontSize: 14, color: '#1A202C', fontWeight: '500' },
-  searchClear: { fontSize: 13, color: '#A0ADB8', fontWeight: '700', paddingHorizontal: 4 },
+  searchInput: { flex: 1, fontSize: 14, color: '#1A1A1A', fontWeight: '500' },
+  searchClear: { fontSize: 13, color: '#888', fontWeight: '700', paddingHorizontal: 4 },
 
   // Filter tabs
   filterRow: { flexDirection: 'row', paddingHorizontal: 16, gap: 8, paddingBottom: 0 },
-  filterTab: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#F2F0ED' },
-  filterTabActive: { backgroundColor: LIGHT_BLUE },
-  filterTabText: { fontSize: 12, fontWeight: '600', color: '#718096' },
-  filterTabTextActive: { color: BLUE, fontWeight: '800' },
+  filterTab: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#F5F5F0' },
+  filterTabActive: { backgroundColor: ORANGE_LIGHT },
+  filterTabText: { fontSize: 12, fontWeight: '600', color: '#888' },
+  filterTabTextActive: { color: ORANGE, fontWeight: '800' },
 
   // Items
-  item: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 14, gap: 12, backgroundColor: 'white' },
+  item: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 14, gap: 12, backgroundColor: '#FFFFFF' },
   avatarWrap: { position: 'relative' },
   avatar: {
     width: 54, height: 54, borderRadius: 27,
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1.5, borderColor: '#E2E8F0',
+    borderWidth: 1, borderColor: '#EFEFEF',
   },
   avatarEmoji: { fontSize: 26 },
   onlineDot: {
     position: 'absolute', bottom: 1, right: 1,
     width: 13, height: 13, borderRadius: 7,
-    backgroundColor: '#38A169', borderWidth: 2, borderColor: 'white',
+    backgroundColor: '#2ECC71', borderWidth: 2, borderColor: '#FFFFFF',
   },
   itemContent: { flex: 1, justifyContent: 'center' },
   itemTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 },
-  itemName: { fontSize: 15, fontWeight: '800', color: '#1A202C', flex: 1, marginRight: 8 },
-  itemTime: { fontSize: 11, fontWeight: '600', color: '#A0ADB8' },
-  itemTimeUnread: { color: BLUE, fontWeight: '700' },
+  itemName: { fontSize: 15, fontWeight: '800', color: '#1A1A1A', flex: 1, marginRight: 8 },
+  itemTime: { fontSize: 11, fontWeight: '600', color: '#888' },
+  itemTimeUnread: { color: ORANGE, fontWeight: '700' },
   itemBottomRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  itemPreview: { flex: 1, fontSize: 13, color: '#718096', fontWeight: '400' },
-  itemPreviewBold: { color: '#2D3748', fontWeight: '600' },
-  itemRole: { fontSize: 11, fontWeight: '600', color: '#A0ADB8', marginTop: 3 },
+  itemPreview: { flex: 1, fontSize: 13, color: '#666666', fontWeight: '400' },
+  itemPreviewBold: { color: '#1A1A1A', fontWeight: '600' },
+  itemRole: { fontSize: 11, fontWeight: '600', color: '#888', marginTop: 3 },
   badge: {
     minWidth: 20, height: 20, borderRadius: 10,
-    backgroundColor: BLUE, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: ORANGE, alignItems: 'center', justifyContent: 'center',
     paddingHorizontal: 5,
   },
-  badgeText: { fontSize: 11, fontWeight: '800', color: 'white' },
+  badgeText: { fontSize: 11, fontWeight: '800', color: '#FFFFFF' },
 
-  separator: { height: 1, backgroundColor: '#F0F4F8', marginLeft: 82 },
+  separator: { height: 1, backgroundColor: '#EFEFEF', marginLeft: 82 },
 
   // Empty
   emptyContainer: { flex: 1 },
   empty: { alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: 12 },
   emptyIcon: { fontSize: 56 },
-  emptyTitle: { fontSize: 18, fontWeight: '800', color: '#2D3748' },
-  emptySub: { fontSize: 13, color: '#A0ADB8' },
+  emptyTitle: { fontSize: 18, fontWeight: '800', color: '#1A1A1A' },
+  emptySub: { fontSize: 13, color: '#888' },
 });

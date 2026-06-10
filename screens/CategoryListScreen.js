@@ -131,8 +131,8 @@ export default function CategoryListScreen({ navigation, route }) {
       {/* ── LIST ── */}
       {loading ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator size="large" color="#1565C0" />
-          <Text style={{ marginTop: 12, color: '#888', fontSize: 14 }}>Finding {typeLabel}...</Text>
+          <ActivityIndicator size="large" color="#FF6B2B" />
+          <Text style={{ marginTop: 12, color: '#888888', fontSize: 14 }}>Finding {typeLabel}...</Text>
         </View>
       ) : displayed.length === 0 ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
@@ -167,47 +167,53 @@ export default function CategoryListScreen({ navigation, route }) {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const ss = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#FFFFFF' },
+  screen: { flex: 1, backgroundColor: '#F5F5F0' },
 
   header: {
     flexDirection: 'row', alignItems: 'center',
     paddingTop: 52, paddingBottom: 12, paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
+    backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
   },
-  backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#F5F5F5', alignItems: 'center', justifyContent: 'center' },
-  backArrow: { fontSize: 18, color: '#111', fontWeight: '700' },
+  backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#F5F5F0', alignItems: 'center', justifyContent: 'center' },
+  backArrow: { fontSize: 18, color: '#1A1A1A', fontWeight: '700' },
   headerCenter: { flex: 1, paddingHorizontal: 10 },
-  headerTitle: { fontSize: 17, fontWeight: '900', color: '#111' },
-  headerCount: { fontSize: 12, color: '#888', fontWeight: '500', marginTop: 1 },
-  sortBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#F5F5F5', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7 },
-  sortIcon: { fontSize: 14, color: '#333' },
-  sortLabel: { fontSize: 13, fontWeight: '700', color: '#333' },
+  headerTitle: { fontSize: 17, fontWeight: '900', color: '#1A1A1A' },
+  headerCount: { fontSize: 12, color: '#888888', fontWeight: '500', marginTop: 1 },
+  sortBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#F5F5F0', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7 },
+  sortIcon: { fontSize: 14, color: '#1A1A2E' },
+  sortLabel: { fontSize: 13, fontWeight: '700', color: '#1A1A2E' },
 
-  searchWrap: { backgroundColor: '#FFFFFF', paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F5F5F5', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, gap: 8 },
+  searchWrap: { backgroundColor: '#FFFFFF', paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#EFEFEF' },
+  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F5F5F0', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, gap: 8 },
   searchIcon: { fontSize: 14 },
-  searchInput: { flex: 1, fontSize: 14, color: '#111', padding: 0 },
+  searchInput: { flex: 1, fontSize: 14, color: '#1A1A1A', padding: 0 },
 
   list: { flex: 1 },
-  listContent: { paddingTop: 4 },
+  listContent: { paddingTop: 8, paddingHorizontal: 12, paddingBottom: 20 },
 
   card: {
     flexDirection: 'row', alignItems: 'flex-start',
-    backgroundColor: '#FFFFFF', paddingHorizontal: 16, paddingVertical: 16, gap: 14,
-    borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
+    backgroundColor: '#FFFFFF', paddingHorizontal: 14, paddingVertical: 14, gap: 14,
+    borderRadius: 14, marginBottom: 10,
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+    borderWidth: 1, borderColor: '#EFEFEF',
   },
-  cardLast: { borderBottomWidth: 0 },
+  cardLast: {},
 
-  thumb: { width: 80, height: 80, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' },
-  thumbEmoji: { fontSize: 36 },
+  thumb: { width: 64, height: 64, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' },
+  thumbEmoji: { fontSize: 30 },
 
-  ratingBadge: { position: 'absolute', bottom: 0, right: 0, backgroundColor: '#2E7D32', borderTopLeftRadius: 8, paddingHorizontal: 6, paddingVertical: 3 },
-  ratingText: { fontSize: 11, fontWeight: '800', color: '#FFFFFF' },
+  ratingBadge: { position: 'absolute', bottom: 0, right: 0, backgroundColor: '#2ECC71', borderTopLeftRadius: 8, borderBottomRightRadius: 14, paddingHorizontal: 6, paddingVertical: 3 },
+  ratingText: { fontSize: 10, fontWeight: '800', color: '#FFFFFF' },
 
   info: { flex: 1, paddingTop: 2 },
-  name: { fontSize: 15, fontWeight: '800', color: '#111', marginBottom: 3 },
-  desig: { fontSize: 12, color: '#666', fontWeight: '500', marginBottom: 3 },
-  meta: { fontSize: 11, color: '#999', fontWeight: '400', marginBottom: 5 },
-  highlight: { fontSize: 12, color: '#1565C0', fontWeight: '600', marginBottom: 6 },
-  verifiedAmt: { fontSize: 12, color: '#2E7D32', fontWeight: '700' },
+  name: { fontSize: 14, fontWeight: '700', color: '#1A1A1A', marginBottom: 3 },
+  desig: { fontSize: 12, color: '#666666', fontWeight: '500', marginBottom: 3 },
+  meta: { fontSize: 11, color: '#888888', fontWeight: '400', marginBottom: 5 },
+  highlight: { fontSize: 12, color: '#FF6B2B', fontWeight: '600', marginBottom: 6 },
+  verifiedAmt: {
+    fontSize: 12, fontWeight: '700', color: '#2ECC71',
+    backgroundColor: '#F0FFF4', paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: 8, alignSelf: 'flex-start',
+  },
 });

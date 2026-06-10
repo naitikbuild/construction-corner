@@ -4,17 +4,19 @@ import {
   StyleSheet, StatusBar, Alert, ActivityIndicator,
 } from 'react-native';
 
-import { BLUE, BLUE_LIGHT, BLUE_MID, GREEN, GREEN_DARK } from '../constants/colors';
 import { confirmWork, getPendingWork } from '../services/workService';
 import { db } from '../config/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
-const RED = '#EF4444';
-const RED_LIGHT = '#FEF2F2';
-const BORDER = '#E2E8F0';
-const CARD = '#F8FAFC';
-const TEXT = '#0F172A';
-const MUTED = '#64748B';
+const ORANGE = '#FF6B2B';
+const GREEN = '#2ECC71';
+const GREEN_DARK = '#1A7A4A';
+const RED = '#E74C3C';
+const RED_LIGHT = '#FFF0F0';
+const BORDER = '#EFEFEF';
+const CARD = '#FFFFFF';
+const TEXT = '#1A1A1A';
+const MUTED = '#666666';
 
 const WORK_RECORD = {
   customer: { name: 'Naitik Rathod', role: 'Property Owner', emoji: '🏠', location: 'Bopal, Ahmedabad' },
@@ -208,7 +210,7 @@ export default function ConfirmWorkScreen({ navigation, route }) {
           <View style={styles.detailDivider} />
           <View style={styles.detailRow}>
             <Text style={styles.detailKey}>Work Amount</Text>
-            <Text style={[styles.detailVal, { color: BLUE, fontSize: 20, fontWeight: '900' }]}>
+            <Text style={[styles.detailVal, { color: ORANGE, fontSize: 20, fontWeight: '800' }]}>
               ₹{RECORD.amount.toLocaleString('en-IN')}
             </Text>
           </View>
@@ -315,25 +317,25 @@ export default function ConfirmWorkScreen({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#fff' },
+  root: { flex: 1, backgroundColor: '#F5F5F0' },
 
   // HEADER
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingTop: 50, paddingBottom: 14,
-    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: BORDER,
+    backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: BORDER,
   },
   backBtn: {
     width: 36, height: 36, borderRadius: 18,
-    backgroundColor: BLUE_LIGHT, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FFF3E0', alignItems: 'center', justifyContent: 'center',
   },
-  backArrow: { fontSize: 18, color: BLUE, fontWeight: '900' },
-  headerTitle: { fontSize: 17, fontWeight: '900', color: TEXT },
+  backArrow: { fontSize: 18, color: ORANGE, fontWeight: '800' },
+  headerTitle: { fontSize: 17, fontWeight: '800', color: TEXT },
 
   // SUCCESS SCREEN
-  successScreen: { flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', gap: 16 },
+  successScreen: { flex: 1, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', gap: 16 },
   successIcon: { fontSize: 72 },
-  successTitle: { fontSize: 26, fontWeight: '900', color: GREEN_DARK },
+  successTitle: { fontSize: 26, fontWeight: '800', color: GREEN_DARK },
   successSub: { fontSize: 14, color: MUTED, textAlign: 'center', paddingHorizontal: 40 },
 
   // STEP INDICATOR
@@ -347,7 +349,7 @@ const styles = StyleSheet.create({
     backgroundColor: BORDER, alignItems: 'center', justifyContent: 'center',
   },
   stepDotActive: { backgroundColor: GREEN },
-  stepNum: { fontSize: 12, fontWeight: '900', color: '#fff' },
+  stepNum: { fontSize: 12, fontWeight: '800', color: '#fff' },
   stepLabel: { fontSize: 9, color: MUTED, fontWeight: '600', textAlign: 'center' },
   stepLabelActive: { color: GREEN_DARK, fontWeight: '800' },
   stepLine: { flex: 0.4, height: 2, backgroundColor: BORDER, marginBottom: 16 },
@@ -355,36 +357,36 @@ const styles = StyleSheet.create({
 
   // SECTION HEADER
   sectionHead: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 10 },
-  sectionBar: { width: 4, height: 18, borderRadius: 2, backgroundColor: BLUE },
-  sectionTitle: { fontSize: 15, fontWeight: '900', color: TEXT },
+  sectionBar: { width: 4, height: 18, borderRadius: 2, backgroundColor: ORANGE },
+  sectionTitle: { fontSize: 15, fontWeight: '800', color: TEXT },
 
   // CUSTOMER CARD
   customerCard: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
     marginHorizontal: 16, padding: 16,
     backgroundColor: CARD, borderRadius: 16,
-    borderWidth: 1.5, borderColor: BORDER,
+    borderWidth: 1, borderColor: BORDER,
   },
   customerAvatar: {
     width: 52, height: 52, borderRadius: 26,
-    backgroundColor: BLUE_LIGHT, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: BLUE_MID,
+    backgroundColor: '#FFF3E0', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: '#FFE0C4',
   },
   customerEmoji: { fontSize: 26 },
   customerInfo: { flex: 1 },
-  customerName: { fontSize: 15, fontWeight: '900', color: TEXT, marginBottom: 2 },
-  customerRole: { fontSize: 12, color: BLUE, fontWeight: '700', marginBottom: 3 },
+  customerName: { fontSize: 15, fontWeight: '800', color: TEXT, marginBottom: 2 },
+  customerRole: { fontSize: 12, color: ORANGE, fontWeight: '700', marginBottom: 3 },
   customerLoc: { fontSize: 11, color: MUTED },
   submittedBadge: {
-    backgroundColor: '#FEF3C7', paddingHorizontal: 10, paddingVertical: 5,
-    borderRadius: 8, borderWidth: 1, borderColor: '#FCD34D',
+    backgroundColor: '#FFF3E0', paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 8, borderWidth: 1, borderColor: '#FFE0C4',
   },
-  submittedText: { fontSize: 11, color: '#92400E', fontWeight: '800' },
+  submittedText: { fontSize: 11, color: ORANGE, fontWeight: '800' },
 
   // WORK DETAILS CARD
   detailsCard: {
     marginHorizontal: 16, borderRadius: 16,
-    backgroundColor: '#fff', borderWidth: 1.5, borderColor: BORDER,
+    backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: BORDER,
     overflow: 'hidden',
   },
   detailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14 },
@@ -397,51 +399,51 @@ const styles = StyleSheet.create({
 
   // STAR RATING
   starRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-  starIcon: { fontSize: 24, color: '#CBD5E1' },
-  starActive: { color: '#FBBF24' },
+  starIcon: { fontSize: 24, color: '#DDD' },
+  starActive: { color: '#FFB830' },
   ratingLabel: { fontSize: 13, color: MUTED, fontWeight: '700', marginLeft: 6 },
 
   // COMMISSION CARD
   commissionCard: {
     marginHorizontal: 16, padding: 18,
-    backgroundColor: '#F0FDF4', borderRadius: 16,
-    borderWidth: 1.5, borderColor: '#86EFAC',
+    backgroundColor: '#F0FFF4', borderRadius: 16,
+    borderWidth: 1, borderColor: '#2ECC7155',
   },
   commRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   commKey: { fontSize: 13, color: MUTED, fontWeight: '600' },
   commSubKey: { fontSize: 11, color: MUTED },
   commVal: { fontSize: 16, fontWeight: '800', color: TEXT },
   commNetRow: {
-    borderTopWidth: 1.5, borderTopColor: '#86EFAC',
+    borderTopWidth: 1, borderTopColor: '#2ECC7155',
     paddingTop: 14, marginTop: 2, marginBottom: 14,
   },
-  commNetKey: { fontSize: 15, fontWeight: '900', color: GREEN_DARK },
-  commNetVal: { fontSize: 22, fontWeight: '900', color: GREEN },
+  commNetKey: { fontSize: 15, fontWeight: '800', color: GREEN_DARK },
+  commNetVal: { fontSize: 22, fontWeight: '800', color: GREEN },
   commPayRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: GREEN, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10,
   },
   commPayLabel: { fontSize: 13, color: '#fff', fontWeight: '700' },
-  commPayUPI: { fontSize: 14, color: '#fff', fontWeight: '900', fontFamily: 'monospace' },
+  commPayUPI: { fontSize: 14, color: '#fff', fontWeight: '800', fontFamily: 'monospace' },
 
   // UPI OPTIONS
   upiRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginBottom: 16 },
   upiBtn: {
     flex: 1, alignItems: 'center', gap: 6, paddingVertical: 14,
-    borderWidth: 2, borderColor: BORDER, borderRadius: 14, backgroundColor: CARD,
+    borderWidth: 1.5, borderColor: BORDER, borderRadius: 14, backgroundColor: CARD,
   },
   upiIcon: { fontSize: 28 },
   upiLabel: { fontSize: 11, fontWeight: '700', color: TEXT },
-  upiCheck: { fontSize: 14, color: GREEN_DARK, fontWeight: '900' },
+  upiCheck: { fontSize: 14, color: GREEN_DARK, fontWeight: '800' },
 
   // WARNING
   warningBox: {
     flexDirection: 'row', gap: 10, alignItems: 'flex-start',
     marginHorizontal: 16, marginBottom: 20, padding: 14, borderRadius: 12,
-    backgroundColor: '#FFFBEB', borderWidth: 1.5, borderColor: '#FCD34D',
+    backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FFD700',
   },
   warningIcon: { fontSize: 18 },
-  warningText: { flex: 1, fontSize: 12, color: '#92400E', lineHeight: 18 },
+  warningText: { flex: 1, fontSize: 12, color: '#7A5400', lineHeight: 18 },
 
   // ACTION BUTTONS
   confirmBtn: {
@@ -450,7 +452,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     shadowColor: GREEN, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5,
   },
-  confirmBtnText: { fontSize: 16, fontWeight: '900', color: '#fff' },
+  confirmBtnText: { fontSize: 16, fontWeight: '800', color: '#fff' },
 
   disputeBtn: {
     marginHorizontal: 16,

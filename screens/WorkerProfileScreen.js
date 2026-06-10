@@ -4,9 +4,10 @@ import {
   StyleSheet, StatusBar, useWindowDimensions, Alert, ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getProfile } from '../services/userService';
+import { getProfile, recordProfileView } from '../services/userService';
 import { getTotalVerifiedAmount, getVerifiedWork } from '../services/workService';
 import { createChat } from '../services/chatService';
+import { toggleBookmark, isBookmarked } from '../services/bookmarkService';
 import { auth } from '../config/firebase';
 
 // ─── Section Label ────────────────────────────────────────────────────────────
@@ -78,6 +79,7 @@ export default function WorkerProfileScreen({ navigation, route }) {
   const [verifiedAmt, setVerifiedAmt] = useState('₹0');
   const [verifiedJobs, setVerifiedJobs] = useState([]);
   const [myUid, setMyUid] = useState(null);
+  const [bookmarked, setBookmarked] = useState(false);
 
   useEffect(() => {
     loadProfile();
@@ -89,6 +91,10 @@ export default function WorkerProfileScreen({ navigation, route }) {
       const me = await AsyncStorage.getItem('uid');
       setMyUid(me);
       if (!uid) { setLoading(false); return; }
+      if (uid !== me) {
+        recordProfileView(uid, me);
+        isBookmarked(me, uid).then(saved => setBookmarked(saved)).catch(() => {});
+      }
       const [profile, totalAmt, jobs] = await Promise.all([
         getProfile(uid),
         getTotalVerifiedAmount(uid),
@@ -178,9 +184,27 @@ export default function WorkerProfileScreen({ navigation, route }) {
           <Text style={ss.navBack}>←</Text>
         </TouchableOpacity>
         <Text style={ss.navTitle}>Worker Profile</Text>
-        <TouchableOpacity style={ss.navBtn} onPress={() => Alert.alert('Share profile link copied!')}>
-          <Text style={ss.navShare}>Share</Text>
-        </TouchableOpacity>
+        {viewUid && viewUid !== myUid && (
+          <TouchableOpacity
+            style={ss.navBtn}
+            onPress={async () => {
+              if (!myUid) return;
+              const lp = liveProfile || {};
+              const saved = await toggleBookmark(myUid, {
+                uid: viewUid,
+                name: lp.name || lp.companyName || 'Worker',
+                profileType: 'worker',
+                category: lp.workerSkill || lp.category || '',
+                city: lp.city || '',
+                state: lp.state || '',
+              });
+              setBookmarked(saved);
+              Alert.alert(saved ? 'Bookmarked! 🔖' : 'Removed', saved ? 'Profile saved to bookmarks.' : 'Removed from bookmarks.');
+            }}
+          >
+            <Text style={ss.navShare}>{bookmarked ? '🔖' : '☆'}</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>
@@ -479,18 +503,18 @@ export default function WorkerProfileScreen({ navigation, route }) {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const ss = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#FAFAFA' },
+  screen: { flex: 1, backgroundColor: '#F5F5F0' },
 
   // ── 1. TOP NAV
   nav: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 14, paddingTop: 52, paddingBottom: 12,
     backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1, borderBottomColor: '#E8E8E8',
+    borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
   },
   navBtn: {
     width: 36, height: 36, borderRadius: 10,
-    backgroundColor: '#F4F4F4', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#F5F5F0', alignItems: 'center', justifyContent: 'center',
   },
   navBack: { fontSize: 20, fontWeight: '700', color: '#1A1A1A' },
   navTitle: { flex: 1, textAlign: 'center', fontSize: 15, fontWeight: '800', color: '#1A1A1A' },
@@ -501,102 +525,103 @@ const ss = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     marginHorizontal: 14, marginTop: 12,
     borderRadius: 14, padding: 14,
-    borderWidth: 1, borderColor: '#E8E8E8',
+    borderWidth: 1, borderColor: '#EFEFEF',
   },
   sLabel: {
-    fontSize: 9, color: '#888', fontWeight: '700',
-    letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 10,
+    fontSize: 9, color: '#888888', fontWeight: '700',
+    letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 10,
   },
-  divider: { height: 1, backgroundColor: '#F0F0F0', marginVertical: 12 },
+  divider: { height: 1, backgroundColor: '#EFEFEF', marginVertical: 12 },
 
   // ── 2. HERO
   heroCard: {
     backgroundColor: '#FFFFFF',
     marginHorizontal: 14, marginTop: 14,
     borderRadius: 14, padding: 14,
-    borderWidth: 1, borderColor: '#E8E8E8',
+    borderWidth: 1, borderColor: '#EFEFEF',
   },
   heroTop: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   avatarCircle: {
     width: 70, height: 70, borderRadius: 35,
-    backgroundColor: '#F4F4F4', borderWidth: 1.5, borderColor: '#DDDDDD',
+    backgroundColor: '#FFF3E0', borderWidth: 1.5, borderColor: '#FFE0C4',
     alignItems: 'center', justifyContent: 'center',
   },
   heroInfo: { flex: 1 },
-  heroName: { fontSize: 18, fontWeight: '900', color: '#1A1A1A', marginBottom: 2 },
-  heroDesig: { fontSize: 13, fontWeight: '600', color: '#555', marginBottom: 3 },
-  heroLoc: { fontSize: 12, color: '#888' },
+  heroName: { fontSize: 18, fontWeight: '800', color: '#1A1A1A', marginBottom: 2 },
+  heroDesig: { fontSize: 13, fontWeight: '500', color: '#666666', marginBottom: 3 },
+  heroLoc: { fontSize: 12, color: '#888888' },
   heroStrip: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
-  heroStripStar: { fontSize: 12, color: '#E8A900', fontWeight: '700' },
-  heroStripMuted: { fontSize: 12, color: '#888' },
-  heroStripSep: { fontSize: 12, color: '#CCC' },
-  heroStripVerified: { fontSize: 12, color: '#4CAF50', fontWeight: '600' },
+  heroStripStar: { fontSize: 12, color: '#FFB830', fontWeight: '700' },
+  heroStripMuted: { fontSize: 12, color: '#888888' },
+  heroStripSep: { fontSize: 12, color: '#CCCCCC' },
+  heroStripVerified: { fontSize: 12, color: '#2ECC71', fontWeight: '600' },
   heroStripItem: { fontSize: 12, color: '#333', fontWeight: '600' },
   availRow: { flexDirection: 'row', alignItems: 'center' },
-  availDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#4CAF50' },
-  availText: { fontSize: 12, color: '#4CAF50', fontWeight: '600' },
+  availDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#2ECC71' },
+  availText: { fontSize: 12, color: '#2ECC71', fontWeight: '600' },
   heroActions: { flexDirection: 'row', gap: 8 },
   hireBtn: {
-    flex: 1.5, height: 42, borderRadius: 10,
-    backgroundColor: '#1A1A1A', alignItems: 'center', justifyContent: 'center',
+    flex: 1.5, height: 44, borderRadius: 14,
+    backgroundColor: '#FF6B2B', alignItems: 'center', justifyContent: 'center',
   },
-  hireBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
+  hireBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
   outlineBtn: {
-    flex: 1, height: 42, borderRadius: 10,
-    borderWidth: 1.5, borderColor: '#CCCCCC',
+    flex: 1, height: 44, borderRadius: 14,
+    borderWidth: 2, borderColor: '#1A1A2E',
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#FAFAFA',
-  },
-  outlineBtnText: { color: '#1A1A1A', fontWeight: '700', fontSize: 13 },
-
-  // ── 3. TRUST SCORE CARD
-  trustCard: {
     backgroundColor: '#FFFFFF',
+  },
+  outlineBtnText: { color: '#1A1A2E', fontWeight: '700', fontSize: 13 },
+
+  // ── 3. VERIFIED WORK CARD (dark navy)
+  trustCard: {
     marginHorizontal: 14, marginTop: 12,
     borderRadius: 14, padding: 14,
-    borderWidth: 1.5, borderColor: '#C8E6C9',
+    backgroundColor: '#1A1A2E',
+    overflow: 'hidden',
   },
   trustTopRow: {
     flexDirection: 'row', justifyContent: 'space-between',
     alignItems: 'flex-start', marginBottom: 10,
   },
-  trustCardLabel: { fontSize: 12, color: '#777', fontWeight: '600', marginBottom: 2 },
-  trustCardScore: { fontSize: 28, fontWeight: '900', color: '#1A1A1A' },
+  trustCardLabel: { fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: '600', marginBottom: 2 },
+  trustCardScore: { fontSize: 28, fontWeight: '800', color: '#FFFFFF' },
   trustScoreBadge: {
-    backgroundColor: '#E8F5E9', borderRadius: 20,
-    borderWidth: 1, borderColor: '#4CAF50',
+    backgroundColor: 'rgba(46,204,113,0.2)', borderRadius: 20,
+    borderWidth: 1, borderColor: '#2ECC71',
     paddingHorizontal: 10, paddingVertical: 4,
   },
-  trustScoreBadgeText: { fontSize: 11, fontWeight: '800', color: '#2E7D32' },
+  trustScoreBadgeText: { fontSize: 11, fontWeight: '800', color: '#2ECC71' },
   trustBarTrack: {
-    height: 8, backgroundColor: '#F0F0F0', borderRadius: 4,
+    height: 8, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 4,
     overflow: 'hidden', marginBottom: 14,
   },
-  trustBarFill: { height: '100%', backgroundColor: '#4CAF50', borderRadius: 4 },
+  trustBarFill: { height: '100%', backgroundColor: '#2ECC71', borderRadius: 4 },
   verEarningsBox: {
-    backgroundColor: '#E8F5E9', borderRadius: 10,
-    borderWidth: 1, borderColor: '#A5D6A7',
+    backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 10,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
     padding: 12, alignItems: 'center', marginBottom: 14,
   },
-  verEarningsLabel: { fontSize: 11, color: '#388E3C', fontWeight: '700', marginBottom: 4 },
-  verEarningsAmt: { fontSize: 32, fontWeight: '900', color: '#1B5E20', marginBottom: 2 },
-  verEarningsSub: { fontSize: 10, color: '#4CAF50', fontWeight: '500' },
+  verEarningsLabel: { fontSize: 11, color: 'rgba(255,255,255,0.6)', fontWeight: '700', marginBottom: 4 },
+  verEarningsAmt: { fontSize: 32, fontWeight: '800', color: '#FFFFFF', marginBottom: 2 },
+  verEarningsSub: { fontSize: 10, color: 'rgba(255,255,255,0.4)', fontWeight: '500' },
   trustStats: { flexDirection: 'row', alignItems: 'center' },
   trustStat: { flex: 1, alignItems: 'center' },
-  trustStatVal: { fontSize: 20, fontWeight: '900', color: '#1A1A1A', marginBottom: 3 },
-  trustStatLbl: { fontSize: 10, color: '#888', fontWeight: '600', textAlign: 'center', lineHeight: 14 },
-  trustStatSep: { width: 1, height: 32, backgroundColor: '#E8E8E8' },
+  trustStatVal: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', marginBottom: 3 },
+  trustStatLbl: { fontSize: 10, color: 'rgba(255,255,255,0.5)', fontWeight: '600', textAlign: 'center', lineHeight: 14 },
+  trustStatSep: { width: 1, height: 32, backgroundColor: 'rgba(255,255,255,0.1)' },
 
   // ── 4. SKILLS
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
-    backgroundColor: '#F0F0F0', borderRadius: 20,
+    backgroundColor: '#F5F5F0', borderRadius: 20,
     paddingHorizontal: 12, paddingVertical: 6,
+    borderWidth: 1, borderColor: '#EFEFEF',
   },
   chipText: { fontSize: 12, color: '#1A1A1A', fontWeight: '600' },
 
   // ── 5. GALLERY
-  galleryNote: { fontSize: 11, color: '#888', marginTop: -4, marginBottom: 6 },
+  galleryNote: { fontSize: 11, color: '#888888', marginTop: -4, marginBottom: 6 },
   photoGrid: { flexDirection: 'row', flexWrap: 'wrap' },
   photoCell: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
@@ -605,36 +630,36 @@ const ss = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     paddingVertical: 12, gap: 10,
   },
-  jobRowBorder: { borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  jobRowBorder: { borderBottomWidth: 1, borderBottomColor: '#EFEFEF' },
   jobTopLine: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' },
   jobType: { fontSize: 13, fontWeight: '700', color: '#1A1A1A' },
   verBadge: {
-    backgroundColor: '#E8F5E9', borderRadius: 20, borderWidth: 1,
-    borderColor: '#4CAF50', paddingHorizontal: 7, paddingVertical: 2,
+    backgroundColor: '#F0FFF4', borderRadius: 20, borderWidth: 1,
+    borderColor: '#2ECC71', paddingHorizontal: 7, paddingVertical: 2,
   },
-  verBadgeText: { fontSize: 10, fontWeight: '800', color: '#2E7D32' },
-  jobMeta: { fontSize: 11, color: '#888' },
-  jobAmt: { fontSize: 15, fontWeight: '900', color: '#4CAF50', minWidth: 64, textAlign: 'right' },
+  verBadgeText: { fontSize: 10, fontWeight: '800', color: '#2ECC71' },
+  jobMeta: { fontSize: 11, color: '#888888' },
+  jobAmt: { fontSize: 15, fontWeight: '800', color: '#2ECC71', minWidth: 64, textAlign: 'right' },
   viewAllBtn: {
     marginTop: 10, paddingTop: 10,
-    borderTopWidth: 1, borderTopColor: '#F0F0F0',
+    borderTopWidth: 1, borderTopColor: '#EFEFEF',
     alignItems: 'center',
   },
-  viewAllText: { fontSize: 13, fontWeight: '700', color: '#1A1A1A' },
+  viewAllText: { fontSize: 13, fontWeight: '700', color: '#FF6B2B' },
 
   // ── 7. EXPERIENCE
   expRow: { flexDirection: 'row', alignItems: 'baseline', marginBottom: 4 },
-  expYears: { fontSize: 22, fontWeight: '900', color: '#1A1A1A' },
+  expYears: { fontSize: 22, fontWeight: '800', color: '#1A1A1A' },
   expIn: { fontSize: 15, fontWeight: '600', color: '#333' },
-  expSub: { fontSize: 13, color: '#888' },
+  expSub: { fontSize: 13, color: '#888888' },
 
   // ── 8. PRICING
   priceRow: { flexDirection: 'row', alignItems: 'center' },
-  priceLabel: { fontSize: 11, color: '#888', fontWeight: '600', marginBottom: 4 },
-  priceAmt: { fontSize: 28, fontWeight: '900', color: '#1A1A1A' },
-  priceUnit: { fontSize: 14, fontWeight: '600', color: '#888' },
-  priceSep: { width: 1, height: 40, backgroundColor: '#E8E8E8' },
-  priceAvail: { fontSize: 13, color: '#4CAF50', fontWeight: '600' },
+  priceLabel: { fontSize: 9, color: '#888888', fontWeight: '700', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1.5 },
+  priceAmt: { fontSize: 28, fontWeight: '800', color: '#1A1A1A' },
+  priceUnit: { fontSize: 14, fontWeight: '600', color: '#888888' },
+  priceSep: { width: 1, height: 40, backgroundColor: '#EFEFEF' },
+  priceAvail: { fontSize: 13, color: '#2ECC71', fontWeight: '600' },
 
   // ── 9. REVIEWS
   reviewsHeader: {
@@ -642,33 +667,33 @@ const ss = StyleSheet.create({
     alignItems: 'center',
   },
   overallStars: { flexDirection: 'row', alignItems: 'baseline', gap: 2, marginBottom: 10 },
-  overallNum: { fontSize: 22, fontWeight: '900', color: '#1A1A1A' },
-  overallStar: { fontSize: 20, color: '#E8A900' },
+  overallNum: { fontSize: 22, fontWeight: '800', color: '#1A1A1A' },
+  overallStar: { fontSize: 20, color: '#FFB830' },
   reviewCard: {
-    backgroundColor: '#FAFAFA', borderRadius: 10,
-    borderWidth: 1, borderColor: '#F0F0F0', padding: 12,
+    backgroundColor: '#F5F5F0', borderRadius: 10,
+    borderWidth: 1, borderColor: '#EFEFEF', padding: 12,
   },
   reviewQuote: { fontSize: 13, color: '#444', lineHeight: 19, fontStyle: 'italic', marginBottom: 10 },
   reviewBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
   reviewName: { fontSize: 12, fontWeight: '700', color: '#1A1A1A' },
-  reviewCompany: { fontSize: 11, color: '#888' },
-  reviewStars: { fontSize: 13, color: '#E8A900' },
+  reviewCompany: { fontSize: 11, color: '#888888' },
+  reviewStars: { fontSize: 13, color: '#FFB830' },
 
   // ── 10. LOCATION
   locRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 5 },
   locPin: { fontSize: 16 },
   locCity: { fontSize: 16, fontWeight: '800', color: '#1A1A1A' },
-  locAreas: { fontSize: 12, color: '#666', marginBottom: 8 },
+  locAreas: { fontSize: 12, color: '#666666', marginBottom: 8 },
   availStatusRow: { flexDirection: 'row', alignItems: 'center' },
-  availStatusText: { fontSize: 13, color: '#4CAF50', fontWeight: '700' },
+  availStatusText: { fontSize: 13, color: '#2ECC71', fontWeight: '700' },
 
   // ── 11. BADGES
   badgesWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   achieveBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#F4F4F4', borderRadius: 20,
+    backgroundColor: '#F5F5F0', borderRadius: 20,
     paddingHorizontal: 12, paddingVertical: 7,
-    borderWidth: 1, borderColor: '#E0E0E0',
+    borderWidth: 1, borderColor: '#EFEFEF',
   },
   achieveIcon: { fontSize: 14 },
   achieveLabel: { fontSize: 12, fontWeight: '700', color: '#1A1A1A' },
@@ -679,18 +704,18 @@ const ss = StyleSheet.create({
     flexDirection: 'row', gap: 8,
     paddingHorizontal: 14, paddingBottom: 28, paddingTop: 10,
     backgroundColor: '#FFFFFF',
-    borderTopWidth: 1, borderTopColor: '#E8E8E8',
+    borderTopWidth: 1, borderTopColor: '#EFEFEF',
   },
   bottomHireBtn: {
-    flex: 1.5, height: 46, borderRadius: 12,
-    backgroundColor: '#1A1A1A', alignItems: 'center', justifyContent: 'center',
+    flex: 1.5, height: 48, borderRadius: 14,
+    backgroundColor: '#FF6B2B', alignItems: 'center', justifyContent: 'center',
   },
-  bottomHireBtnText: { color: '#FFFFFF', fontWeight: '900', fontSize: 15 },
+  bottomHireBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
   bottomOutlineBtn: {
-    flex: 1, height: 46, borderRadius: 12,
-    borderWidth: 1.5, borderColor: '#CCCCCC',
+    flex: 1, height: 48, borderRadius: 14,
+    borderWidth: 2, borderColor: '#1A1A2E',
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#FAFAFA',
+    backgroundColor: '#FFFFFF',
   },
-  bottomOutlineBtnText: { color: '#1A1A1A', fontWeight: '700', fontSize: 14 },
+  bottomOutlineBtnText: { color: '#1A1A2E', fontWeight: '700', fontSize: 14 },
 });

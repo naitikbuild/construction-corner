@@ -1,6 +1,6 @@
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, TextInput, StatusBar, ActivityIndicator,
+  StyleSheet, TextInput, StatusBar, ActivityIndicator, Alert,
 } from 'react-native';
 import { useState, useEffect } from 'react';
 import { getAllJobs } from '../services/jobService';
@@ -231,7 +231,7 @@ export default function JobsScreen({ navigation }) {
 
         <View style={styles.jobsList}>
           {filtered.map((j, i) => (
-            <TouchableOpacity key={i} style={styles.jobCard} onPress={() => navigation.navigate('PostJob')}>
+            <TouchableOpacity key={i} style={styles.jobCard} onPress={() => Alert.alert(j.title, `${j.company}\n📍 ${j.location}\n💰 ${j.pay}${j.desc ? '\n\n' + j.desc : ''}`, [{ text: 'Apply Now', onPress: () => navigation.navigate('ChatList') }, { text: 'Close', style: 'cancel' }])}>
               {/* TOP ROW */}
               <View style={styles.jobCardTop}>
                 <View style={[styles.jobAvatar, { backgroundColor: j.bg }]}>

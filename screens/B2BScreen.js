@@ -33,7 +33,7 @@ const businesses = [
   {
     emoji: '🏭',
     bg: '#F1F5F9',
-    accent: '#0EA5E9',
+    accent: '#FF6B2B',
     name: 'Gujarat Ready Mix Co.',
     type: 'RMC Supplier',
     location: 'Odhav, Ahmedabad',
@@ -157,7 +157,7 @@ export default function B2BScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0EA5E9" />
+      <StatusBar barStyle="light-content" backgroundColor="#FF6B2B" />
 
       {/* HEADER */}
       <View style={styles.header}>
@@ -220,7 +220,7 @@ export default function B2BScreen({ navigation }) {
                 </View>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 14, gap: 10 }}>
                   {featured.map((f, i) => (
-                    <TouchableOpacity key={i} style={[styles.featuredCard, { backgroundColor: f.bg }]} onPress={() => navigation.navigate('BusinessProfile', { company: f })}>
+                    <TouchableOpacity key={i} style={[styles.featuredCard, { backgroundColor: f.bg }]} onPress={() => navigation.navigate('CategoryList', { category: f.type || 'Business', profileType: 'business' })}>
                       <Text style={styles.featuredEmoji}>{f.emoji}</Text>
                       <Text style={styles.featuredName}>{f.name}</Text>
                       <Text style={styles.featuredType}>{f.type}</Text>
@@ -283,7 +283,7 @@ export default function B2BScreen({ navigation }) {
                 <TouchableOpacity
                   key={i}
                   style={styles.bizCard}
-                  onPress={() => navigation.navigate('BusinessProfile', { company: b })}
+                  onPress={() => navigation.navigate('CategoryList', { category: b.type || 'Business', profileType: 'business' })}
                 >
                   <View style={styles.bizCardTop}>
                     <View style={[styles.bizAvatar, { backgroundColor: b.bg }]}>
@@ -342,7 +342,7 @@ export default function B2BScreen({ navigation }) {
                 <TouchableOpacity
                   key={i}
                   style={styles.workerCard}
-                  onPress={() => navigation.navigate('WorkerList', { workerType: w.category })}
+                  onPress={() => navigation.navigate('CategoryList', { category: w.category, profileType: 'worker' })}
                 >
                   <View style={[styles.workerCardIcon, { backgroundColor: w.bg }]}>
                     <Text style={styles.workerCardEmoji}>{w.icon}</Text>
@@ -365,7 +365,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F2F0ED' },
 
   // HEADER
-  header: { backgroundColor: '#0EA5E9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 48, paddingBottom: 16, gap: 12 },
+  header: { backgroundColor: '#FF6B2B', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 48, paddingBottom: 16, gap: 12 },
   backBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
   backText: { fontSize: 18, color: 'white', fontWeight: '700' },
   headerCenter: { flex: 1 },
@@ -374,16 +374,16 @@ const styles = StyleSheet.create({
   filterIconBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
 
   // SEARCH
-  searchWrap: { backgroundColor: '#0EA5E9', paddingHorizontal: 14, paddingBottom: 16 },
+  searchWrap: { backgroundColor: '#FF6B2B', paddingHorizontal: 14, paddingBottom: 16 },
   searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11 },
   searchInput: { flex: 1, fontSize: 13, color: '#111', fontWeight: '600' },
 
   // TABS
   tabsRow: { flexDirection: 'row', backgroundColor: 'white', borderBottomWidth: 1.5, borderBottomColor: '#E8E0D8' },
   tab: { flex: 1, paddingVertical: 13, alignItems: 'center', borderBottomWidth: 2.5, borderBottomColor: 'transparent' },
-  tabActive: { borderBottomColor: '#0EA5E9' },
+  tabActive: { borderBottomColor: '#FF6B2B' },
   tabText: { fontSize: 13, fontWeight: '700', color: '#6B6560' },
-  tabTextActive: { color: '#0EA5E9' },
+  tabTextActive: { color: '#FF6B2B' },
 
   // SERVICE PROVIDERS GRID
   spSubtitle: { fontSize: 11, color: '#6B6560', fontWeight: '600', paddingHorizontal: 16, marginTop: -4, marginBottom: 14 },
@@ -414,7 +414,7 @@ const styles = StyleSheet.create({
   // CATEGORIES
   catScroll: { paddingVertical: 14 },
   catChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 99, backgroundColor: 'white', borderWidth: 1.5, borderColor: '#E8E0D8' },
-  catChipActive: { backgroundColor: '#0EA5E9', borderColor: '#0EA5E9' },
+  catChipActive: { backgroundColor: '#FF6B2B', borderColor: '#FF6B2B' },
   catIcon: { fontSize: 14 },
   catLabel: { fontSize: 12, fontWeight: '700', color: '#555' },
   catLabelActive: { color: 'white' },
@@ -422,7 +422,7 @@ const styles = StyleSheet.create({
   // STATS BAR
   statsBar: { flexDirection: 'row', backgroundColor: 'white', marginHorizontal: 14, borderRadius: 14, padding: 16, marginBottom: 14, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
   statItem: { flex: 1, alignItems: 'center' },
-  statVal: { fontSize: 16, fontWeight: '900', color: '#0EA5E9', marginBottom: 2 },
+  statVal: { fontSize: 16, fontWeight: '900', color: '#FF6B2B', marginBottom: 2 },
   statLab: { fontSize: 10, fontWeight: '600', color: '#6B6560' },
   statDiv: { width: 1, backgroundColor: '#E8E0D8' },
 

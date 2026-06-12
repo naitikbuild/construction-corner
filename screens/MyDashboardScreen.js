@@ -23,12 +23,19 @@ const ACTIVITY = [
 
 const QUICK_ACTIONS = [
   { icon: '📋', label: 'Post Job', screen: 'PostJob', bg: '#FFF3E0', color: ORANGE },
-  { icon: '👷', label: 'Find Worker', screen: 'WorkerList', bg: '#F0FFF4', color: '#2ECC71' },
+  { icon: '👷', label: 'Find Worker', screen: 'CategoryList', params: { category: 'Workers', profileType: 'worker' }, bg: '#F0FFF4', color: '#2ECC71' },
   { icon: '🏗️', label: 'Materials', screen: 'MaterialMarketplace', bg: '#FFF7ED', color: '#FF8C00' },
   { icon: '📊', label: 'Tenders', screen: 'Tenders', bg: '#F5F5F0', color: NAVY },
   { icon: '💬', label: 'Messages', screen: 'ChatList', bg: '#F0FFF4', color: '#2ECC71' },
   { icon: '⚙️', label: 'Settings', screen: 'Settings', bg: '#F5F5F0', color: '#666666' },
 ];
+
+const PROFILE_SCREEN_MAP = {
+  professional: 'ProfessionalProfile',
+  worker: 'WorkerProfile',
+  supplier: 'SupplierProfile',
+  business: 'BusinessProfile',
+};
 
 export default function MyDashboardScreen({ navigation }) {
   const [profileCompletion, setProfileCompletion] = useState(0);
@@ -37,6 +44,8 @@ export default function MyDashboardScreen({ navigation }) {
   const [verifiedAmt, setVerifiedAmt] = useState(0);
   const [profileViews, setProfileViews] = useState(0);
   const [pendingConfirmations, setPendingConfirmations] = useState([]);
+  const [profileType, setProfileType] = useState(null);
+  const [myUid, setMyUid] = useState(null);
 
   useEffect(() => {
     loadDashboard();
@@ -59,6 +68,7 @@ export default function MyDashboardScreen({ navigation }) {
       if (cached) setUserName(cached);
       const uid = await AsyncStorage.getItem('uid');
       if (!uid) return;
+      setMyUid(uid);
       const [profile, totalAmt, pending] = await Promise.all([
         getProfile(uid),
         getTotalVerifiedAmount(uid),
@@ -70,6 +80,7 @@ export default function MyDashboardScreen({ navigation }) {
         setCcScore(profile.ccScore || 500);
         setProfileCompletion(calcProfileCompletion(profile));
         setProfileViews(profile.profileViews || 0);
+        if (profile.profileType) setProfileType(profile.profileType.toLowerCase());
       }
       setVerifiedAmt(totalAmt);
       if (pending.length > 0) {
@@ -126,7 +137,10 @@ export default function MyDashboardScreen({ navigation }) {
               <Text style={{ fontSize: 18 }}>🔔</Text>
               <View style={styles.notifBadge}><Text style={styles.notifBadgeText}>3</Text></View>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.avatarBtn} onPress={() => navigation.navigate('Profile')}>
+            <TouchableOpacity style={styles.avatarBtn} onPress={() => {
+              const screen = PROFILE_SCREEN_MAP[profileType] || 'ProfessionalProfile';
+              navigation.navigate(screen, { uid: myUid });
+            }}>
               <Text style={{ fontSize: 22 }}>👤</Text>
             </TouchableOpacity>
           </View>
@@ -191,7 +205,7 @@ export default function MyDashboardScreen({ navigation }) {
             <TouchableOpacity
               key={action.label}
               style={[styles.actionCard, { backgroundColor: action.bg }]}
-              onPress={() => navigation.navigate(action.screen)}
+              onPress={() => navigation.navigate(action.screen, action.params)}
             >
               <Text style={styles.actionIcon}>{action.icon}</Text>
               <Text style={[styles.actionLabel, { color: action.color }]}>{action.label}</Text>

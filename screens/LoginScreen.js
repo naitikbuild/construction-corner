@@ -79,7 +79,11 @@ export default function LoginScreen({ navigation, route }) {
       navigation.replace('Home');
     } else if (roleParam) {
       navigation.replace('EditProfile', { role: roleParam, profileType: profileTypeParam, phone: phoneNum });
+    } else if (accountTypeParam === 'personal') {
+      // Personal users browse without a mandatory profile — send them home
+      navigation.replace('Home');
     } else {
+      // No profile, no role yet — show account type picker
       setScreen('accountType');
     }
   };
@@ -246,7 +250,13 @@ export default function LoginScreen({ navigation, route }) {
         <TouchableOpacity
           style={[styles.primaryBtn, !accountType && styles.primaryBtnDisabled, styles.primaryBtnBottom]}
           disabled={!accountType}
-          onPress={() => setScreen('login')}
+          onPress={() => {
+            if (accountType === 'personal') {
+              navigation.replace('Home');
+            } else {
+              navigation.replace('AccountType');
+            }
+          }}
         >
           <Text style={styles.primaryBtnText}>Continue →</Text>
         </TouchableOpacity>

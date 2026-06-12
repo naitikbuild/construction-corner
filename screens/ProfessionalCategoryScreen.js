@@ -162,7 +162,7 @@ export default function ProfessionalCategoryScreen({ navigation }) {
               key={i}
               style={styles.card}
               activeOpacity={0.75}
-              onPress={() => navigation.navigate('ProfessionalList', { category: cat.name })}
+              onPress={() => navigation.navigate('CategoryList', { category: cat.name, profileType: 'professional' })}
             >
               {/* Icon box */}
               <View style={[styles.iconBox, { backgroundColor: cat.bg }]}>

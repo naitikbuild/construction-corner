@@ -225,7 +225,7 @@ export default function MaterialMarketplaceScreen({ navigation }) {
         <Text style={styles.resultCount}>{filtered.length} suppliers found</Text>
 
         {filtered.map(s => (
-          <TouchableOpacity key={s.id} style={styles.card} activeOpacity={0.75} onPress={() => navigation.navigate('SupplierProfile')}>
+          <TouchableOpacity key={s.id} style={styles.card} activeOpacity={0.75} onPress={() => navigation.navigate('CategoryList', { category: CATEGORIES.find(c => c.id === s.category)?.label || 'Suppliers', profileType: 'supplier' })}>
             {/* TOP ROW */}
             <View style={styles.cardTop}>
               <View style={[styles.thumb, { backgroundColor: s.bg }]}>

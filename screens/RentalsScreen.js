@@ -253,7 +253,7 @@ const styles = StyleSheet.create({
 
   catScroll: { paddingLeft: 16 },
   catChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, backgroundColor: '#F2F0ED', marginRight: 8, borderWidth: 1, borderColor: '#D9D4CC' },
-  catChipActive: { backgroundColor: '#0EA5E9', borderColor: '#0EA5E9' },
+  catChipActive: { backgroundColor: '#FF6B2B', borderColor: '#FF6B2B' },
   catEmoji: { fontSize: 13 },
   catLabel: { fontSize: 12, fontWeight: '600', color: '#6B6560' },
   catLabelActive: { color: '#fff' },
@@ -271,7 +271,7 @@ const styles = StyleSheet.create({
   unavailBadge: { backgroundColor: '#FEE2E2' },
   availText: { fontSize: 10, fontWeight: '700', color: '#16A34A' },
   unavailText: { color: '#DC2626' },
-  cardOwner: { fontSize: 12, fontWeight: '600', color: '#0EA5E9', marginBottom: 3 },
+  cardOwner: { fontSize: 12, fontWeight: '600', color: '#FF6B2B', marginBottom: 3 },
   cardLocation: { fontSize: 11, color: '#999' },
 
   tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 },
@@ -282,7 +282,7 @@ const styles = StyleSheet.create({
   rateLabel: { fontSize: 10, fontWeight: '600', color: '#999', textTransform: 'uppercase', letterSpacing: 0.5 },
   rateValue: { fontSize: 16, fontWeight: '900', color: '#111' },
   rateWeekly: { fontSize: 11, color: '#6B6560', fontWeight: '600' },
-  inquireBtn: { backgroundColor: '#0EA5E9', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12 },
+  inquireBtn: { backgroundColor: '#FF6B2B', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12 },
   inquireBtnDisabled: { backgroundColor: '#D9D4CC' },
   inquireBtnText: { fontSize: 13, fontWeight: '700', color: '#fff' },
 

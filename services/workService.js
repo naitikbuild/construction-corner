@@ -13,7 +13,7 @@ export const markWorkComplete = async (workData) => {
   // Notify the service provider
   if (workData.providerId) {
     await addDoc(collection(db, 'notifications', workData.providerId, 'items'), {
-      type: 'work_confirmation',
+      type: 'work_confirm',
       message: `${workData.customerName || 'Customer'} marked work complete — ₹${workData.amount}`,
       workId: ref.id,
       read: false,
@@ -46,7 +46,7 @@ export const confirmWork = async (workId, commission) => {
 
   if (workData.customerId) {
     await addDoc(collection(db, 'notifications', workData.customerId, 'items'), {
-      type: 'work_confirmed',
+      type: 'work_verified',
       message: `${workData.providerName || 'Service provider'} confirmed your work record — ₹${workData.amount}`,
       workId,
       read: false,

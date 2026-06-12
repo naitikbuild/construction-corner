@@ -166,7 +166,7 @@ export default function CoursesScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0EA5E9" />
+      <StatusBar barStyle="light-content" backgroundColor="#FF6B2B" />
 
       {/* HEADER */}
       <View style={styles.header}>
@@ -351,7 +351,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F2F0ED' },
 
   // HEADER
-  header: { backgroundColor: '#0EA5E9', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 48, paddingBottom: 16, gap: 12 },
+  header: { backgroundColor: '#FF6B2B', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 48, paddingBottom: 16, gap: 12 },
   backBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
   backText: { fontSize: 18, color: 'white', fontWeight: '700' },
   headerCenter: { flex: 1 },
@@ -361,7 +361,7 @@ const styles = StyleSheet.create({
   myCoursesText: { fontSize: 12, fontWeight: '700', color: 'white' },
 
   // SEARCH
-  searchWrap: { backgroundColor: '#0EA5E9', paddingHorizontal: 14, paddingBottom: 16 },
+  searchWrap: { backgroundColor: '#FF6B2B', paddingHorizontal: 14, paddingBottom: 16 },
   searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11 },
   searchInput: { flex: 1, fontSize: 13, color: '#111', fontWeight: '600' },
 
@@ -385,14 +385,14 @@ const styles = StyleSheet.create({
   // STATS
   statsRow: { flexDirection: 'row', backgroundColor: 'white', marginHorizontal: 14, borderRadius: 14, padding: 14, marginBottom: 4, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
   statItem: { flex: 1, alignItems: 'center' },
-  statVal: { fontSize: 13, fontWeight: '900', color: '#0EA5E9', marginBottom: 2 },
+  statVal: { fontSize: 13, fontWeight: '900', color: '#FF6B2B', marginBottom: 2 },
   statLab: { fontSize: 9, fontWeight: '600', color: '#6B6560', textAlign: 'center' },
   statDiv: { width: 1, backgroundColor: '#E8E0D8' },
 
   // CATEGORIES
   catScroll: { paddingVertical: 12 },
   catChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 99, backgroundColor: 'white', borderWidth: 1.5, borderColor: '#E8E0D8' },
-  catChipActive: { backgroundColor: '#0EA5E9', borderColor: '#0EA5E9' },
+  catChipActive: { backgroundColor: '#FF6B2B', borderColor: '#FF6B2B' },
   catIcon: { fontSize: 14 },
   catLabel: { fontSize: 12, fontWeight: '700', color: '#555' },
   catLabelActive: { color: 'white' },

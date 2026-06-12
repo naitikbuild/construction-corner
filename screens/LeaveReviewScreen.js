@@ -3,6 +3,9 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, TextInput, Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { db } from '../config/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 const GREEN      = '#4CAF50';
 const GREEN_LIGHT = '#F0FDF4';
@@ -21,7 +24,7 @@ function GradBtn({ label, onPress, disabled }) {
       disabled={disabled}
     >
       <View style={ss.gradBg} pointerEvents="none">
-        {['#833AB4', '#C13584', '#FD1D1D', '#F77737'].map((c, i) => (
+        {['#FF6B2B', '#FF7A35', '#FF8840', '#FF8C00'].map((c, i) => (
           <View key={i} style={{ flex: 1, backgroundColor: c }} />
         ))}
       </View>
@@ -95,10 +98,26 @@ export default function LeaveReviewScreen({ navigation, route }) {
     setSelectedTags([]); // reset tags when rating tier changes
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (rating === 0) {
       Alert.alert('Rate the Work', 'Please give a star rating before submitting.');
       return;
+    }
+    try {
+      const reviewerUid = await AsyncStorage.getItem('uid');
+      await addDoc(collection(db, 'reviews'), {
+        reviewerUid: reviewerUid || null,
+        workerUid: worker.workerUid || null,
+        workerName: worker.workerName,
+        workType: worker.workType,
+        amount: worker.amount,
+        rating,
+        tags: selectedTags,
+        text: reviewText.trim(),
+        createdAt: serverTimestamp(),
+      });
+    } catch (_) {
+      // Optimistically show success even if save fails
     }
     setSubmitted(true);
   };
@@ -310,7 +329,7 @@ const ss = StyleSheet.create({
   workerName: { fontSize: 16, fontWeight: '800', color: TEXT },
   workerRole: { fontSize: 13, color: MUTED, fontWeight: '500' },
   workTypePill: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
-  workTypeText: { fontSize: 12, color: '#0EA5E9', fontWeight: '600' },
+  workTypeText: { fontSize: 12, color: '#FF6B2B', fontWeight: '600' },
   workAmt: { fontSize: 12, color: MUTED, fontWeight: '500' },
   verifiedBadge: {
     backgroundColor: GREEN_LIGHT, borderRadius: 8,

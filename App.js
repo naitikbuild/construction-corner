@@ -91,7 +91,7 @@ export default function App() {
   if (!initialRoute) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' }}>
-        <ActivityIndicator size="large" color="#0EA5E9" />
+        <ActivityIndicator size="large" color="#FF6B2B" />
       </View>
     );
   }

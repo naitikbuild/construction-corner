@@ -95,7 +95,7 @@ export default function ChatScreen({ navigation, route }) {
     online: true,
   };
 
-  const [messages, setMessages] = useState(SAMPLE_MESSAGES[conversation.id] || SAMPLE_MESSAGES['1']);
+  const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [showMenu, setShowMenu] = useState(false);
   const [myUid, setMyUid] = useState(null);
@@ -130,7 +130,7 @@ export default function ChatScreen({ navigation, route }) {
               ? new Date(m.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
               : '',
           }));
-          setMessages(formatted.length > 0 ? formatted : (SAMPLE_MESSAGES[conversation.id] || SAMPLE_MESSAGES['1']));
+          setMessages(formatted);
           setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 100);
         });
         unsubRef.current = unsub;
@@ -216,12 +216,21 @@ export default function ChatScreen({ navigation, route }) {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.messageList}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+          ListEmptyComponent={
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 }}>
+              <Text style={{ fontSize: 40, marginBottom: 12 }}>💬</Text>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 6 }}>Start the conversation</Text>
+              <Text style={{ fontSize: 13, color: '#888', textAlign: 'center', paddingHorizontal: 32 }}>
+                Say hello to {conversation.name}!
+              </Text>
+            </View>
+          }
         />
 
         {/* Mark Work Complete Banner */}
         <TouchableOpacity
           style={styles.markWorkBanner}
-          onPress={() => navigation.navigate('MarkWorkComplete')}
+          onPress={() => navigation.navigate('MarkWorkComplete', { workerName: conversation.name, workerEmoji: conversation.emoji, workerRole: conversation.role, workerUid: conversation.uid })}
           activeOpacity={0.85}
         >
           <Text style={styles.markWorkIcon}>✅</Text>
@@ -285,7 +294,7 @@ export default function ChatScreen({ navigation, route }) {
               style={styles.menuItem}
               onPress={() => {
                 setShowMenu(false);
-                navigation.navigate('MarkWorkComplete', { workerName: conversation.name, workerEmoji: conversation.emoji, workerRole: conversation.role });
+                navigation.navigate('MarkWorkComplete', { workerName: conversation.name, workerEmoji: conversation.emoji, workerRole: conversation.role, workerUid: conversation.uid });
               }}
             >
               <Text style={styles.menuItemIcon}>✅</Text>

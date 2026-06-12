@@ -393,7 +393,7 @@ export default function HomeScreen({ navigation }) {
         {/* MATERIAL SUPPLIERS GRID */}
         <View style={styles.secHead}>
           <Text style={styles.secTitle}>Material Suppliers</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('MaterialMarketplaceScreen')}><Text style={styles.secLink}>See All →</Text></TouchableOpacity>
+          <TouchableOpacity onPress={() => navigation.navigate('MaterialMarketplace')}><Text style={styles.secLink}>See All →</Text></TouchableOpacity>
         </View>
         <View style={styles.sectionPad}>
           <View style={styles.iconsGrid}>

@@ -189,7 +189,7 @@ export default function WorkerProfileScreen({ navigation, route }) {
             style={ss.navBtn}
             onPress={async () => {
               if (!myUid) return;
-              const lp = liveProfile || {};
+              const lp = liveWorker || {};
               const saved = await toggleBookmark(myUid, {
                 uid: viewUid,
                 name: lp.name || lp.companyName || 'Worker',

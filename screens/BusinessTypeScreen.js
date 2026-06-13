@@ -54,7 +54,7 @@ export default function BusinessTypeScreen({ navigation }) {
           <TouchableOpacity
             key={type.key}
             style={styles.card}
-            onPress={() => navigation.navigate('Login', { role: type.key, profileType: type.profileType })}
+            onPress={() => navigation.push('Login', { role: type.key, profileType: type.profileType })}
             activeOpacity={0.82}
           >
             <Text style={styles.cardEmoji}>{type.emoji}</Text>

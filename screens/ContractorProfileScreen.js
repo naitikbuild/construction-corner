@@ -6,13 +6,28 @@ import {
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getProfile, recordProfileView } from '../services/userService';
+import * as ImagePicker from 'expo-image-picker';
+import { getProfile, recordProfileView, updateProfile } from '../services/userService';
 import { getVerifiedWork, getTotalVerifiedAmount } from '../services/workService';
 import { createChat } from '../services/chatService';
 import { toggleBookmark, isBookmarked } from '../services/bookmarkService';
 import { formatAmountIndian } from '../utils/format';
 
 const GALLERY_SLOT = Math.floor((Dimensions.get('window').width - 28 - 16 - 16) / 3);
+
+// ─── Status pill (Taking new projects / Not taking projects) ───────────────
+function StatusPill({ available }) {
+  return available ? (
+    <View style={s.chipAvail}>
+      <View style={s.chipDot} />
+      <Text style={s.chipAvailText}>Taking new projects</Text>
+    </View>
+  ) : (
+    <View style={s.chipBusy}>
+      <Text style={s.chipBusyText}>Not taking projects</Text>
+    </View>
+  );
+}
 
 // ─── CREW: stacked avatars + count bubble ──────────────────────────────────
 function CrewRow({ teamSize, trades }) {
@@ -125,7 +140,7 @@ const pj = injectFonts({
 });
 
 // ─── GALLERY grid ───────────────────────────────────────────────────────────
-function GalleryGrid({ items = [] }) {
+function GalleryGrid({ items = [], isOwn, onAdd, onReplace, onRemove }) {
   const filled = items.slice(0, 6);
   const slots = [...filled, ...Array(Math.max(0, 6 - filled.length)).fill(null)];
   return (
@@ -133,12 +148,25 @@ function GalleryGrid({ items = [] }) {
       {slots.map((item, i) => (
         <View key={i} style={gl.tile}>
           {item?.uri ? (
-            <>
-              <Image source={{ uri: item.uri }} style={gl.thumb} resizeMode="cover" />
-              {item.caption ? (
-                <Text style={gl.caption} numberOfLines={1}>{item.caption}</Text>
-              ) : null}
-            </>
+            isOwn ? (
+              <TouchableOpacity style={gl.imgWrap} activeOpacity={0.85} onPress={() => onReplace(i)}>
+                <Image source={{ uri: item.uri }} style={gl.thumb} resizeMode="cover" />
+                <TouchableOpacity style={gl.removeBtn} onPress={() => onRemove(i)}>
+                  <Text style={gl.removeBtnText}>✕</Text>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            ) : (
+              <>
+                <Image source={{ uri: item.uri }} style={gl.thumb} resizeMode="cover" />
+                {item.caption ? (
+                  <Text style={gl.caption} numberOfLines={1}>{item.caption}</Text>
+                ) : null}
+              </>
+            )
+          ) : isOwn ? (
+            <TouchableOpacity style={gl.addTile} onPress={onAdd} activeOpacity={0.7}>
+              <Text style={gl.addTileIcon}>+</Text>
+            </TouchableOpacity>
           ) : (
             <View style={gl.placeholder}>
               <Text style={gl.placeholderIcon}>🖼️</Text>
@@ -154,6 +182,7 @@ function GalleryGrid({ items = [] }) {
 const gl = injectFonts({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   tile: { width: GALLERY_SLOT },
+  imgWrap: { width: GALLERY_SLOT, height: GALLERY_SLOT },
   thumb: { width: GALLERY_SLOT, height: GALLERY_SLOT, borderRadius: 10 },
   caption: { fontSize: 10, color: '#8E8E8E', fontWeight: '500', marginTop: 4 },
   placeholder: {
@@ -162,6 +191,18 @@ const gl = injectFonts({
   },
   placeholderIcon: { fontSize: 18, opacity: 0.35, marginBottom: 2 },
   placeholderText: { fontSize: 10, color: '#B5B5B5', fontWeight: '600' },
+  addTile: {
+    width: GALLERY_SLOT, height: GALLERY_SLOT, borderRadius: 10,
+    backgroundColor: '#F2F2F2', borderWidth: 1.5, borderColor: '#E5E5E5', borderStyle: 'dashed',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  addTileIcon: { fontSize: 26, fontWeight: '300', color: '#8E8E8E' },
+  removeBtn: {
+    position: 'absolute', top: 5, right: 5,
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center',
+  },
+  removeBtnText: { fontSize: 10, fontWeight: '900', color: '#fff' },
 });
 
 // ─── LICENSE & REGISTRATION rows ────────────────────────────────────────────
@@ -300,6 +341,97 @@ export default function ContractorProfileScreen({ navigation, route }) {
     Linking.openURL(withScheme).catch(() => Alert.alert('Could not open link.'));
   };
 
+  const handleOpenSettings = () => navigation.navigate('Settings');
+
+  const handleEditProfile = () => navigation.navigate('EditProfile', { profileType: 'contractor' });
+
+  const handleEditSection = (section) => {
+    navigation.navigate('EditProfile', { profileType: 'contractor', focusSection: section });
+  };
+
+  // ── Own-profile mutations — patch local state immediately, persist to Firestore
+  // (or AsyncStorage for guest sessions) in the background. ──────────────────────
+  const persistOwnProfileChange = async (patch) => {
+    if (!myUid) return;
+    const merged = { ...(contractor || {}), ...patch };
+    setContractor(merged);
+    try {
+      if (myUid.startsWith('guest_')) {
+        await AsyncStorage.setItem('localProfile', JSON.stringify(merged));
+      } else {
+        await updateProfile(myUid, patch);
+      }
+    } catch (_) {
+      Alert.alert('Could not save', 'Your change could not be saved. Please try again.');
+    }
+  };
+
+  const handleToggleAvailability = () => {
+    persistOwnProfileChange({ available: !(contractor?.available !== false) });
+  };
+
+  const handleChangeLogo = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please allow photo library access to change your logo.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (!result.canceled && result.assets?.[0]?.uri) {
+      persistOwnProfileChange({ photoUri: result.assets[0].uri });
+    }
+  };
+
+  const pickGalleryImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please allow photo library access.');
+      return null;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (result.canceled || !result.assets?.[0]?.uri) return null;
+    return result.assets[0].uri;
+  };
+
+  const handleAddGalleryPhoto = async () => {
+    const photos = contractor?.workPhotos || [];
+    if (photos.length >= 6) return;
+    const uri = await pickGalleryImage();
+    if (uri) persistOwnProfileChange({ workPhotos: [...photos, uri] });
+  };
+
+  const handleReplaceGalleryPhoto = async (index) => {
+    const uri = await pickGalleryImage();
+    if (!uri) return;
+    const photos = [...(contractor?.workPhotos || [])];
+    photos[index] = uri;
+    persistOwnProfileChange({ workPhotos: photos });
+  };
+
+  const handleRemoveGalleryPhoto = (index) => {
+    Alert.alert('Remove this photo?', 'This will permanently remove it from your profile.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          const photos = (contractor?.workPhotos || []).filter((_, i) => i !== index);
+          persistOwnProfileChange({ workPhotos: photos });
+        },
+      },
+    ]);
+  };
+
   if (loading) {
     return (
       <View style={s.center}>
@@ -379,10 +511,10 @@ export default function ContractorProfileScreen({ navigation, route }) {
         <Text style={s.navTitle}>Contractor</Text>
         <TouchableOpacity
           style={s.navBtn}
-          onPress={isOwn ? undefined : handleBookmark}
-          activeOpacity={isOwn ? 1 : 0.7}
+          onPress={isOwn ? handleOpenSettings : handleBookmark}
+          activeOpacity={0.7}
         >
-          <Text style={s.navShare}>{isOwn ? '' : (bookmarked ? '🔖' : '☆')}</Text>
+          <Text style={s.navShare}>{isOwn ? '⚙️' : (bookmarked ? '🔖' : '☆')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -392,13 +524,26 @@ export default function ContractorProfileScreen({ navigation, route }) {
 
           {/* ── 2. LOGO + IDENTITY ─────────────────────────────────────── */}
           <View style={s.heroRow}>
-            <View style={s.logoBox}>
-              {contractor?.photoUri ? (
-                <Image source={{ uri: contractor.photoUri }} style={s.logoImg} />
-              ) : (
-                <Text style={s.logoPlaceholder}>Logo</Text>
-              )}
-            </View>
+            {isOwn ? (
+              <TouchableOpacity style={s.logoBox} onPress={handleChangeLogo} activeOpacity={0.8}>
+                {contractor?.photoUri ? (
+                  <Image source={{ uri: contractor.photoUri }} style={s.logoImg} />
+                ) : (
+                  <Text style={s.logoPlaceholder}>Logo</Text>
+                )}
+                <View style={s.logoEditBadge}>
+                  <Text style={s.logoEditIcon}>📷</Text>
+                </View>
+              </TouchableOpacity>
+            ) : (
+              <View style={s.logoBox}>
+                {contractor?.photoUri ? (
+                  <Image source={{ uri: contractor.photoUri }} style={s.logoImg} />
+                ) : (
+                  <Text style={s.logoPlaceholder}>Logo</Text>
+                )}
+              </View>
+            )}
             <View style={s.heroInfo}>
               <View style={s.nameRow}>
                 <Text style={s.heroName} numberOfLines={1}>{name}</Text>
@@ -425,15 +570,12 @@ export default function ContractorProfileScreen({ navigation, route }) {
 
           {/* ── 4. STATUS PILL + LINK ───────────────────────────────────── */}
           <View style={s.availRow}>
-            {available ? (
-              <View style={s.chipAvail}>
-                <View style={s.chipDot} />
-                <Text style={s.chipAvailText}>Taking new projects</Text>
-              </View>
+            {isOwn ? (
+              <TouchableOpacity onPress={handleToggleAvailability} activeOpacity={0.75}>
+                <StatusPill available={available} />
+              </TouchableOpacity>
             ) : (
-              <View style={s.chipBusy}>
-                <Text style={s.chipBusyText}>Not taking projects</Text>
-              </View>
+              <StatusPill available={available} />
             )}
           </View>
           {website ? (
@@ -451,6 +593,7 @@ export default function ContractorProfileScreen({ navigation, route }) {
               <Text style={s.verNote}>via {verificationType === 'gst' ? 'GST' : 'Aadhaar'}</Text>
             ) : null}
           </View>
+          {isOwn && <Text style={s.verOwnerNote}>Verified from completed jobs — cannot be edited</Text>}
           <View style={s.verStats}>
             <View style={s.verStat}>
               <Text style={s.verStatVal}>{amtStr}</Text>
@@ -475,53 +618,102 @@ export default function ContractorProfileScreen({ navigation, route }) {
 
           {/* ── 6. ACTION BUTTONS ───────────────────────────────────────── */}
           <View style={s.actionRow}>
-            <TouchableOpacity
-              style={[s.actionCallBtn, !available && s.actionCallBtnLocked]}
-              onPress={handleCall}
-              disabled={!available}
-              activeOpacity={0.85}
-            >
-              <Text style={[s.actionCallText, !available && s.actionCallTextLocked]}>
-                {available ? '📞  Call' : '🔒  Call'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.actionMsgBtn} onPress={handleMessage} activeOpacity={0.85}>
-              <Text style={s.actionMsgText}>💬  Chat</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.actionBookmarkBtn} onPress={handleBookmark} activeOpacity={0.85}>
-              <Text style={s.bookmarkIcon}>{bookmarked ? '🔖' : '☆'}</Text>
-            </TouchableOpacity>
+            {isOwn ? (
+              <TouchableOpacity style={s.editProfileBtn} onPress={handleEditProfile} activeOpacity={0.85}>
+                <Text style={s.editProfileBtnText}>✏️  Edit Profile</Text>
+              </TouchableOpacity>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={[s.actionCallBtn, !available && s.actionCallBtnLocked]}
+                  onPress={handleCall}
+                  disabled={!available}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[s.actionCallText, !available && s.actionCallTextLocked]}>
+                    {available ? '📞  Call' : '🔒  Call'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.actionMsgBtn} onPress={handleMessage} activeOpacity={0.85}>
+                  <Text style={s.actionMsgText}>💬  Chat</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.actionBookmarkBtn} onPress={handleBookmark} activeOpacity={0.85}>
+                  <Text style={s.bookmarkIcon}>{bookmarked ? '🔖' : '☆'}</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
 
           <View style={s.divider} />
 
           {/* ── 7. CREW ──────────────────────────────────────────────────── */}
-          <Text style={s.sLabel}>CREW</Text>
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>CREW</Text>
+            {isOwn && (
+              <TouchableOpacity onPress={() => handleEditSection('crew')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.editPencil}>✏️</Text>
+              </TouchableOpacity>
+            )}
+          </View>
           <CrewRow teamSize={teamSize} trades={services} />
 
           <View style={s.divider} />
 
           {/* ── 8. SERVICES ──────────────────────────────────────────────── */}
-          <Text style={s.sLabel}>SERVICES</Text>
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>SERVICES</Text>
+            {isOwn && (
+              <TouchableOpacity onPress={() => handleEditSection('services')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.editPencil}>✏️</Text>
+              </TouchableOpacity>
+            )}
+          </View>
           <ServicesChips services={services} />
 
           <View style={s.divider} />
 
           {/* ── 9. PROJECTS ──────────────────────────────────────────────── */}
-          <Text style={s.sLabel}>PROJECTS</Text>
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>PROJECTS</Text>
+            {isOwn && (
+              <TouchableOpacity onPress={() => handleEditSection('projects')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.editPencil}>✏️</Text>
+              </TouchableOpacity>
+            )}
+          </View>
           <ProjectsList projects={projects} />
 
           <View style={s.divider} />
 
           {/* ── 10. GALLERY ──────────────────────────────────────────────── */}
-          <Text style={s.sLabel}>GALLERY</Text>
-          <GalleryGrid items={galleryItems} />
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>GALLERY</Text>
+            {isOwn && (
+              <TouchableOpacity onPress={() => handleEditSection('gallery')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.editPencil}>✏️</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <GalleryGrid
+            items={galleryItems}
+            isOwn={isOwn}
+            onAdd={handleAddGalleryPhoto}
+            onReplace={handleReplaceGalleryPhoto}
+            onRemove={handleRemoveGalleryPhoto}
+          />
 
           <View style={s.divider} />
 
           {/* ── 11. LICENSE & REGISTRATION ───────────────────────────────── */}
           <View style={s.verHeader}>
-            <Text style={s.sLabel}>LICENSE & REGISTRATION</Text>
+            <View style={s.sectionHeadLeft}>
+              <Text style={[s.sLabel, { marginBottom: 0 }]}>LICENSE & REGISTRATION</Text>
+              {isOwn && (
+                <TouchableOpacity onPress={() => handleEditSection('license')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={s.editPencil}>✏️</Text>
+                </TouchableOpacity>
+              )}
+            </View>
             <Text style={s.verNote}>Optional</Text>
           </View>
           <LicenseRows rows={licenseRows} />
@@ -608,6 +800,13 @@ const s = injectFonts({
   },
   logoImg: { width: 72, height: 72, borderRadius: 14 },
   logoPlaceholder: { fontSize: 12, fontWeight: '600', color: LIGHT },
+  logoEditBadge: {
+    position: 'absolute', bottom: 0, right: 0,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: DARK, borderWidth: 2, borderColor: '#FFFFFF',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  logoEditIcon: { fontSize: 10 },
   heroInfo: { flex: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   heroName: { fontSize: 18, fontWeight: '700', color: DARK, flexShrink: 1 },
@@ -650,6 +849,7 @@ const s = injectFonts({
   },
   verLabel: { fontSize: 11, fontWeight: '600', color: GREEN, letterSpacing: 0.8 },
   verNote:  { fontSize: 10, color: LIGHT, fontWeight: '500' },
+  verOwnerNote: { fontSize: 10, color: LIGHT, fontWeight: '500', marginBottom: 10 },
   verStats: { flexDirection: 'row', alignItems: 'center' },
   verStat:  { flex: 1, alignItems: 'center' },
   verStatVal: { fontSize: 16, fontWeight: '700', color: DEEP_GREEN, marginBottom: 2 },
@@ -661,6 +861,9 @@ const s = injectFonts({
     fontSize: 11, fontWeight: '600', color: LIGHT,
     letterSpacing: 1, marginBottom: 12,
   },
+  sectionHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  sectionHeadLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  editPencil: { fontSize: 13 },
   placeholder: { fontSize: 13, color: FAINT, fontStyle: 'italic' },
 
   // ── 6. ACTIONS (inline)
@@ -683,6 +886,11 @@ const s = injectFonts({
     borderWidth: 1.5, borderColor: BORDER,
     alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
   },
+  editProfileBtn: {
+    flex: 1, height: 46, borderRadius: 12,
+    backgroundColor: DARK, alignItems: 'center', justifyContent: 'center',
+  },
+  editProfileBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 15 },
 
   // ── 8. SERVICES chips
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

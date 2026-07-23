@@ -174,6 +174,10 @@ export const DEMO_PROFILES = [
       PLACEHOLDER_PHOTO('prakash-work-2'),
       PLACEHOLDER_PHOTO('prakash-work-3'),
     ],
+    projects: [
+      { name: 'Pandya Bungalow Brickwork', location: 'Manjalpur, Vadodara', value: 260000, status: 'done', photoUri: PLACEHOLDER_PHOTO('prakash-project-1') },
+      { name: 'Rathi Apartment Retiling', location: 'Alkapuri, Vadodara', value: 180000, status: 'ongoing', photoUri: PLACEHOLDER_PHOTO('prakash-project-2') },
+    ],
     category: 'Mason',
     jobsCompleted: 4,
     repeatClients: 2,
@@ -230,6 +234,10 @@ export const DEMO_PROFILES = [
       PLACEHOLDER_PHOTO('meera-work-1'),
       PLACEHOLDER_PHOTO('meera-work-2'),
       PLACEHOLDER_PHOTO('meera-work-3'),
+    ],
+    projects: [
+      { name: 'Shah Residence Design', location: 'Bodakdev, Ahmedabad', value: 950000, status: 'done', photoUri: PLACEHOLDER_PHOTO('meera-project-1') },
+      { name: 'Nair Interior Fit-out', location: 'Vastrapur, Ahmedabad', value: 620000, status: 'ongoing', photoUri: PLACEHOLDER_PHOTO('meera-project-2') },
     ],
     ccScore: 810,
     rating: 4.9,

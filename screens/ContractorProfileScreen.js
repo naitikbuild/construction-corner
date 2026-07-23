@@ -2,18 +2,19 @@ import { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, Alert, ActivityIndicator, Linking,
-  Image, Dimensions,
+  Image, Animated,
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import PhotoViewer from '../components/PhotoViewer';
+import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
 import { getProfile, recordProfileView, updateProfile } from '../services/userService';
 import { getVerifiedWork, getTotalVerifiedAmount } from '../services/workService';
 import { createChat } from '../services/chatService';
 import { toggleBookmark, isBookmarked } from '../services/bookmarkService';
 import { formatAmountIndian } from '../utils/format';
 
-const GALLERY_SLOT = Math.floor((Dimensions.get('window').width - 28 - 16 - 16) / 3);
 
 // ─── Status pill (Taking new projects / Not taking projects) ───────────────
 function StatusPill({ available }) {
@@ -87,7 +88,7 @@ function ServicesChips({ services = [] }) {
 }
 
 // ─── PROJECTS list ──────────────────────────────────────────────────────────
-function ProjectsList({ projects = [] }) {
+function ProjectsList({ projects = [], onViewPhoto }) {
   if (projects.length === 0) {
     return <Text style={s.placeholder}>Add your projects</Text>;
   }
@@ -95,13 +96,18 @@ function ProjectsList({ projects = [] }) {
     <View>
       {projects.map((p, i) => (
         <View key={i} style={[pj.row, i > 0 && pj.rowBorder]}>
-          <View style={pj.thumb}>
+          <TouchableOpacity
+            style={pj.thumb}
+            activeOpacity={p.photoUri ? 0.8 : 1}
+            disabled={!p.photoUri}
+            onPress={() => onViewPhoto(p.photoUri)}
+          >
             {p.photoUri ? (
               <Image source={{ uri: p.photoUri }} style={pj.thumbImg} resizeMode="cover" />
             ) : (
               <Text style={pj.thumbIcon}>🏗️</Text>
             )}
-          </View>
+          </TouchableOpacity>
           <View style={pj.info}>
             <Text style={pj.name} numberOfLines={1}>{p.name || 'Untitled project'}</Text>
             <Text style={pj.meta} numberOfLines={1}>
@@ -140,35 +146,47 @@ const pj = injectFonts({
 });
 
 // ─── GALLERY grid ───────────────────────────────────────────────────────────
-function GalleryGrid({ items = [], isOwn, onAdd, onReplace, onRemove }) {
+// Slot size is measured from the grid container's ACTUAL laid-out width via
+// onLayout, not guessed from useWindowDimensions() minus assumed padding —
+// the guessed chrome (sheet marginHorizontal/padding) can be wrong relative
+// to the real rendered content box, which is what was still causing the 3rd
+// tile to wrap. Measuring the real container removes the guesswork entirely.
+const GRID_GAP = 8;
+
+function GalleryGrid({ items = [], isOwn, onAdd, onReplace, onRemove, onView }) {
+  const [gridWidth, setGridWidth] = useState(0);
+  const slotSize = gridWidth > 0 ? Math.floor((gridWidth - GRID_GAP * 2) / 3) - 1 : 0;
+  const slotBox = { width: slotSize, height: slotSize };
+
   const filled = items.slice(0, 6);
   const slots = [...filled, ...Array(Math.max(0, 6 - filled.length)).fill(null)];
   return (
-    <View style={gl.grid}>
-      {slots.map((item, i) => (
-        <View key={i} style={gl.tile}>
+    <View style={gl.grid} onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}>
+      {gridWidth === 0 ? null : slots.map((item, i) => (
+        <View key={i} style={[gl.tile, { width: slotSize }]}>
           {item?.uri ? (
-            isOwn ? (
-              <TouchableOpacity style={gl.imgWrap} activeOpacity={0.85} onPress={() => onReplace(i)}>
-                <Image source={{ uri: item.uri }} style={gl.thumb} resizeMode="cover" />
-                <TouchableOpacity style={gl.removeBtn} onPress={() => onRemove(i)}>
-                  <Text style={gl.removeBtnText}>✕</Text>
-                </TouchableOpacity>
-              </TouchableOpacity>
-            ) : (
-              <>
-                <Image source={{ uri: item.uri }} style={gl.thumb} resizeMode="cover" />
-                {item.caption ? (
-                  <Text style={gl.caption} numberOfLines={1}>{item.caption}</Text>
-                ) : null}
-              </>
-            )
+            <TouchableOpacity style={[gl.imgWrap, slotBox]} activeOpacity={0.85} onPress={() => onView(i)}>
+              <Image source={{ uri: item.uri }} style={[gl.thumb, slotBox]} resizeMode="cover" />
+              {!isOwn && item.caption ? (
+                <Text style={gl.caption} numberOfLines={1}>{item.caption}</Text>
+              ) : null}
+              {isOwn && (
+                <>
+                  <TouchableOpacity style={gl.replaceBtn} onPress={() => onReplace(i)}>
+                    <Text style={gl.replaceBtnText}>🔄</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={gl.removeBtn} onPress={() => onRemove(i)}>
+                    <Text style={gl.removeBtnText}>✕</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </TouchableOpacity>
           ) : isOwn ? (
-            <TouchableOpacity style={gl.addTile} onPress={onAdd} activeOpacity={0.7}>
+            <TouchableOpacity style={[gl.addTile, slotBox]} onPress={onAdd} activeOpacity={0.7}>
               <Text style={gl.addTileIcon}>+</Text>
             </TouchableOpacity>
           ) : (
-            <View style={gl.placeholder}>
+            <View style={[gl.placeholder, slotBox]}>
               <Text style={gl.placeholderIcon}>🖼️</Text>
               <Text style={gl.placeholderText}>browse</Text>
             </View>
@@ -181,28 +199,34 @@ function GalleryGrid({ items = [], isOwn, onAdd, onReplace, onRemove }) {
 
 const gl = injectFonts({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  tile: { width: GALLERY_SLOT },
-  imgWrap: { width: GALLERY_SLOT, height: GALLERY_SLOT },
-  thumb: { width: GALLERY_SLOT, height: GALLERY_SLOT, borderRadius: 10 },
+  tile: {},
+  imgWrap: {},
+  thumb: { borderRadius: 10 },
   caption: { fontSize: 10, color: '#8E8E8E', fontWeight: '500', marginTop: 4 },
   placeholder: {
-    width: GALLERY_SLOT, height: GALLERY_SLOT, borderRadius: 10,
+    borderRadius: 10,
     backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center',
   },
   placeholderIcon: { fontSize: 18, opacity: 0.35, marginBottom: 2 },
   placeholderText: { fontSize: 10, color: '#B5B5B5', fontWeight: '600' },
   addTile: {
-    width: GALLERY_SLOT, height: GALLERY_SLOT, borderRadius: 10,
+    borderRadius: 10,
     backgroundColor: '#F2F2F2', borderWidth: 1.5, borderColor: '#E5E5E5', borderStyle: 'dashed',
     alignItems: 'center', justifyContent: 'center',
   },
   addTileIcon: { fontSize: 26, fontWeight: '300', color: '#8E8E8E' },
   removeBtn: {
-    position: 'absolute', top: 5, right: 5,
-    width: 20, height: 20, borderRadius: 10,
+    position: 'absolute', top: 4, right: 4,
+    width: 18, height: 18, borderRadius: 9,
     backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center',
   },
-  removeBtnText: { fontSize: 10, fontWeight: '900', color: '#fff' },
+  removeBtnText: { fontSize: 9, fontWeight: '900', color: '#fff' },
+  replaceBtn: {
+    position: 'absolute', top: 4, left: 4,
+    width: 18, height: 18, borderRadius: 9,
+    backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center',
+  },
+  replaceBtnText: { fontSize: 9 },
 });
 
 // ─── LICENSE & REGISTRATION rows ────────────────────────────────────────────
@@ -243,8 +267,13 @@ export default function ContractorProfileScreen({ navigation, route }) {
   const [verifiedWork, setVerifiedWork] = useState([]);
   const [myUid, setMyUid] = useState(null);
   const [bookmarked, setBookmarked] = useState(false);
+  const [viewer, setViewer] = useState({ visible: false, photos: [], index: 0 });
+  const { headerAnimatedStyle, headerHeight, onHeaderLayout, onScroll } = useAutoHideHeader();
 
   useEffect(() => { load(); }, []);
+
+  const openViewer = (photos, index = 0) => setViewer({ visible: true, photos, index });
+  const closeViewer = () => setViewer(v => ({ ...v, visible: false }));
 
   const load = async () => {
     try {
@@ -456,6 +485,7 @@ export default function ContractorProfileScreen({ navigation, route }) {
   const verificationType = contractor?.verificationType || '';
   const isVerified    = !!(contractor?.verificationNumber || contractor?.verified);
 
+  const about        = contractor?.contractorBio || '';
   const teamSize     = contractor?.contractorTeamSize || '';
   const services     = contractor?.services?.length > 0
     ? contractor.services
@@ -503,8 +533,8 @@ export default function ContractorProfileScreen({ navigation, route }) {
     <View style={s.screen}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* ── 1. HEADER ────────────────────────────────────────────────────── */}
-      <View style={s.nav}>
+      {/* ── 1. HEADER (auto-hides on scroll) ───────────────────────────────── */}
+      <Animated.View style={[s.nav, s.navFloating, headerAnimatedStyle]} onLayout={onHeaderLayout}>
         <TouchableOpacity style={s.navBtn} onPress={() => navigation.goBack()}>
           <Text style={s.navBack}>←</Text>
         </TouchableOpacity>
@@ -516,37 +546,38 @@ export default function ContractorProfileScreen({ navigation, route }) {
         >
           <Text style={s.navShare}>{isOwn ? '⚙️' : (bookmarked ? '🔖' : '☆')}</Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingTop: headerHeight, paddingBottom: 24 }}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+      >
 
         <View style={s.sheet}>
 
           {/* ── 2. LOGO + IDENTITY ─────────────────────────────────────── */}
           <View style={s.heroRow}>
-            {isOwn ? (
-              <TouchableOpacity style={s.logoBox} onPress={handleChangeLogo} activeOpacity={0.8}>
-                {contractor?.photoUri ? (
-                  <Image source={{ uri: contractor.photoUri }} style={s.logoImg} />
-                ) : (
-                  <Text style={s.logoPlaceholder}>Logo</Text>
-                )}
-                <View style={s.logoEditBadge}>
+            <TouchableOpacity
+              style={s.logoBox}
+              activeOpacity={0.8}
+              onPress={() => contractor?.photoUri && openViewer([contractor.photoUri])}
+            >
+              {contractor?.photoUri ? (
+                <Image source={{ uri: contractor.photoUri }} style={s.logoImg} />
+              ) : (
+                <Text style={s.logoPlaceholder}>Logo</Text>
+              )}
+              {isOwn && (
+                <TouchableOpacity style={s.logoEditBadge} onPress={handleChangeLogo} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
                   <Text style={s.logoEditIcon}>📷</Text>
-                </View>
-              </TouchableOpacity>
-            ) : (
-              <View style={s.logoBox}>
-                {contractor?.photoUri ? (
-                  <Image source={{ uri: contractor.photoUri }} style={s.logoImg} />
-                ) : (
-                  <Text style={s.logoPlaceholder}>Logo</Text>
-                )}
-              </View>
-            )}
+                </TouchableOpacity>
+              )}
+            </TouchableOpacity>
             <View style={s.heroInfo}>
               <View style={s.nameRow}>
-                <Text style={s.heroName} numberOfLines={1}>{name}</Text>
+                <Text style={s.heroName} numberOfLines={2}>{name}</Text>
                 {isVerified && (
                   <View style={s.verifiedBadge}>
                     <Text style={s.verifiedText}>✓</Text>
@@ -646,46 +677,35 @@ export default function ContractorProfileScreen({ navigation, route }) {
 
           <View style={s.divider} />
 
-          {/* ── 7. CREW ──────────────────────────────────────────────────── */}
+          {/* ── 7. ABOUT ─────────────────────────────────────────────────── */}
           <View style={s.sectionHeadRow}>
-            <Text style={[s.sLabel, { marginBottom: 0 }]}>CREW</Text>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>ABOUT</Text>
             {isOwn && (
-              <TouchableOpacity onPress={() => handleEditSection('crew')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <TouchableOpacity onPress={() => handleEditSection('about')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <Text style={s.editPencil}>✏️</Text>
               </TouchableOpacity>
             )}
           </View>
-          <CrewRow teamSize={teamSize} trades={services} />
+          <Text style={about ? s.aboutText : s.placeholder}>
+            {about || 'Add a short bio to attract more clients'}
+          </Text>
 
           <View style={s.divider} />
 
-          {/* ── 8. SERVICES ──────────────────────────────────────────────── */}
+          {/* ── 8. VERIFIED PROJECTS ─────────────────────────────────────── */}
           <View style={s.sectionHeadRow}>
-            <Text style={[s.sLabel, { marginBottom: 0 }]}>SERVICES</Text>
-            {isOwn && (
-              <TouchableOpacity onPress={() => handleEditSection('services')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Text style={s.editPencil}>✏️</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-          <ServicesChips services={services} />
-
-          <View style={s.divider} />
-
-          {/* ── 9. PROJECTS ──────────────────────────────────────────────── */}
-          <View style={s.sectionHeadRow}>
-            <Text style={[s.sLabel, { marginBottom: 0 }]}>PROJECTS</Text>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>VERIFIED PROJECTS</Text>
             {isOwn && (
               <TouchableOpacity onPress={() => handleEditSection('projects')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <Text style={s.editPencil}>✏️</Text>
               </TouchableOpacity>
             )}
           </View>
-          <ProjectsList projects={projects} />
+          <ProjectsList projects={projects} onViewPhoto={(uri) => uri && openViewer([uri])} />
 
           <View style={s.divider} />
 
-          {/* ── 10. GALLERY ──────────────────────────────────────────────── */}
+          {/* ── 9. GALLERY ───────────────────────────────────────────────── */}
           <View style={s.sectionHeadRow}>
             <Text style={[s.sLabel, { marginBottom: 0 }]}>GALLERY</Text>
             {isOwn && (
@@ -700,11 +720,38 @@ export default function ContractorProfileScreen({ navigation, route }) {
             onAdd={handleAddGalleryPhoto}
             onReplace={handleReplaceGalleryPhoto}
             onRemove={handleRemoveGalleryPhoto}
+            onView={(i) => openViewer(galleryItems, i)}
           />
 
           <View style={s.divider} />
 
-          {/* ── 11. LICENSE & REGISTRATION ───────────────────────────────── */}
+          {/* ── 10. CREW ─────────────────────────────────────────────────── */}
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>CREW</Text>
+            {isOwn && (
+              <TouchableOpacity onPress={() => handleEditSection('crew')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.editPencil}>✏️</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <CrewRow teamSize={teamSize} trades={services} />
+
+          <View style={s.divider} />
+
+          {/* ── 11. SERVICES ─────────────────────────────────────────────── */}
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>SERVICES</Text>
+            {isOwn && (
+              <TouchableOpacity onPress={() => handleEditSection('services')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.editPencil}>✏️</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <ServicesChips services={services} />
+
+          <View style={s.divider} />
+
+          {/* ── 12. LICENSE & REGISTRATION ───────────────────────────────── */}
           <View style={s.verHeader}>
             <View style={s.sectionHeadLeft}>
               <Text style={[s.sLabel, { marginBottom: 0 }]}>LICENSE & REGISTRATION</Text>
@@ -720,7 +767,7 @@ export default function ContractorProfileScreen({ navigation, route }) {
 
           <View style={s.divider} />
 
-          {/* ── 12. REVIEWS ──────────────────────────────────────────────── */}
+          {/* ── 13. REVIEWS ──────────────────────────────────────────────── */}
           <Text style={s.sLabel}>REVIEWS</Text>
           {reviews.length === 0 ? (
             <Text style={s.placeholder}>No reviews yet</Text>
@@ -728,7 +775,7 @@ export default function ContractorProfileScreen({ navigation, route }) {
             reviews.map((r, i) => (
               <View key={r.id || i} style={[s.reviewRow, i > 0 && s.reviewRowBorder]}>
                 <View style={s.reviewTop}>
-                  <Text style={s.reviewName}>{r.customerName || 'Customer'}</Text>
+                  <Text style={s.reviewName} numberOfLines={2}>{r.customerName || 'Customer'}</Text>
                   <Text style={s.reviewDate}>{r.date || ''}</Text>
                 </View>
                 <View style={s.reviewStars}>
@@ -746,6 +793,13 @@ export default function ContractorProfileScreen({ navigation, route }) {
         </View>
 
       </ScrollView>
+
+      <PhotoViewer
+        visible={viewer.visible}
+        photos={viewer.photos}
+        initialIndex={viewer.index}
+        onClose={closeViewer}
+      />
     </View>
   );
 }
@@ -773,6 +827,9 @@ const s = injectFonts({
     paddingHorizontal: 14, paddingTop: 52, paddingBottom: 12,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1, borderBottomColor: BORDER,
+  },
+  navFloating: {
+    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
   },
   navBtn: {
     width: 36, height: 36, borderRadius: 18,
@@ -808,8 +865,8 @@ const s = injectFonts({
   },
   logoEditIcon: { fontSize: 10 },
   heroInfo: { flex: 1 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
-  heroName: { fontSize: 18, fontWeight: '700', color: DARK, flexShrink: 1 },
+  nameRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 6 },
+  heroName: { fontSize: 18, fontWeight: '700', color: DARK, flexShrink: 1, flex: 1, lineHeight: 22 },
   verifiedBadge: {
     width: 18, height: 18, borderRadius: 9,
     backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center',
@@ -865,6 +922,7 @@ const s = injectFonts({
   sectionHeadLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   editPencil: { fontSize: 13 },
   placeholder: { fontSize: 13, color: FAINT, fontStyle: 'italic' },
+  aboutText: { fontSize: 14, color: MID, lineHeight: 22 },
 
   // ── 6. ACTIONS (inline)
   actionRow: { flexDirection: 'row', gap: 8, marginTop: 16 },
@@ -888,9 +946,10 @@ const s = injectFonts({
   },
   editProfileBtn: {
     flex: 1, height: 46, borderRadius: 12,
-    backgroundColor: DARK, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: BORDER,
+    alignItems: 'center', justifyContent: 'center',
   },
-  editProfileBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 15 },
+  editProfileBtnText: { color: DARK, fontWeight: '600', fontSize: 15 },
 
   // ── 8. SERVICES chips
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -903,9 +962,9 @@ const s = injectFonts({
   // ── 12. REVIEWS
   reviewRow: { paddingVertical: 12 },
   reviewRowBorder: { borderTopWidth: 1, borderTopColor: BORDER },
-  reviewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  reviewName: { fontSize: 13, fontWeight: '700', color: DARK },
-  reviewDate: { fontSize: 11, color: LIGHT, fontWeight: '500' },
+  reviewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 },
+  reviewName: { fontSize: 13, fontWeight: '700', color: DARK, flex: 1, flexShrink: 1, lineHeight: 16 },
+  reviewDate: { fontSize: 11, color: LIGHT, fontWeight: '500', flexShrink: 0, marginLeft: 8 },
   reviewStars: { flexDirection: 'row', gap: 2, marginBottom: 6 },
   reviewStarIcon: { fontSize: 14, color: BORDER },
   reviewStarActive: { color: STAR },

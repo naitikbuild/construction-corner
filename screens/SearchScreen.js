@@ -163,7 +163,7 @@ function ResultCard({ item, onPress }) {
         <Text style={styles.resultEmoji}>{item.emoji}</Text>
       </View>
       <View style={styles.resultInfo}>
-        <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.resultName} numberOfLines={2}>{item.name}</Text>
         <Text style={styles.resultSub} numberOfLines={1}>{item.sub}</Text>
         <View style={styles.resultRatingRow}>
           {item.rating ? (
@@ -543,7 +543,7 @@ const styles = injectFonts({
   },
   resultEmoji: { fontSize: 24 },
   resultInfo: { flex: 1 },
-  resultName: { fontSize: 14, fontWeight: '700', color: DARK, marginBottom: 2 },
+  resultName: { fontSize: 14, fontWeight: '700', color: DARK, marginBottom: 2, lineHeight: 17 },
   resultSub: { fontSize: 12, color: LIGHT, marginBottom: 5 },
   resultRatingRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   ratingBadge: {

@@ -2,40 +2,79 @@ import { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, Alert, ActivityIndicator, Linking,
-  Image, Dimensions,
+  Image, Modal, TextInput, Animated,
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getProfile, recordProfileView } from '../services/userService';
+import * as ImagePicker from 'expo-image-picker';
+import PhotoViewer from '../components/PhotoViewer';
+import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
+import { getProfile, recordProfileView, updateProfile } from '../services/userService';
 import { getVerifiedWork, getTotalVerifiedAmount } from '../services/workService';
 import { createChat } from '../services/chatService';
 import { toggleBookmark, isBookmarked } from '../services/bookmarkService';
 import { auth } from '../config/firebase';
 import { formatAmountIndian } from '../utils/format';
 
-const SLOT_SIZE = Math.floor((Dimensions.get('window').width - 28 - 32 - 16) / 3);
+// Slot size is measured from the grid container's ACTUAL laid-out width via
+// onLayout, not guessed from useWindowDimensions() minus assumed padding —
+// the guessed chrome can be wrong relative to the real rendered content box.
+// Measuring the real container removes the guesswork entirely (same pattern
+// as Contractor's GalleryGrid / Worker's WorkPhotoGrid).
+const GRID_GAP = 8;
 
-function PortfolioGrid({ photos = [] }) {
+function PortfolioGrid({ photos = [], isOwn, onAdd, onReplace, onRemove, onView }) {
+  const [gridWidth, setGridWidth] = useState(0);
+  const slotSize = gridWidth > 0 ? Math.floor((gridWidth - GRID_GAP * 2) / 3) - 1 : 0;
+  const slotBox = { width: slotSize, height: slotSize };
   const filled = Array.isArray(photos) ? photos.filter(Boolean).slice(0, 6) : [];
+
+  if (!isOwn) {
+    return filled.length === 0 ? (
+      <Text style={s.placeholder}>No gallery photos added yet</Text>
+    ) : (
+      <View style={wp.grid} onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}>
+        {gridWidth === 0 ? null : filled.map((uri, i) => (
+          <TouchableOpacity key={i} style={[wp.slot, slotBox]} activeOpacity={0.85} onPress={() => onView(i)}>
+            <Image source={{ uri }} style={wp.thumb} resizeMode="cover" />
+          </TouchableOpacity>
+        ))}
+      </View>
+    );
+  }
+
+  const slots = [...filled, ...Array(Math.max(0, 6 - filled.length)).fill(null)];
   return (
     <View>
-      <Text style={s.sLabel}>PORTFOLIO</Text>
-      {filled.length === 0 ? (
-        <Text style={s.placeholder}>No portfolio photos added yet</Text>
-      ) : (
-        <View style={wp.grid}>
-          {filled.map((uri, i) => (
-            <View key={i} style={wp.slot}>
-              <Image source={{ uri }} style={wp.thumb} resizeMode="cover" />
-            </View>
-          ))}
-        </View>
-      )}
+      <View style={wp.grid} onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}>
+        {gridWidth === 0 ? null : slots.map((uri, i) => (
+          <View key={i} style={[wp.slot, slotBox]}>
+            {uri ? (
+              <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.85} onPress={() => onView(i)}>
+                <Image source={{ uri }} style={wp.thumb} resizeMode="cover" />
+                <TouchableOpacity style={wp.replaceBtn} onPress={() => onReplace(i)}>
+                  <Text style={wp.replaceBtnText}>🔄</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={wp.removeBtn} onPress={() => onRemove(i)}>
+                  <Text style={wp.removeBtnText}>✕</Text>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={wp.addSlot} onPress={onAdd} activeOpacity={0.7}>
+                <Text style={wp.addSlotIcon}>+</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
 
-function VerifiedPortfolioGrid({ items = [] }) {
+function VerifiedPortfolioGrid({ items = [], onView }) {
+  const [gridWidth, setGridWidth] = useState(0);
+  const slotSize = gridWidth > 0 ? Math.floor((gridWidth - GRID_GAP * 2) / 3) - 1 : 0;
+  const slotBox = { width: slotSize, height: slotSize };
   return (
     <View>
       <View style={s.verHeader}>
@@ -45,14 +84,14 @@ function VerifiedPortfolioGrid({ items = [] }) {
       {items.length === 0 ? (
         <Text style={s.placeholder}>No verified portfolio yet — this fills in automatically as real jobs are completed and confirmed through the app</Text>
       ) : (
-        <View style={wp.grid}>
-          {items.map((item, i) => (
-            <View key={item.id || i} style={wp.slot}>
+        <View style={wp.grid} onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}>
+          {gridWidth === 0 ? null : items.map((item, i) => (
+            <TouchableOpacity key={item.id || i} style={[wp.slot, slotBox]} activeOpacity={0.85} onPress={() => onView(i)}>
               <Image source={{ uri: item.photo }} style={wp.thumb} resizeMode="cover" />
               <View style={wp.verifiedBadge}>
                 <Text style={wp.verifiedBadgeText}>✓</Text>
               </View>
-            </View>
+            </TouchableOpacity>
           ))}
         </View>
       )}
@@ -62,7 +101,7 @@ function VerifiedPortfolioGrid({ items = [] }) {
 
 const wp = injectFonts({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  slot: { width: SLOT_SIZE, height: SLOT_SIZE, borderRadius: 10, overflow: 'hidden' },
+  slot: { borderRadius: 10, overflow: 'hidden' },
   thumb: { width: '100%', height: '100%' },
   verifiedBadge: {
     position: 'absolute', top: 5, right: 5,
@@ -70,6 +109,82 @@ const wp = injectFonts({
     backgroundColor: '#22A559', alignItems: 'center', justifyContent: 'center',
   },
   verifiedBadgeText: { fontSize: 10, color: '#fff', fontWeight: '900' },
+  addSlot: {
+    flex: 1, backgroundColor: '#F2F2F2',
+    borderWidth: 1.5, borderColor: '#E5E5E5', borderStyle: 'dashed',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  addSlotIcon: { fontSize: 26, fontWeight: '300', color: '#8E8E8E' },
+  removeBtn: {
+    position: 'absolute', top: 4, right: 4,
+    width: 18, height: 18, borderRadius: 9,
+    backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center',
+  },
+  removeBtnText: { fontSize: 9, fontWeight: '900', color: '#fff' },
+  replaceBtn: {
+    position: 'absolute', top: 4, left: 4,
+    width: 18, height: 18, borderRadius: 9,
+    backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center',
+  },
+  replaceBtnText: { fontSize: 9 },
+});
+
+// ─── VERIFIED PROJECTS list ─────────────────────────────────────────────────
+function ProjectsList({ projects = [], onViewPhoto }) {
+  if (projects.length === 0) {
+    return <Text style={s.placeholder}>Add your projects</Text>;
+  }
+  return (
+    <View>
+      {projects.map((p, i) => (
+        <View key={i} style={[pj.row, i > 0 && pj.rowBorder]}>
+          <TouchableOpacity
+            style={pj.thumb}
+            activeOpacity={p.photoUri ? 0.8 : 1}
+            disabled={!p.photoUri}
+            onPress={() => onViewPhoto(p.photoUri)}
+          >
+            {p.photoUri ? (
+              <Image source={{ uri: p.photoUri }} style={pj.thumbImg} resizeMode="cover" />
+            ) : (
+              <Text style={pj.thumbIcon}>🏗️</Text>
+            )}
+          </TouchableOpacity>
+          <View style={pj.info}>
+            <Text style={pj.name} numberOfLines={1}>{p.name || 'Untitled project'}</Text>
+            <Text style={pj.meta} numberOfLines={1}>
+              {[p.location, p.value ? formatAmountIndian(p.value) : null].filter(Boolean).join(' · ')}
+            </Text>
+          </View>
+          <View style={[pj.badge, p.status === 'ongoing' ? pj.badgeOngoing : pj.badgeDone]}>
+            <Text style={[pj.badgeText, p.status === 'ongoing' ? pj.badgeTextOngoing : pj.badgeTextDone]}>
+              {p.status === 'ongoing' ? 'ONGOING' : 'DONE'}
+            </Text>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const pj = injectFonts({
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
+  rowBorder: { borderTopWidth: 1, borderTopColor: '#E5E5E5' },
+  thumb: {
+    width: 46, height: 46, borderRadius: 10,
+    backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  },
+  thumbImg: { width: '100%', height: '100%' },
+  thumbIcon: { fontSize: 18, opacity: 0.5 },
+  info: { flex: 1 },
+  name: { fontSize: 13, fontWeight: '700', color: '#262626', marginBottom: 2 },
+  meta: { fontSize: 12, color: '#8E8E8E', fontWeight: '500' },
+  badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  badgeOngoing: { backgroundColor: '#FFF3E0' },
+  badgeDone: { backgroundColor: '#EAF7EF' },
+  badgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
+  badgeTextOngoing: { color: '#B26A00' },
+  badgeTextDone: { color: '#1E874B' },
 });
 
 // ─── Chip list (SERVICES / TOOLS) ───────────────────────────────────────────
@@ -98,24 +213,41 @@ function calcExperienceDuration(entry) {
   return `${yrs} yr${yrs === 1 ? '' : 's'}`;
 }
 
-function ExperienceList({ entries = [] }) {
+function ExperienceList({ entries = [], isOwn, onEdit, onAdd }) {
   return (
     <View>
-      {entries.map((e, i) => (
-        <View key={i} style={[ex.row, i > 0 && ex.rowBorder]}>
-          <Text style={ex.icon}>💼</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={ex.title} numberOfLines={1}>{e.title || 'Role'}</Text>
-            <Text style={ex.meta} numberOfLines={1}>
-              {[
-                e.company || null,
-                e.startYear ? `${e.startYear} – ${e.current ? 'Present' : (e.endYear || 'Present')}` : null,
-                calcExperienceDuration(e),
-              ].filter(Boolean).join(' · ')}
-            </Text>
-          </View>
-        </View>
-      ))}
+      {entries.length === 0 ? (
+        <Text style={s.placeholder}>Add your work experience</Text>
+      ) : (
+        entries.map((e, i) => {
+          const row = (
+            <View style={[ex.row, i > 0 && ex.rowBorder]}>
+              <Text style={ex.icon}>💼</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={ex.title} numberOfLines={1}>{e.title || 'Role'}</Text>
+                <Text style={ex.meta} numberOfLines={1}>
+                  {[
+                    e.company || null,
+                    e.startYear ? `${e.startYear} – ${e.current ? 'Present' : (e.endYear || 'Present')}` : null,
+                    calcExperienceDuration(e),
+                  ].filter(Boolean).join(' · ')}
+                </Text>
+              </View>
+              {isOwn && <Text style={ex.chevron}>›</Text>}
+            </View>
+          );
+          return isOwn ? (
+            <TouchableOpacity key={i} activeOpacity={0.7} onPress={() => onEdit(e)}>{row}</TouchableOpacity>
+          ) : (
+            <View key={i}>{row}</View>
+          );
+        })
+      )}
+      {isOwn && (
+        <TouchableOpacity style={ex.addBtn} onPress={onAdd} activeOpacity={0.8}>
+          <Text style={ex.addBtnText}>+ Add experience</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -126,13 +258,14 @@ const ex = injectFonts({
   icon: { fontSize: 14, marginTop: 1 },
   title: { fontSize: 13, fontWeight: '700', color: '#262626', marginBottom: 2 },
   meta: { fontSize: 12, color: '#8E8E8E', fontWeight: '500' },
+  chevron: { fontSize: 16, color: '#B5B5B5' },
+  addBtn: { marginTop: 10, alignItems: 'center' },
+  addBtnText: { fontSize: 13, fontWeight: '700', color: '#262626' },
 });
 
-// ─── QUALIFICATIONS rows ────────────────────────────────────────────────────
+// ─── QUALIFICATIONS: fixed rows (registration/employment) + dynamic entries ──
 function QualificationRows({ rows = [] }) {
-  if (rows.length === 0) {
-    return <Text style={s.placeholder}>Not added yet</Text>;
-  }
+  if (rows.length === 0) return null;
   return (
     <View>
       {rows.map((r, i) => (
@@ -152,6 +285,152 @@ const ql = injectFonts({
   value: { fontSize: 13, fontWeight: '500', color: '#737373', flexShrink: 1 },
 });
 
+function QualificationEntryList({ entries = [], isOwn, onEdit, onAdd }) {
+  if (entries.length === 0 && !isOwn) return null;
+  return (
+    <View>
+      {entries.length === 0 ? (
+        <Text style={s.placeholder}>Add your qualifications</Text>
+      ) : (
+        entries.map((e, i) => {
+          const row = (
+            <View style={[ex.row, i > 0 && ex.rowBorder]}>
+              <Text style={ex.icon}>🎓</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={ex.title} numberOfLines={1}>{e.degree || 'Qualification'}</Text>
+                {(e.institution || e.year) ? (
+                  <Text style={ex.meta} numberOfLines={1}>{[e.institution, e.year].filter(Boolean).join(' · ')}</Text>
+                ) : null}
+              </View>
+              {isOwn && <Text style={ex.chevron}>›</Text>}
+            </View>
+          );
+          return isOwn ? (
+            <TouchableOpacity key={i} activeOpacity={0.7} onPress={() => onEdit(e)}>{row}</TouchableOpacity>
+          ) : (
+            <View key={i}>{row}</View>
+          );
+        })
+      )}
+      {isOwn && (
+        <TouchableOpacity style={ex.addBtn} onPress={onAdd} activeOpacity={0.8}>
+          <Text style={ex.addBtnText}>+ Add qualification</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
+// ─── Experience / Qualification edit modal ──────────────────────────────────
+function ExperienceModal({ visible, isEditing, title, company, startYear, endYear, current, onChangeTitle, onChangeCompany, onChangeStartYear, onChangeEndYear, onToggleCurrent, onCancel, onSave, onDelete }) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={em.overlay}>
+        <View style={em.sheet}>
+          <Text style={em.title}>{isEditing ? 'Edit Experience' : 'Add Experience'}</Text>
+          <TextInput style={em.input} value={title} onChangeText={onChangeTitle} placeholder="Job title" placeholderTextColor="#8E8E8E" />
+          <TextInput style={[em.input, { marginTop: 10 }]} value={company} onChangeText={onChangeCompany} placeholder="Company" placeholderTextColor="#8E8E8E" />
+          <View style={em.row}>
+            <TextInput
+              style={[em.input, em.halfInput]} value={startYear} onChangeText={onChangeStartYear}
+              placeholder="Start year" placeholderTextColor="#8E8E8E" keyboardType="number-pad" maxLength={4}
+            />
+            {!current && (
+              <TextInput
+                style={[em.input, em.halfInput]} value={endYear} onChangeText={onChangeEndYear}
+                placeholder="End year" placeholderTextColor="#8E8E8E" keyboardType="number-pad" maxLength={4}
+              />
+            )}
+          </View>
+          <TouchableOpacity style={em.currentRow} onPress={onToggleCurrent} activeOpacity={0.7}>
+            <View style={[em.checkbox, current && em.checkboxActive]}>
+              {current && <Text style={em.checkboxTick}>✓</Text>}
+            </View>
+            <Text style={em.currentLabel}>Currently working here</Text>
+          </TouchableOpacity>
+          <View style={em.btnRow}>
+            <TouchableOpacity style={em.cancelBtn} onPress={onCancel}><Text style={em.cancelBtnText}>Cancel</Text></TouchableOpacity>
+            <TouchableOpacity style={em.saveBtn} onPress={onSave}><Text style={em.saveBtnText}>Save</Text></TouchableOpacity>
+          </View>
+          {isEditing && (
+            <TouchableOpacity style={em.deleteBtn} onPress={onDelete}>
+              <Text style={em.deleteBtnText}>Remove this entry</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function QualificationModal({ visible, isEditing, degree, institution, year, onChangeDegree, onChangeInstitution, onChangeYear, onCancel, onSave, onDelete }) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={em.overlay}>
+        <View style={em.sheet}>
+          <Text style={em.title}>{isEditing ? 'Edit Qualification' : 'Add Qualification'}</Text>
+          <TextInput style={em.input} value={degree} onChangeText={onChangeDegree} placeholder="Degree / Certification" placeholderTextColor="#8E8E8E" />
+          <TextInput style={[em.input, { marginTop: 10 }]} value={institution} onChangeText={onChangeInstitution} placeholder="Institution (optional)" placeholderTextColor="#8E8E8E" />
+          <TextInput
+            style={[em.input, { marginTop: 10 }]} value={year} onChangeText={onChangeYear}
+            placeholder="Year (optional)" placeholderTextColor="#8E8E8E" keyboardType="number-pad" maxLength={4}
+          />
+          <View style={em.btnRow}>
+            <TouchableOpacity style={em.cancelBtn} onPress={onCancel}><Text style={em.cancelBtnText}>Cancel</Text></TouchableOpacity>
+            <TouchableOpacity style={em.saveBtn} onPress={onSave}><Text style={em.saveBtnText}>Save</Text></TouchableOpacity>
+          </View>
+          {isEditing && (
+            <TouchableOpacity style={em.deleteBtn} onPress={onDelete}>
+              <Text style={em.deleteBtnText}>Remove this entry</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const em = injectFonts({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', paddingHorizontal: 24 },
+  sheet: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 20 },
+  title: { fontSize: 15, fontWeight: '700', color: '#262626', marginBottom: 14 },
+  input: {
+    borderWidth: 1.5, borderColor: '#E5E5E5', borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: '#262626',
+  },
+  row: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  halfInput: { flex: 1, marginTop: 0 },
+  currentRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14 },
+  checkbox: {
+    width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: '#E5E5E5',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  checkboxActive: { backgroundColor: '#262626', borderColor: '#262626' },
+  checkboxTick: { fontSize: 11, color: '#fff', fontWeight: '900' },
+  currentLabel: { fontSize: 13, fontWeight: '500', color: '#262626' },
+  btnRow: { flexDirection: 'row', gap: 10, marginTop: 18 },
+  cancelBtn: { flex: 1, height: 46, borderRadius: 12, borderWidth: 1.5, borderColor: '#E5E5E5', alignItems: 'center', justifyContent: 'center' },
+  cancelBtnText: { fontSize: 14, fontWeight: '600', color: '#262626' },
+  saveBtn: { flex: 1, height: 46, borderRadius: 12, backgroundColor: '#262626', alignItems: 'center', justifyContent: 'center' },
+  saveBtnText: { fontSize: 14, fontWeight: '600', color: '#FFFFFF' },
+  deleteBtn: { marginTop: 12, alignItems: 'center' },
+  deleteBtnText: { fontSize: 13, fontWeight: '700', color: '#B00020' },
+});
+
+// ─── Status pill (Available for projects / Not available) ──────────────────
+function AvailabilityPill({ available }) {
+  return available ? (
+    <View style={s.chipAvail}>
+      <View style={s.chipDot} />
+      <Text style={s.chipAvailText}>Available for projects</Text>
+    </View>
+  ) : (
+    <View style={s.chipBusy}>
+      <Text style={s.chipBusyText}>Not available</Text>
+    </View>
+  );
+}
+
 export default function ProfessionalProfileScreen({ navigation, route }) {
   const viewUid = route?.params?.uid ?? null;
 
@@ -161,6 +440,26 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
   const [verifiedWork, setVerifiedWork] = useState([]);
   const [myUid, setMyUid] = useState(null);
   const [bookmarked, setBookmarked] = useState(false);
+  const [viewer, setViewer] = useState({ visible: false, photos: [], index: 0 });
+  const { headerAnimatedStyle, headerHeight, onHeaderLayout, onScroll } = useAutoHideHeader();
+
+  const openViewer = (photos, index = 0) => setViewer({ visible: true, photos, index });
+  const closeViewer = () => setViewer(v => ({ ...v, visible: false }));
+
+  const [expModal, setExpModal] = useState(false);
+  const [expIndex, setExpIndex] = useState(null);
+  const [expTitle, setExpTitle] = useState('');
+  const [expCompany, setExpCompany] = useState('');
+  const [expStartYear, setExpStartYear] = useState('');
+  const [expEndYear, setExpEndYear] = useState('');
+  const [expCurrent, setExpCurrent] = useState(false);
+
+  const [qualModal, setQualModal] = useState(false);
+  const [qualIndex, setQualIndex] = useState(null);
+  const [qualIsFallback, setQualIsFallback] = useState(false);
+  const [qualDegree, setQualDegree] = useState('');
+  const [qualInstitution, setQualInstitution] = useState('');
+  const [qualYear, setQualYear] = useState('');
 
   useEffect(() => { load(); }, []);
 
@@ -259,6 +558,197 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
     Linking.openURL(withScheme).catch(() => Alert.alert('Could not open link.'));
   };
 
+  const handleOpenSettings = () => navigation.navigate('Settings');
+
+  const handleEditProfile = () => navigation.navigate('EditProfile', { profileType: 'professional' });
+
+  const handleEditSection = (section) => {
+    navigation.navigate('EditProfile', { profileType: 'professional', focusSection: section });
+  };
+
+  // ── Own-profile mutations — patch local state immediately, persist to Firestore
+  // (or AsyncStorage for guest sessions) in the background. ──────────────────────
+  const persistOwnProfileChange = async (patch) => {
+    if (!myUid) return;
+    const merged = { ...(professional || {}), ...patch };
+    setProfessional(merged);
+    try {
+      if (myUid.startsWith('guest_')) {
+        await AsyncStorage.setItem('localProfile', JSON.stringify(merged));
+      } else {
+        await updateProfile(myUid, patch);
+      }
+    } catch (_) {
+      Alert.alert('Could not save', 'Your change could not be saved. Please try again.');
+    }
+  };
+
+  const handleToggleAvailability = () => {
+    persistOwnProfileChange({ available: !(professional?.available !== false) });
+  };
+
+  const handleChangeAvatar = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please allow photo library access to change your photo.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (!result.canceled && result.assets?.[0]?.uri) {
+      persistOwnProfileChange({ photoUri: result.assets[0].uri });
+    }
+  };
+
+  const pickPortfolioImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please allow photo library access.');
+      return null;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (result.canceled || !result.assets?.[0]?.uri) return null;
+    return result.assets[0].uri;
+  };
+
+  const handleAddPortfolioPhoto = async () => {
+    const photos = professional?.workPhotos || [];
+    if (photos.length >= 6) return;
+    const uri = await pickPortfolioImage();
+    if (uri) persistOwnProfileChange({ workPhotos: [...photos, uri] });
+  };
+
+  const handleReplacePortfolioPhoto = async (index) => {
+    const uri = await pickPortfolioImage();
+    if (!uri) return;
+    const photos = [...(professional?.workPhotos || [])];
+    photos[index] = uri;
+    persistOwnProfileChange({ workPhotos: photos });
+  };
+
+  const handleRemovePortfolioPhoto = (index) => {
+    Alert.alert('Remove this photo?', 'This will permanently remove it from your profile.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          const photos = (professional?.workPhotos || []).filter((_, i) => i !== index);
+          persistOwnProfileChange({ workPhotos: photos });
+        },
+      },
+    ]);
+  };
+
+  // ── EXPERIENCE entries — add / edit / delete ─────────────────────────────
+  const openAddExperience = () => {
+    setExpIndex(null);
+    setExpTitle(''); setExpCompany(''); setExpStartYear(''); setExpEndYear(''); setExpCurrent(false);
+    setExpModal(true);
+  };
+
+  const openEditExperience = (entry) => {
+    const rawIndex = (professional?.experienceHistory || []).indexOf(entry);
+    setExpIndex(rawIndex);
+    setExpTitle(entry.title || '');
+    setExpCompany(entry.company || '');
+    setExpStartYear(entry.startYear || '');
+    setExpEndYear(entry.endYear || '');
+    setExpCurrent(!!entry.current);
+    setExpModal(true);
+  };
+
+  const saveExperience = () => {
+    if (!expTitle.trim()) { setExpModal(false); return; }
+    const list = [...(professional?.experienceHistory || [])];
+    const entry = {
+      title: expTitle.trim(),
+      company: expCompany.trim(),
+      startYear: expStartYear.trim(),
+      endYear: expCurrent ? '' : expEndYear.trim(),
+      current: expCurrent,
+    };
+    if (expIndex === null) list.push(entry); else list[expIndex] = entry;
+    persistOwnProfileChange({ experienceHistory: list });
+    setExpModal(false);
+  };
+
+  const deleteExperience = () => {
+    Alert.alert('Remove this entry?', 'This will permanently remove it from your profile.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          const list = (professional?.experienceHistory || []).filter((_, i) => i !== expIndex);
+          persistOwnProfileChange({ experienceHistory: list });
+          setExpModal(false);
+        },
+      },
+    ]);
+  };
+
+  // ── QUALIFICATION entries — add / edit / delete ──────────────────────────
+  const openAddQualification = () => {
+    setQualIndex(null); setQualIsFallback(false);
+    setQualDegree(''); setQualInstitution(''); setQualYear('');
+    setQualModal(true);
+  };
+
+  const openEditQualification = (entry) => {
+    if (entry.__fallback) {
+      setQualIndex(null);
+      setQualIsFallback(true);
+    } else {
+      const rawIndex = (professional?.qualifications || []).indexOf(entry);
+      setQualIndex(rawIndex);
+      setQualIsFallback(false);
+    }
+    setQualDegree(entry.degree || '');
+    setQualInstitution(entry.institution || '');
+    setQualYear(entry.year || '');
+    setQualModal(true);
+  };
+
+  const saveQualification = () => {
+    if (!qualDegree.trim()) { setQualModal(false); return; }
+    const list = [...(professional?.qualifications || [])];
+    const entry = { degree: qualDegree.trim(), institution: qualInstitution.trim(), year: qualYear.trim() };
+    if (qualIndex === null) list.push(entry); else list[qualIndex] = entry;
+    const patch = { qualifications: list };
+    if (qualIsFallback) patch.degree = ''; // migrate off the old single-value field once captured in the list
+    persistOwnProfileChange(patch);
+    setQualModal(false);
+  };
+
+  const deleteQualification = () => {
+    Alert.alert('Remove this entry?', 'This will permanently remove it from your profile.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          if (qualIsFallback) {
+            persistOwnProfileChange({ qualifications: [], degree: '' });
+          } else {
+            const list = (professional?.qualifications || []).filter((_, i) => i !== qualIndex);
+            persistOwnProfileChange({ qualifications: list });
+          }
+          setQualModal(false);
+        },
+      },
+    ]);
+  };
+
   if (loading) {
     return (
       <View style={s.center}>
@@ -287,6 +777,7 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
   const extraSkills = professional?.extraSkills?.length > 0 ? professional.extraSkills : (professional?.skillTags || []);
   const services    = professional?.services?.length > 0 ? professional.services : extraSkills;
   const tools       = professional?.tools || [];
+  const projects    = professional?.projects || [];
   const website     = professional?.website || '';
   const available   = professional?.available !== false;
   const isVerified  = !!(professional?.verificationNumber || professional?.verified);
@@ -302,10 +793,13 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
     });
 
   const qualificationRows = [
-    { key: 'degree', label: 'Degree / Qualification', value: degree },
     { key: 'reg', label: 'Registration Number', value: regNumber },
     { key: 'employment', label: 'Employment', value: employment },
   ].filter(r => !!r.value);
+
+  const qualificationEntries = professional?.qualifications?.length > 0
+    ? professional.qualifications
+    : (degree ? [{ degree, institution: '', year: '', __fallback: true }] : []);
 
   const ratedWork = verifiedWork.filter(w => w.rating && w.rating > 0);
   const ratingCount = ratedWork.length;
@@ -330,37 +824,51 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
     <View style={s.screen}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* ── 1. HEADER ────────────────────────────────────────────────────── */}
-      <View style={s.nav}>
+      {/* ── 1. HEADER (auto-hides on scroll) ───────────────────────────────── */}
+      <Animated.View style={[s.nav, s.navFloating, headerAnimatedStyle]} onLayout={onHeaderLayout}>
         <TouchableOpacity style={s.navBtn} onPress={() => navigation.goBack()}>
           <Text style={s.navBack}>←</Text>
         </TouchableOpacity>
         <Text style={s.navTitle}>Professional</Text>
         <TouchableOpacity
           style={s.navBtn}
-          onPress={isOwn ? undefined : handleBookmark}
-          activeOpacity={isOwn ? 1 : 0.7}
+          onPress={isOwn ? handleOpenSettings : handleBookmark}
+          activeOpacity={0.7}
         >
-          <Text style={s.navShare}>{isOwn ? '' : (bookmarked ? '🔖' : '☆')}</Text>
+          <Text style={s.navShare}>{isOwn ? '⚙️' : (bookmarked ? '🔖' : '☆')}</Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingTop: headerHeight, paddingBottom: 24 }}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+      >
 
         <View style={s.sheet}>
 
           {/* ── 2. IDENTITY ──────────────────────────────────────────────── */}
           <View style={s.heroRow}>
-            <View style={s.avatar}>
+            <TouchableOpacity
+              style={s.avatar}
+              activeOpacity={0.8}
+              onPress={() => professional?.photoUri && openViewer([professional.photoUri])}
+            >
               {professional?.photoUri ? (
                 <Image source={{ uri: professional.photoUri }} style={s.avatarImg} />
               ) : (
                 <Text style={s.avatarIcon}>🏛️</Text>
               )}
-            </View>
+              {isOwn && (
+                <TouchableOpacity style={s.avatarEditBadge} onPress={handleChangeAvatar} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                  <Text style={s.avatarEditIcon}>📷</Text>
+                </TouchableOpacity>
+              )}
+            </TouchableOpacity>
             <View style={s.heroInfo}>
               <View style={s.nameRow}>
-                <Text style={s.heroName} numberOfLines={1}>{name}</Text>
+                <Text style={s.heroName} numberOfLines={2}>{name}</Text>
                 {isVerified && (
                   <View style={s.verifiedBadge}>
                     <Text style={s.verifiedText}>✓</Text>
@@ -383,15 +891,12 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
 
           {/* ── 4. STATUS PILL + LINK ───────────────────────────────────── */}
           <View style={s.availRow}>
-            {available ? (
-              <View style={s.chipAvail}>
-                <View style={s.chipDot} />
-                <Text style={s.chipAvailText}>Available for projects</Text>
-              </View>
+            {isOwn ? (
+              <TouchableOpacity onPress={handleToggleAvailability} activeOpacity={0.75}>
+                <AvailabilityPill available={available} />
+              </TouchableOpacity>
             ) : (
-              <View style={s.chipBusy}>
-                <Text style={s.chipBusyText}>Not taking projects</Text>
-              </View>
+              <AvailabilityPill available={available} />
             )}
           </View>
           {website ? (
@@ -407,6 +912,7 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
             <Text style={s.verLabel}>✓ VERIFIED WORK</Text>
             <Text style={s.verNote}>cannot be edited</Text>
           </View>
+          {isOwn && <Text style={s.verOwnerNote}>Verified from completed jobs — cannot be edited</Text>}
           <View style={s.verStats}>
             <View style={s.verStat}>
               <Text style={s.verStatAmt}>{amtStr}</Text>
@@ -434,72 +940,158 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
 
           {/* ── 6. ACTION BUTTONS ───────────────────────────────────────── */}
           <View style={s.actionRow}>
-            <TouchableOpacity
-              style={[s.actionCallBtn, !available && s.actionCallBtnLocked]}
-              onPress={handleCall}
-              disabled={!available}
-              activeOpacity={0.85}
-            >
-              <Text style={[s.actionCallText, !available && s.actionCallTextLocked]}>
-                {available ? '📞  Call' : '🔒  Call'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.actionMsgBtn} onPress={handleMessage} activeOpacity={0.85}>
-              <Text style={s.actionMsgText}>💬  Chat</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.actionBookmarkBtn} onPress={handleBookmark} activeOpacity={0.85}>
-              <Text style={s.bookmarkIcon}>{bookmarked ? '🔖' : '☆'}</Text>
-            </TouchableOpacity>
+            {isOwn ? (
+              <TouchableOpacity style={s.editProfileBtn} onPress={handleEditProfile} activeOpacity={0.85}>
+                <Text style={s.editProfileBtnText}>✏️  Edit Profile</Text>
+              </TouchableOpacity>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={[s.actionCallBtn, !available && s.actionCallBtnLocked]}
+                  onPress={handleCall}
+                  disabled={!available}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[s.actionCallText, !available && s.actionCallTextLocked]}>
+                    {available ? '📞  Call' : '🔒  Call'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.actionMsgBtn} onPress={handleMessage} activeOpacity={0.85}>
+                  <Text style={s.actionMsgText}>💬  Chat</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.actionBookmarkBtn} onPress={handleBookmark} activeOpacity={0.85}>
+                  <Text style={s.bookmarkIcon}>{bookmarked ? '🔖' : '☆'}</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
 
           <View style={s.divider} />
 
-          {/* ── 7. SERVICES ──────────────────────────────────────────────── */}
-          <Text style={s.sLabel}>SERVICES</Text>
-          <ChipsList items={services} emptyText="Add services" />
-
-          <View style={s.divider} />
-
-          {/* ── 8. TOOLS ─────────────────────────────────────────────────── */}
-          <Text style={s.sLabel}>TOOLS</Text>
-          <ChipsList items={tools} emptyText="Add tools" />
-
-          <View style={s.divider} />
-
-          {/* ── 9. ABOUT ─────────────────────────────────────────────────── */}
-          <Text style={s.sLabel}>ABOUT</Text>
+          {/* ── 7. ABOUT ─────────────────────────────────────────────────── */}
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>ABOUT</Text>
+            {isOwn && (
+              <TouchableOpacity onPress={() => handleEditSection('about')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.editPencil}>✏️</Text>
+              </TouchableOpacity>
+            )}
+          </View>
           <Text style={bio ? s.aboutText : s.placeholder}>
             {bio || 'Add a short bio to attract more clients'}
           </Text>
 
-          {/* ── 9.5 EXPERIENCE (optional, hidden if none added) ──────────── */}
-          {experienceHistory.length > 0 && (
+          <View style={s.divider} />
+
+          {/* ── 8. VERIFIED PROJECTS ─────────────────────────────────────── */}
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>VERIFIED PROJECTS</Text>
+            {isOwn && (
+              <TouchableOpacity onPress={() => handleEditSection('projects')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.editPencil}>✏️</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <ProjectsList projects={projects} onViewPhoto={(uri) => uri && openViewer([uri])} />
+
+          <View style={s.divider} />
+
+          {/* ── 9. GALLERY (uploaded, up to 6) ───────────────────────────── */}
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>GALLERY</Text>
+            {isOwn && (
+              <TouchableOpacity onPress={() => handleEditSection('portfolio')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.editPencil}>✏️</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <PortfolioGrid
+            photos={professional?.workPhotos}
+            isOwn={isOwn}
+            onAdd={handleAddPortfolioPhoto}
+            onReplace={handleReplacePortfolioPhoto}
+            onRemove={handleRemovePortfolioPhoto}
+            onView={(i) => openViewer(professional?.workPhotos || [], i)}
+          />
+
+          <View style={s.divider} />
+
+          {/* ── 9.5 VERIFIED PORTFOLIO (from confirmed jobs only) ────────── */}
+          <VerifiedPortfolioGrid
+            items={verifiedPortfolio}
+            onView={(i) => openViewer(verifiedPortfolio.map(w => w.photo), i)}
+          />
+
+          <View style={s.divider} />
+
+          {/* ── 10. EXPERIENCE (hidden if none added, unless own profile) ── */}
+          {(experienceHistory.length > 0 || isOwn) && (
             <>
+              <View style={s.sectionHeadRow}>
+                <Text style={[s.sLabel, { marginBottom: 0 }]}>EXPERIENCE</Text>
+                {isOwn && (
+                  <TouchableOpacity onPress={() => handleEditSection('experience')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Text style={s.editPencil}>✏️</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              <ExperienceList entries={experienceHistory} isOwn={isOwn} onEdit={openEditExperience} onAdd={openAddExperience} />
               <View style={s.divider} />
-              <Text style={s.sLabel}>EXPERIENCE</Text>
-              <ExperienceList entries={experienceHistory} />
+            </>
+          )}
+
+          {/* ── 11. SERVICES ─────────────────────────────────────────────── */}
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>SERVICES</Text>
+            {isOwn && (
+              <TouchableOpacity onPress={() => handleEditSection('services')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.editPencil}>✏️</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <ChipsList items={services} emptyText="Add services" />
+
+          <View style={s.divider} />
+
+          {/* ── 12. TOOLS ─────────────────────────────────────────────────── */}
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>TOOLS</Text>
+            {isOwn && (
+              <TouchableOpacity onPress={() => handleEditSection('tools')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.editPencil}>✏️</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <ChipsList items={tools} emptyText="Add tools" />
+
+          <View style={s.divider} />
+
+          {/* ── 13. QUALIFICATIONS ───────────────────────────────────────── */}
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>QUALIFICATIONS</Text>
+            {isOwn && (
+              <TouchableOpacity onPress={() => handleEditSection('qualifications')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.editPencil}>✏️</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          {qualificationRows.length === 0 && qualificationEntries.length === 0 && !isOwn ? (
+            <Text style={s.placeholder}>Not added yet</Text>
+          ) : (
+            <>
+              <QualificationRows rows={qualificationRows} />
+              <QualificationEntryList
+                entries={qualificationEntries}
+                isOwn={isOwn}
+                onEdit={openEditQualification}
+                onAdd={openAddQualification}
+              />
             </>
           )}
 
           <View style={s.divider} />
 
-          {/* ── 10. QUALIFICATIONS ───────────────────────────────────────── */}
-          <Text style={s.sLabel}>QUALIFICATIONS</Text>
-          <QualificationRows rows={qualificationRows} />
-
-          <View style={s.divider} />
-
-          {/* ── 11. PORTFOLIO (uploaded, up to 6) ────────────────────────── */}
-          <PortfolioGrid photos={professional?.workPhotos} />
-
-          <View style={s.divider} />
-
-          {/* ── 12. VERIFIED PORTFOLIO (from confirmed jobs only) ────────── */}
-          <VerifiedPortfolioGrid items={verifiedPortfolio} />
-
-          <View style={s.divider} />
-
-          {/* ── 13. REVIEWS ──────────────────────────────────────────────── */}
+          {/* ── 14. REVIEWS ──────────────────────────────────────────────── */}
           <Text style={s.sLabel}>REVIEWS</Text>
           {reviews.length === 0 ? (
             <Text style={s.placeholder}>No reviews yet</Text>
@@ -507,7 +1099,7 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
             reviews.map((r, i) => (
               <View key={r.id || i} style={[s.reviewRow, i > 0 && s.reviewRowBorder]}>
                 <View style={s.reviewTop}>
-                  <Text style={s.reviewName}>{r.customerName || 'Customer'}</Text>
+                  <Text style={s.reviewName} numberOfLines={2}>{r.customerName || 'Customer'}</Text>
                   <Text style={s.reviewDate}>{r.date || ''}</Text>
                 </View>
                 <View style={s.reviewStars}>
@@ -525,6 +1117,44 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
         </View>
 
       </ScrollView>
+
+      <ExperienceModal
+        visible={expModal}
+        isEditing={expIndex !== null}
+        title={expTitle}
+        company={expCompany}
+        startYear={expStartYear}
+        endYear={expEndYear}
+        current={expCurrent}
+        onChangeTitle={setExpTitle}
+        onChangeCompany={setExpCompany}
+        onChangeStartYear={setExpStartYear}
+        onChangeEndYear={setExpEndYear}
+        onToggleCurrent={() => setExpCurrent(v => !v)}
+        onCancel={() => setExpModal(false)}
+        onSave={saveExperience}
+        onDelete={deleteExperience}
+      />
+      <QualificationModal
+        visible={qualModal}
+        isEditing={qualIndex !== null || qualIsFallback}
+        degree={qualDegree}
+        institution={qualInstitution}
+        year={qualYear}
+        onChangeDegree={setQualDegree}
+        onChangeInstitution={setQualInstitution}
+        onChangeYear={setQualYear}
+        onCancel={() => setQualModal(false)}
+        onSave={saveQualification}
+        onDelete={deleteQualification}
+      />
+
+      <PhotoViewer
+        visible={viewer.visible}
+        photos={viewer.photos}
+        initialIndex={viewer.index}
+        onClose={closeViewer}
+      />
     </View>
   );
 }
@@ -553,6 +1183,9 @@ const s = injectFonts({
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1, borderBottomColor: BORDER,
   },
+  navFloating: {
+    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
+  },
   navBtn: {
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: FILL, alignItems: 'center', justifyContent: 'center',
@@ -579,9 +1212,16 @@ const s = injectFonts({
   },
   avatarImg: { width: 72, height: 72, borderRadius: 36 },
   avatarIcon: { fontSize: 34 },
+  avatarEditBadge: {
+    position: 'absolute', bottom: 0, right: 0,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: DARK, borderWidth: 2, borderColor: '#FFFFFF',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  avatarEditIcon: { fontSize: 10 },
   heroInfo: { flex: 1 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
-  heroName: { fontSize: 18, fontWeight: '700', color: DARK, flexShrink: 1 },
+  nameRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 6 },
+  heroName: { fontSize: 18, fontWeight: '700', color: DARK, flexShrink: 1, flex: 1, lineHeight: 22 },
   verifiedBadge: {
     width: 18, height: 18, borderRadius: 9,
     backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center',
@@ -620,6 +1260,7 @@ const s = injectFonts({
   },
   verLabel: { fontSize: 11, fontWeight: '600', color: GREEN, letterSpacing: 0.8 },
   verNote:  { fontSize: 10, color: LIGHT, fontWeight: '500' },
+  verOwnerNote: { fontSize: 10, color: LIGHT, fontWeight: '500', marginBottom: 10 },
   verStats: { flexDirection: 'row', alignItems: 'center' },
   verStat:  { flex: 1, alignItems: 'center' },
   verStatVal: { fontSize: 16, fontWeight: '700', color: DEEP_GREEN, marginBottom: 2 },
@@ -633,6 +1274,8 @@ const s = injectFonts({
     fontSize: 11, fontWeight: '600', color: LIGHT,
     letterSpacing: 1, marginBottom: 12,
   },
+  sectionHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  editPencil: { fontSize: 13 },
   placeholder: { fontSize: 13, color: FAINT, fontStyle: 'italic' },
 
   // ── 6. ACTIONS (inline)
@@ -655,6 +1298,12 @@ const s = injectFonts({
     borderWidth: 1.5, borderColor: BORDER,
     alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
   },
+  editProfileBtn: {
+    flex: 1, height: 46, borderRadius: 12,
+    backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: BORDER,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  editProfileBtnText: { color: DARK, fontWeight: '600', fontSize: 15 },
 
   // ── 7/8. SERVICES / TOOLS chips
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -670,9 +1319,9 @@ const s = injectFonts({
   // ── 13. REVIEWS
   reviewRow: { paddingVertical: 12 },
   reviewRowBorder: { borderTopWidth: 1, borderTopColor: BORDER },
-  reviewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  reviewName: { fontSize: 13, fontWeight: '700', color: DARK },
-  reviewDate: { fontSize: 11, color: LIGHT, fontWeight: '500' },
+  reviewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 },
+  reviewName: { fontSize: 13, fontWeight: '700', color: DARK, flex: 1, flexShrink: 1, lineHeight: 16 },
+  reviewDate: { fontSize: 11, color: LIGHT, fontWeight: '500', flexShrink: 0, marginLeft: 8 },
   reviewStars: { flexDirection: 'row', gap: 2, marginBottom: 6 },
   reviewStarIcon: { fontSize: 14, color: BORDER },
   reviewStarActive: { color: STAR },

@@ -2,19 +2,19 @@ import { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, Alert, ActivityIndicator, Linking,
-  Image, Dimensions,
+  Image, Animated,
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import PhotoViewer from '../components/PhotoViewer';
+import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
 import { getProfile, recordProfileView, updateProfile } from '../services/userService';
 import { getTotalVerifiedAmount, getVerifiedWork } from '../services/workService';
 import { createChat } from '../services/chatService';
 import { toggleBookmark, isBookmarked } from '../services/bookmarkService';
 import { auth } from '../config/firebase';
-import { formatAmountK } from '../utils/format';
-
-const SLOT_SIZE = Math.floor((Dimensions.get('window').width - 28 - 16) / 3);
+import { formatAmountK, formatAmountIndian } from '../utils/format';
 
 function AvailabilityChip({ available }) {
   return available ? (
@@ -29,36 +29,107 @@ function AvailabilityChip({ available }) {
   );
 }
 
-function WorkPhotoGrid({ photos = [], isOwn, onAdd, onReplace, onRemove, onEditSection }) {
+// ─── VERIFIED PROJECTS list ─────────────────────────────────────────────────
+function ProjectsList({ projects = [], onViewPhoto }) {
+  if (projects.length === 0) {
+    return <Text style={s.placeholder}>Add your projects</Text>;
+  }
+  return (
+    <View>
+      {projects.map((p, i) => (
+        <View key={i} style={[pj.row, i > 0 && pj.rowBorder]}>
+          <TouchableOpacity
+            style={pj.thumb}
+            activeOpacity={p.photoUri ? 0.8 : 1}
+            disabled={!p.photoUri}
+            onPress={() => onViewPhoto(p.photoUri)}
+          >
+            {p.photoUri ? (
+              <Image source={{ uri: p.photoUri }} style={pj.thumbImg} resizeMode="cover" />
+            ) : (
+              <Text style={pj.thumbIcon}>🏗️</Text>
+            )}
+          </TouchableOpacity>
+          <View style={pj.info}>
+            <Text style={pj.name} numberOfLines={1}>{p.name || 'Untitled project'}</Text>
+            <Text style={pj.meta} numberOfLines={1}>
+              {[p.location, p.value ? formatAmountIndian(p.value) : null].filter(Boolean).join(' · ')}
+            </Text>
+          </View>
+          <View style={[pj.badge, p.status === 'ongoing' ? pj.badgeOngoing : pj.badgeDone]}>
+            <Text style={[pj.badgeText, p.status === 'ongoing' ? pj.badgeTextOngoing : pj.badgeTextDone]}>
+              {p.status === 'ongoing' ? 'ONGOING' : 'DONE'}
+            </Text>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const pj = injectFonts({
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
+  rowBorder: { borderTopWidth: 1, borderTopColor: '#E5E5E5' },
+  thumb: {
+    width: 46, height: 46, borderRadius: 10,
+    backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  },
+  thumbImg: { width: '100%', height: '100%' },
+  thumbIcon: { fontSize: 18, opacity: 0.5 },
+  info: { flex: 1 },
+  name: { fontSize: 13, fontWeight: '700', color: '#262626', marginBottom: 2 },
+  meta: { fontSize: 12, color: '#8E8E8E', fontWeight: '500' },
+  badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  badgeOngoing: { backgroundColor: '#FFF3E0' },
+  badgeDone: { backgroundColor: '#EAF7EF' },
+  badgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
+  badgeTextOngoing: { color: '#B26A00' },
+  badgeTextDone: { color: '#1E874B' },
+});
+
+// Slot size is measured from the grid container's ACTUAL laid-out width via
+// onLayout, not guessed from useWindowDimensions() minus assumed padding —
+// the guessed chrome (sheet marginHorizontal/padding) can be wrong relative
+// to the real rendered content box, which is what was still causing the 3rd
+// tile to wrap. Measuring the real container removes the guesswork entirely.
+const GRID_GAP = 8;
+
+function WorkPhotoGrid({ photos = [], isOwn, onAdd, onReplace, onRemove, onEditSection, onView }) {
+  const [gridWidth, setGridWidth] = useState(0);
+  const slotSize = gridWidth > 0 ? Math.floor((gridWidth - GRID_GAP * 2) / 3) - 1 : 0;
+
   const filled = Array.isArray(photos) ? photos.slice(0, 6) : [];
   const slots  = [...filled, ...Array(Math.max(0, 6 - filled.length)).fill(null)];
   return (
     <View>
       <View style={wp.labelRow}>
         <View style={wp.labelLeft}>
-          <Text style={wp.label}>WORK</Text>
+          <Text style={wp.label}>GALLERY</Text>
           {isOwn && (
             <TouchableOpacity onPress={onEditSection} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Text style={wp.editPencil}>✏️</Text>
             </TouchableOpacity>
           )}
         </View>
-        {isOwn && <Text style={wp.labelHint}>Tap to replace · ✕ to remove</Text>}
+        {isOwn && <Text style={wp.labelHint}>Tap to view · 🔄 replace · ✕ remove</Text>}
       </View>
-      <View style={wp.grid}>
-        {slots.map((uri, i) => (
-          <View key={i} style={wp.slot}>
+      <View style={wp.grid} onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}>
+        {gridWidth === 0 ? null : slots.map((uri, i) => (
+          <View key={i} style={[wp.slot, { width: slotSize, height: slotSize }]}>
             {uri ? (
-              isOwn ? (
-                <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.85} onPress={() => onReplace(i)}>
-                  <Image source={{ uri }} style={wp.thumb} resizeMode="cover" />
-                  <TouchableOpacity style={wp.removeBtn} onPress={() => onRemove(i)}>
-                    <Text style={wp.removeBtnText}>✕</Text>
-                  </TouchableOpacity>
-                </TouchableOpacity>
-              ) : (
+              <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.85} onPress={() => onView(i)}>
                 <Image source={{ uri }} style={wp.thumb} resizeMode="cover" />
-              )
+                {isOwn && (
+                  <>
+                    <TouchableOpacity style={wp.replaceBtn} onPress={() => onReplace(i)}>
+                      <Text style={wp.replaceBtnText}>🔄</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={wp.removeBtn} onPress={() => onRemove(i)}>
+                      <Text style={wp.removeBtnText}>✕</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </TouchableOpacity>
             ) : isOwn ? (
               <TouchableOpacity style={wp.addSlot} onPress={onAdd} activeOpacity={0.7}>
                 <Text style={wp.addSlotIcon}>+</Text>
@@ -86,7 +157,6 @@ const wp = injectFonts({
   labelHint: { fontSize: 10, color: '#B5B5B5', fontWeight: '500' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   slot: {
-    width: SLOT_SIZE, height: SLOT_SIZE,
     borderRadius: 10, overflow: 'hidden',
   },
   thumb: { width: '100%', height: '100%' },
@@ -103,11 +173,17 @@ const wp = injectFonts({
   },
   addSlotIcon: { fontSize: 26, fontWeight: '300', color: '#8E8E8E' },
   removeBtn: {
-    position: 'absolute', top: 5, right: 5,
-    width: 20, height: 20, borderRadius: 10,
+    position: 'absolute', top: 4, right: 4,
+    width: 18, height: 18, borderRadius: 9,
     backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center',
   },
-  removeBtnText: { fontSize: 10, fontWeight: '900', color: '#fff' },
+  removeBtnText: { fontSize: 9, fontWeight: '900', color: '#fff' },
+  replaceBtn: {
+    position: 'absolute', top: 4, left: 4,
+    width: 18, height: 18, borderRadius: 9,
+    backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center',
+  },
+  replaceBtnText: { fontSize: 9 },
 });
 
 export default function WorkerProfileScreen({ navigation, route }) {
@@ -119,8 +195,13 @@ export default function WorkerProfileScreen({ navigation, route }) {
   const [verifiedWork, setVerifiedWork] = useState([]);
   const [myUid, setMyUid] = useState(null);
   const [bookmarked, setBookmarked] = useState(false);
+  const [viewer, setViewer] = useState({ visible: false, photos: [], index: 0 });
+  const { headerAnimatedStyle, headerHeight, onHeaderLayout, onScroll } = useAutoHideHeader();
 
   useEffect(() => { load(); }, []);
+
+  const openViewer = (photos, index = 0) => setViewer({ visible: true, photos, index });
+  const closeViewer = () => setViewer(v => ({ ...v, visible: false }));
 
   const load = async () => {
     try {
@@ -321,6 +402,7 @@ export default function WorkerProfileScreen({ navigation, route }) {
   const available  = worker?.available !== false;
   const nativePlace = [worker?.nativePlaceCity, worker?.nativePlaceState].filter(Boolean).join(', ');
   const link       = worker?.link || '';
+  const projects   = worker?.projects || [];
 
   // Rating, job count and reviews come only from real completed (verified) work.
   const ratedWork  = verifiedWork.filter(w => w.rating && w.rating > 0);
@@ -343,8 +425,8 @@ export default function WorkerProfileScreen({ navigation, route }) {
     <View style={s.screen}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* ── 1. TOP NAV ──────────────────────────────────────────────────────── */}
-      <View style={s.nav}>
+      {/* ── 1. TOP NAV (auto-hides on scroll) ─────────────────────────────── */}
+      <Animated.View style={[s.nav, s.navFloating, headerAnimatedStyle]} onLayout={onHeaderLayout}>
         <TouchableOpacity style={s.navBtn} onPress={() => navigation.goBack()}>
           <Text style={s.navBack}>←</Text>
         </TouchableOpacity>
@@ -356,37 +438,38 @@ export default function WorkerProfileScreen({ navigation, route }) {
         >
           <Text style={s.navShare}>{isOwn ? '⚙️' : (bookmarked ? '🔖' : '☆')}</Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingTop: headerHeight, paddingBottom: 24 }}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+      >
 
         <View style={s.sheet}>
 
           {/* ── 2. HERO ─────────────────────────────────────────────────── */}
           <View style={s.heroRow}>
-            {isOwn ? (
-              <TouchableOpacity style={s.avatar} onPress={handleChangeAvatar} activeOpacity={0.8}>
-                {worker?.photoUri ? (
-                  <Image source={{ uri: worker.photoUri }} style={s.avatarImg} />
-                ) : (
-                  <Text style={s.avatarIcon}>👤</Text>
-                )}
-                <View style={s.avatarEditBadge}>
+            <TouchableOpacity
+              style={s.avatar}
+              activeOpacity={0.8}
+              onPress={() => worker?.photoUri && openViewer([worker.photoUri])}
+            >
+              {worker?.photoUri ? (
+                <Image source={{ uri: worker.photoUri }} style={s.avatarImg} />
+              ) : (
+                <Text style={s.avatarIcon}>👤</Text>
+              )}
+              {isOwn && (
+                <TouchableOpacity style={s.avatarEditBadge} onPress={handleChangeAvatar} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
                   <Text style={s.avatarEditIcon}>📷</Text>
-                </View>
-              </TouchableOpacity>
-            ) : (
-              <View style={s.avatar}>
-                {worker?.photoUri ? (
-                  <Image source={{ uri: worker.photoUri }} style={s.avatarImg} />
-                ) : (
-                  <Text style={s.avatarIcon}>👤</Text>
-                )}
-              </View>
-            )}
+                </TouchableOpacity>
+              )}
+            </TouchableOpacity>
             <View style={s.heroInfo}>
               <View style={s.nameRow}>
-                <Text style={s.heroName} numberOfLines={1}>{name}</Text>
+                <Text style={s.heroName} numberOfLines={2}>{name}</Text>
                 <View style={s.verifiedBadge}>
                   <Text style={s.verifiedText}>✓</Text>
                 </View>
@@ -481,7 +564,48 @@ export default function WorkerProfileScreen({ navigation, route }) {
 
           <View style={s.divider} />
 
-          {/* ── 5. SKILLS ───────────────────────────────────────────────── */}
+          {/* ── 5. ABOUT ────────────────────────────────────────────────── */}
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>ABOUT</Text>
+            {isOwn && (
+              <TouchableOpacity onPress={() => handleEditSection('about')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.editPencil}>✏️</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <Text style={about ? s.aboutText : s.placeholder}>
+            {about || 'Add a short bio to attract more clients'}
+          </Text>
+
+          <View style={s.divider} />
+
+          {/* ── 6. VERIFIED PROJECTS ─────────────────────────────────────── */}
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>VERIFIED PROJECTS</Text>
+            {isOwn && (
+              <TouchableOpacity onPress={() => handleEditSection('projects')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.editPencil}>✏️</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <ProjectsList projects={projects} onViewPhoto={(uri) => uri && openViewer([uri])} />
+
+          <View style={s.divider} />
+
+          {/* ── 7. GALLERY ───────────────────────────────────────────────── */}
+          <WorkPhotoGrid
+            photos={worker?.workPhotos}
+            isOwn={isOwn}
+            onAdd={handleAddPhoto}
+            onReplace={handleReplacePhoto}
+            onRemove={handleRemovePhoto}
+            onEditSection={() => handleEditSection('work')}
+            onView={(i) => openViewer(worker?.workPhotos || [], i)}
+          />
+
+          <View style={s.divider} />
+
+          {/* ── 8. SKILLS ───────────────────────────────────────────────── */}
           <View style={s.sectionHeadRow}>
             <Text style={[s.sLabel, { marginBottom: 0 }]}>SKILLS</Text>
             {isOwn && (
@@ -524,34 +648,7 @@ export default function WorkerProfileScreen({ navigation, route }) {
 
           <View style={s.divider} />
 
-          {/* ── 6. ABOUT ────────────────────────────────────────────────── */}
-          <View style={s.sectionHeadRow}>
-            <Text style={[s.sLabel, { marginBottom: 0 }]}>ABOUT</Text>
-            {isOwn && (
-              <TouchableOpacity onPress={() => handleEditSection('about')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Text style={s.editPencil}>✏️</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-          <Text style={about ? s.aboutText : s.placeholder}>
-            {about || 'Add a short bio to attract more clients'}
-          </Text>
-
-          <View style={s.divider} />
-
-          {/* ── 6.5 WORK PHOTOS ─────────────────────────────────────────── */}
-          <WorkPhotoGrid
-            photos={worker?.workPhotos}
-            isOwn={isOwn}
-            onAdd={handleAddPhoto}
-            onReplace={handleReplacePhoto}
-            onRemove={handleRemovePhoto}
-            onEditSection={() => handleEditSection('work')}
-          />
-
-          <View style={s.divider} />
-
-          {/* ── 7.5 REVIEWS ─────────────────────────────────────────────── */}
+          {/* ── 9. REVIEWS ───────────────────────────────────────────────── */}
           <Text style={s.sLabel}>REVIEWS</Text>
           {reviews.length === 0 ? (
             <Text style={s.placeholder}>No reviews yet</Text>
@@ -559,7 +656,7 @@ export default function WorkerProfileScreen({ navigation, route }) {
             reviews.map((r, i) => (
               <View key={r.id || i} style={[s.reviewRow, i > 0 && s.reviewRowBorder]}>
                 <View style={s.reviewTop}>
-                  <Text style={s.reviewName}>{r.customerName || 'Customer'}</Text>
+                  <Text style={s.reviewName} numberOfLines={2}>{r.customerName || 'Customer'}</Text>
                   <Text style={s.reviewDate}>{r.date || ''}</Text>
                 </View>
                 <View style={s.reviewStars}>
@@ -577,6 +674,13 @@ export default function WorkerProfileScreen({ navigation, route }) {
         </View>
 
       </ScrollView>
+
+      <PhotoViewer
+        visible={viewer.visible}
+        photos={viewer.photos}
+        initialIndex={viewer.index}
+        onClose={closeViewer}
+      />
 
     </View>
   );
@@ -604,6 +708,9 @@ const s = injectFonts({
     paddingHorizontal: 14, paddingTop: 52, paddingBottom: 12,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1, borderBottomColor: BORDER,
+  },
+  navFloating: {
+    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
   },
   navBtn: {
     width: 36, height: 36, borderRadius: 18,
@@ -639,8 +746,8 @@ const s = injectFonts({
   },
   avatarEditIcon: { fontSize: 10 },
   heroInfo: { flex: 1 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 },
-  heroName: { fontSize: 18, fontWeight: '700', color: DARK, flexShrink: 1 },
+  nameRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 3 },
+  heroName: { fontSize: 18, fontWeight: '700', color: DARK, flexShrink: 1, flex: 1, lineHeight: 22 },
   verifiedBadge: {
     width: 18, height: 18, borderRadius: 9,
     backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center',
@@ -723,9 +830,9 @@ const s = injectFonts({
   // ── REVIEWS
   reviewRow: { paddingVertical: 12 },
   reviewRowBorder: { borderTopWidth: 1, borderTopColor: BORDER },
-  reviewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  reviewName: { fontSize: 13, fontWeight: '700', color: DARK },
-  reviewDate: { fontSize: 11, color: LIGHT, fontWeight: '500' },
+  reviewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 },
+  reviewName: { fontSize: 13, fontWeight: '700', color: DARK, flex: 1, flexShrink: 1, lineHeight: 16 },
+  reviewDate: { fontSize: 11, color: LIGHT, fontWeight: '500', flexShrink: 0, marginLeft: 8 },
   reviewStars: { flexDirection: 'row', gap: 2, marginBottom: 6 },
   reviewStarIcon: { fontSize: 14, color: BORDER },
   reviewStarActive: { color: STAR },
@@ -758,7 +865,8 @@ const s = injectFonts({
   bookmarkIcon: { fontSize: 20 },
   editProfileBtn: {
     flex: 1, height: 50, borderRadius: 14,
-    backgroundColor: DARK, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: BORDER,
+    alignItems: 'center', justifyContent: 'center',
   },
-  editProfileBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 15 },
+  editProfileBtnText: { color: DARK, fontWeight: '600', fontSize: 15 },
 });

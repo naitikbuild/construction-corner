@@ -1,17 +1,21 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, StatusBar, SafeAreaView, Image, Alert,
+  StyleSheet, StatusBar, SafeAreaView, Image, Alert, Animated,
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { signOut } from 'firebase/auth';
 import { useFocusEffect } from '@react-navigation/native';
 import BottomNav from '../components/BottomNav';
+import PhotoViewer from '../components/PhotoViewer';
+import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
 
 import { auth } from '../config/firebase';
 import { getProfile } from '../services/userService';
 import { getWorkByCustomer } from '../services/workService';
+
+const AnimatedSafeAreaView = Animated.createAnimatedComponent(SafeAreaView);
 
 const DARK = '#262626';
 const GREEN = '#22A559';
@@ -52,6 +56,8 @@ export default function PersonalProfileScreen({ navigation }) {
   const [profile, setProfile] = useState(null);
   const [bookings, setBookings] = useState([]);
   const [myUid, setMyUid] = useState(null);
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const { headerAnimatedStyle, headerHeight, onHeaderLayout, onScroll } = useAutoHideHeader();
 
   const load = useCallback(async () => {
     try {
@@ -111,19 +117,33 @@ export default function PersonalProfileScreen({ navigation }) {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      <SafeAreaView style={styles.header}>
+      <AnimatedSafeAreaView
+        style={[styles.header, styles.headerFloating, headerAnimatedStyle]}
+        onLayout={onHeaderLayout}
+      >
         <View style={styles.headerRow}>
           <Text style={styles.headerTitle}>My Profile</Text>
           <TouchableOpacity style={styles.settingsBtn} onPress={() => navigation.navigate('Settings')}>
             <Text style={{ fontSize: 18 }}>⚙️</Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </AnimatedSafeAreaView>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingTop: headerHeight }}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+      >
         {/* Profile summary */}
         <View style={styles.profileCard}>
-          <View style={styles.avatarWrap}>
+          <TouchableOpacity
+            style={styles.avatarWrap}
+            activeOpacity={0.8}
+            disabled={!profile?.photoUri}
+            onPress={() => setViewerVisible(true)}
+          >
             {profile?.photoUri ? (
               <Image source={{ uri: profile.photoUri }} style={styles.avatarImg} />
             ) : (
@@ -131,8 +151,8 @@ export default function PersonalProfileScreen({ navigation }) {
                 <Text style={{ fontSize: 36 }}>👤</Text>
               </View>
             )}
-          </View>
-          <Text style={styles.profileName}>{profile?.name || 'Your Name'}</Text>
+          </TouchableOpacity>
+          <Text style={styles.profileName} numberOfLines={2}>{profile?.name || 'Your Name'}</Text>
           {locationLine ? <Text style={styles.profileLocation}>📍 {locationLine}</Text> : null}
           <TouchableOpacity style={styles.editBtn} onPress={() => navigation.navigate('PersonalProfileSetup')}>
             <Text style={styles.editBtnText}>Edit Profile</Text>
@@ -177,6 +197,13 @@ export default function PersonalProfileScreen({ navigation }) {
         active="MyDashboard"
         onProfilePress={() => navigation.navigate('PersonalProfile', { uid: myUid })}
       />
+
+      <PhotoViewer
+        visible={viewerVisible}
+        photos={profile?.photoUri ? [profile.photoUri] : []}
+        initialIndex={0}
+        onClose={() => setViewerVisible(false)}
+      />
     </View>
   );
 }
@@ -185,6 +212,7 @@ const styles = injectFonts({
   container: { flex: 1, backgroundColor: '#FAF9F5' },
 
   header: { backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: BORDER },
+  headerFloating: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
   headerRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16,
@@ -207,7 +235,7 @@ const styles = injectFonts({
     width: 84, height: 84, borderRadius: 42, backgroundColor: FILL,
     alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: BORDER,
   },
-  profileName: { fontSize: 19, fontWeight: '700', color: TEXT_DARK, marginBottom: 4 },
+  profileName: { fontSize: 19, fontWeight: '700', color: TEXT_DARK, marginBottom: 4, lineHeight: 23, textAlign: 'center' },
   profileLocation: { fontSize: 13, color: TEXT_MID, marginBottom: 14 },
   editBtn: {
     paddingHorizontal: 18, paddingVertical: 9, borderRadius: 10,

@@ -98,7 +98,7 @@ function ConversationItem({ item, onPress }) {
       {/* Content */}
       <View style={styles.itemContent}>
         <View style={styles.itemTopRow}>
-          <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
+          <Text style={styles.itemName} numberOfLines={2}>{item.name}</Text>
           <Text style={[styles.itemTime, item.unread > 0 && styles.itemTimeUnread]}>
             {item.time}
           </Text>
@@ -339,8 +339,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#2ECC71', borderWidth: 2, borderColor: '#FFFFFF',
   },
   itemContent: { flex: 1, justifyContent: 'center' },
-  itemTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 },
-  itemName: { fontSize: 15, fontWeight: '800', color: '#1A1A1A', flex: 1, marginRight: 8 },
+  itemTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 3 },
+  itemName: { fontSize: 15, fontWeight: '800', color: '#1A1A1A', flex: 1, marginRight: 8, lineHeight: 18 },
   itemTime: { fontSize: 11, fontWeight: '600', color: '#888' },
   itemTimeUnread: { color: ORANGE, fontWeight: '700' },
   itemBottomRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },

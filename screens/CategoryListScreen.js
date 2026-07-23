@@ -29,7 +29,7 @@ function ProfileCard({ profile, isLast, onPress }) {
       </View>
 
       <View style={ss.info}>
-        <Text style={ss.name} numberOfLines={1}>{profile.name}</Text>
+        <Text style={ss.name} numberOfLines={2}>{profile.name}</Text>
         <Text style={ss.desig} numberOfLines={1}>{profile.designation}</Text>
         <Text style={ss.meta} numberOfLines={1}>📍 {profile.location}{profile.experience ? `  ·  ${profile.experience}` : ''}</Text>
         <Text style={ss.highlight} numberOfLines={1}>{profile.highlight}</Text>
@@ -208,7 +208,7 @@ const ss = StyleSheet.create({
   ratingText: { fontSize: 10, fontWeight: '800', color: '#FFFFFF' },
 
   info: { flex: 1, paddingTop: 2 },
-  name: { fontSize: 14, fontWeight: '700', color: '#1A1A1A', marginBottom: 3 },
+  name: { fontSize: 14, fontWeight: '700', color: '#1A1A1A', marginBottom: 3, lineHeight: 17 },
   desig: { fontSize: 12, color: '#666666', fontWeight: '500', marginBottom: 3 },
   meta: { fontSize: 11, color: '#888888', fontWeight: '400', marginBottom: 5 },
   highlight: { fontSize: 12, color: '#FF6B2B', fontWeight: '600', marginBottom: 6 },

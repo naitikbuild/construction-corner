@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, ActivityIndicator,
 } from 'react-native';
+import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getVerifiedWork } from '../services/workService';
 
@@ -238,7 +239,7 @@ export default function ReviewsListScreen({ navigation, route }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = injectFonts({
   root: { flex: 1, backgroundColor: '#fff' },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

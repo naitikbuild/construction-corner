@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, Alert, ActivityIndicator,
 } from 'react-native';
+import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getProfile, recordProfileView } from '../services/userService';
 import { getTotalVerifiedAmount } from '../services/workService';
@@ -350,7 +351,7 @@ export default function SupplierProfileScreen({ navigation, route }) {
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
-const ss = StyleSheet.create({
+const ss = injectFonts({
   screen: { flex: 1, backgroundColor: '#F5F5F0' },
 
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, backgroundColor: '#F5F5F0', borderBottomWidth: 1, borderBottomColor: '#EFEFEF' },

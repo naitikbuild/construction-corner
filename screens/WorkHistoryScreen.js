@@ -3,17 +3,18 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, ActivityIndicator,
 } from 'react-native';
+import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { getVerifiedWork } from '../services/workService';
-const ORANGE = '#FF6B2B';
-const GREEN = '#2ECC71';
-const GREEN_LIGHT = '#F0FFF4';
+const ORANGE = '#262626';
+const GREEN = '#22A559';
+const GREEN_LIGHT = '#EAF7EF';
 const GREEN_DARK = '#1A7A4A';
-const BORDER = '#EFEFEF';
+const BORDER = '#E5E5E5';
 const CARD = '#FFFFFF';
-const TEXT = '#1A1A1A';
-const MUTED = '#666666';
+const TEXT = '#262626';
+const MUTED = '#737373';
 
 const WORK_JOBS = [
   { id: 1, type: 'RCC Slab Work', location: 'Bopal, Ahmedabad', date: '04 Apr 2026', amount: 20000, year: '2026', customer: 'Naitik R.' },
@@ -215,8 +216,8 @@ export default function WorkHistoryScreen({ navigation, route }) {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#F5F5F0' },
+const styles = injectFonts({
+  root: { flex: 1, backgroundColor: '#FAF9F5' },
 
   // HEADER
   header: {
@@ -226,7 +227,7 @@ const styles = StyleSheet.create({
   },
   backBtn: {
     width: 36, height: 36, borderRadius: 18,
-    backgroundColor: '#FFF3E0', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center',
   },
   backArrow: { fontSize: 18, color: ORANGE, fontWeight: '800' },
   headerTitle: { fontSize: 17, fontWeight: '800', color: TEXT },

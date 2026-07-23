@@ -2,6 +2,7 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   StatusBar, BackHandler, Alert, SafeAreaView, ActivityIndicator,
 } from 'react-native';
+import { injectFonts } from '../theme/typography';
 import { useState, useEffect, useRef } from 'react';
 import { signInWithPhoneNumber, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -41,7 +42,7 @@ export default function LoginScreen({ navigation, route }) {
 
   useEffect(() => {
     const onBack = () => {
-      if (screen === 'login' && accountTypeParam) { navigation.goBack(); return true; }
+      if (screen === 'login' && (accountTypeParam || roleParam)) { navigation.goBack(); return true; }
       if (screen === 'login') { setScreen('accountType'); setOtpSent(false); setOtp(''); setPhone(''); return true; }
       if (screen === 'accountType') { setScreen('splash'); return true; }
       Alert.alert(
@@ -77,11 +78,11 @@ export default function LoginScreen({ navigation, route }) {
     const profile = await getProfile(uid);
     if (profile && profile.role) {
       navigation.replace('Home');
+    } else if (roleParam === 'personal' || profileTypeParam === 'personal' || accountTypeParam === 'personal') {
+      // Personal users get a minimal profile setup instead of the worker/business wizard
+      navigation.replace('PersonalProfileSetup', { phone: phoneNum });
     } else if (roleParam) {
       navigation.replace('EditProfile', { role: roleParam, profileType: profileTypeParam, phone: phoneNum });
-    } else if (accountTypeParam === 'personal') {
-      // Personal users browse without a mandatory profile — send them home
-      navigation.replace('Home');
     } else {
       // No profile, no role yet — show account type picker
       setScreen('accountType');
@@ -155,11 +156,17 @@ export default function LoginScreen({ navigation, route }) {
     }
   };
 
-  // ─── Test mode handler ────────────────────────────────────────────────────
-  const handleTestLogin = async () => {
-    const fakeUid = 'test_user_' + Date.now();
-    await AsyncStorage.setItem('uid', fakeUid);
-    setScreen('accountType');
+  // ─── Skip for now ─────────────────────────────────────────────────────────
+  const handleSkipForNow = async () => {
+    const guestId = 'guest_' + Date.now();
+    await AsyncStorage.setItem('uid', guestId);
+    if (roleParam === 'personal' || profileTypeParam === 'personal') {
+      navigation.replace('PersonalProfileSetup');
+    } else if (roleParam && profileTypeParam) {
+      navigation.replace('EditProfile', { role: roleParam, profileType: profileTypeParam });
+    } else {
+      navigation.replace('Home');
+    }
   };
 
   // ─── SPLASH ──────────────────────────────────────────────────────────────────
@@ -252,7 +259,7 @@ export default function LoginScreen({ navigation, route }) {
           disabled={!accountType}
           onPress={() => {
             if (accountType === 'personal') {
-              navigation.replace('Home');
+              navigation.replace('Login', { role: 'personal', profileType: 'personal' });
             } else {
               navigation.replace('AccountType');
             }
@@ -268,7 +275,10 @@ export default function LoginScreen({ navigation, route }) {
   return (
     <SafeAreaView style={styles.page}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      <TouchableOpacity style={styles.backBtn} onPress={() => { setScreen('accountType'); setOtpSent(false); setOtp(''); setPhone(''); }}>
+      <TouchableOpacity style={styles.backBtn} onPress={() => {
+        if (roleParam) { navigation.goBack(); return; }
+        setScreen('accountType'); setOtpSent(false); setOtp(''); setPhone('');
+      }}>
         <Text style={styles.backBtnText}>← Back</Text>
       </TouchableOpacity>
 
@@ -405,15 +415,15 @@ export default function LoginScreen({ navigation, route }) {
         <Text style={styles.termsLink}>Privacy Policy</Text>
       </Text>
 
-      {/* Test Mode */}
-      <TouchableOpacity style={styles.testModeBtn} onPress={handleTestLogin}>
-        <Text style={styles.testModeBtnText}>Skip Login (Test Mode)</Text>
+      {/* Skip for now */}
+      <TouchableOpacity style={styles.skipForNowBtn} onPress={handleSkipForNow}>
+        <Text style={styles.skipForNowText}>Skip for now</Text>
       </TouchableOpacity>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = injectFonts({
   primaryBtn: { backgroundColor: '#FF6B2B', paddingVertical: 16, borderRadius: 14, alignItems: 'center', marginHorizontal: 24, marginTop: 12 },
   primaryBtnDisabled: { backgroundColor: '#FFCBA8' },
   primaryBtnBottom: { marginTop: 'auto', marginBottom: 16 },
@@ -483,6 +493,11 @@ const styles = StyleSheet.create({
   termsText: { fontSize: 11, color: '#aaa', textAlign: 'center', lineHeight: 18, marginTop: 20, paddingHorizontal: 24 },
   termsLink: { color: '#FF6B2B', fontWeight: '700' },
 
-  testModeBtn: { alignSelf: 'center', marginTop: 16, marginBottom: 8, paddingVertical: 8, paddingHorizontal: 16 },
-  testModeBtnText: { fontSize: 12, color: '#bbb', fontWeight: '600', textDecorationLine: 'underline' },
+  skipForNowBtn: {
+    alignSelf: 'center', marginTop: 16, marginBottom: 8,
+    paddingVertical: 12, paddingHorizontal: 32,
+    borderRadius: 12, borderWidth: 1.5, borderColor: '#EFEFEF',
+    backgroundColor: '#F5F5F0',
+  },
+  skipForNowText: { fontSize: 14, fontWeight: '700', color: '#666666' },
 });

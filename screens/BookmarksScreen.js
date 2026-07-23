@@ -7,8 +7,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import BottomNav from '../components/BottomNav';
 import { getBookmarks, removeBookmark } from '../services/bookmarkService';
-const BLUE = '#FF6B2B';
-const BLUE_LIGHT = '#FFF3E0';
+const BLUE = '#262626';
+const BLUE_LIGHT = '#F2F2F2';
 
 const TABS = ['All', 'Professionals', 'Workers', 'Companies', 'Suppliers'];
 
@@ -206,36 +206,36 @@ export default function BookmarksScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F0' },
+  container: { flex: 1, backgroundColor: '#FAF9F5' },
   header: {
     backgroundColor: '#FFFFFF', paddingTop: 52, paddingBottom: 12, paddingHorizontal: 16,
-    borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
+    borderBottomWidth: 1, borderBottomColor: '#E5E5E5',
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
   backBtn: {
     width: 36, height: 36, borderRadius: 18,
-    backgroundColor: '#FFF3E0', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center',
   },
-  backIcon: { fontSize: 18, color: '#FF6B2B', fontWeight: '700' },
-  headerTitle: { fontSize: 20, fontWeight: '800', color: '#1A1A1A', textAlign: 'center' },
-  headerCount: { fontSize: 12, color: '#888', textAlign: 'center', marginTop: 2 },
+  backIcon: { fontSize: 18, color: '#262626', fontWeight: '700' },
+  headerTitle: { fontSize: 20, fontWeight: '700', color: '#262626', textAlign: 'center' },
+  headerCount: { fontSize: 12, color: '#8E8E8E', textAlign: 'center', marginTop: 2 },
 
-  tabsWrap: { backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#EFEFEF', maxHeight: 50 },
+  tabsWrap: { backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E5E5', maxHeight: 50 },
   tabsContent: { paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
   tab: {
     paddingHorizontal: 16, paddingVertical: 7, borderRadius: 20,
-    backgroundColor: '#F5F5F0',
+    backgroundColor: '#F2F2F2',
   },
   tabActive: { backgroundColor: BLUE_LIGHT },
-  tabText: { fontSize: 13, fontWeight: '600', color: '#666' },
-  tabTextActive: { color: BLUE, fontWeight: '800' },
+  tabText: { fontSize: 13, fontWeight: '600', color: '#737373' },
+  tabTextActive: { color: BLUE, fontWeight: '700' },
 
   list: { flex: 1 },
   listContent: { padding: 16, gap: 10 },
 
   card: {
     backgroundColor: '#FFFFFF', borderRadius: 14, padding: 14,
-    borderWidth: 1, borderColor: '#EFEFEF',
+    borderWidth: 1, borderColor: '#E5E5E5',
     flexDirection: 'row', alignItems: 'center', gap: 10,
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
   },
@@ -246,10 +246,10 @@ const styles = StyleSheet.create({
   },
   avatarEmoji: { fontSize: 26 },
   cardInfo: { flex: 1 },
-  cardName: { fontSize: 15, fontWeight: '800', color: '#1A1A1A', marginBottom: 3 },
-  cardRole: { fontSize: 12, color: '#666666', marginBottom: 3 },
-  cardLocation: { fontSize: 11, color: '#888' },
-  cardArrow: { fontSize: 20, color: '#CCC', marginRight: 4 },
+  cardName: { fontSize: 15, fontWeight: '700', color: '#262626', marginBottom: 3 },
+  cardRole: { fontSize: 12, color: '#737373', marginBottom: 3 },
+  cardLocation: { fontSize: 11, color: '#8E8E8E' },
+  cardArrow: { fontSize: 20, color: '#B5B5B5', marginRight: 4 },
 
   removeBtn: {
     width: 36, height: 36, borderRadius: 10,
@@ -258,13 +258,13 @@ const styles = StyleSheet.create({
   removeBtnText: { fontSize: 16 },
 
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
-  loadingText: { marginTop: 12, color: '#888', fontSize: 13 },
+  loadingText: { marginTop: 12, color: '#8E8E8E', fontSize: 13 },
   emptyIcon: { fontSize: 64, marginBottom: 16 },
-  emptyTitle: { fontSize: 20, fontWeight: '800', color: '#1A1A1A', marginBottom: 8 },
-  emptySub: { fontSize: 13, color: '#888', textAlign: 'center', lineHeight: 20, marginBottom: 24 },
+  emptyTitle: { fontSize: 20, fontWeight: '700', color: '#262626', marginBottom: 8 },
+  emptySub: { fontSize: 13, color: '#8E8E8E', textAlign: 'center', lineHeight: 20, marginBottom: 24 },
   exploreBtn: {
     backgroundColor: BLUE, paddingHorizontal: 24, paddingVertical: 12,
     borderRadius: 14,
   },
-  exploreBtnText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+  exploreBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 });

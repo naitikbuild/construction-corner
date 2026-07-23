@@ -1,135 +1,92 @@
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, StatusBar, FlatList, SectionList, Dimensions, ActivityIndicator,
+  ScrollView, StatusBar, SectionList, ActivityIndicator,
 } from 'react-native';
-import { useState, useRef, useMemo, useEffect, useCallback } from 'react';
+import { injectFonts } from '../theme/typography';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { searchUsers } from '../services/userService';
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 
-const ORANGE = '#FF6B2B';
-const BLUE = '#FF6B2B';
+const ORANGE = '#262626';
 const BG      = '#FFFFFF';
 const SURFACE = '#F6F7FB';
-const DARK    = '#1A1A2E';
+const DARK    = '#262626';
 const MID     = '#4A4A68';
 const LIGHT   = '#9FA3B0';
 const BORDER  = '#EDEDF2';
-const { width: SCREEN_W } = Dimensions.get('window');
-const CARD_W = (SCREEN_W - 48) / 2;
+
+// This screen only searches the provider types we support — Personal (client)
+// accounts are not providers and are never returned here.
+const PROVIDER_TYPES = ['worker', 'contractor', 'professional'];
 
 // ─── Static Data ──────────────────────────────────────────────────────────────
 
 const INITIAL_RECENT = [
   'Civil Engineer Ahmedabad',
-  'Cement price per bag',
   'Electrician contractor',
   'Interior designer Surat',
+  'Mason',
 ];
 
 const TRENDING = [
   'Site Engineer',
   'RCC Contractor',
-  'TMT Steel Rates',
+  'Electrician',
+  'Civil Engineer',
+  'Interior Designer',
   'Plumber Ahmedabad',
-  'AutoCAD Jobs',
-  'Waterproofing Work',
 ];
 
-const CATEGORIES = [
-  { label: 'Contractors',   emoji: '🏗️', count: '840+',   bg: '#FFF1EB', accent: ORANGE,     screen: 'ProfessionalCategory' },
-  { label: 'Professionals', emoji: '🏛️', count: '2,400+', bg: '#E0F5FE', accent: BLUE,       screen: 'ProfessionalCategory' },
-  { label: 'Materials',     emoji: '📦', count: '5,200+', bg: '#EDFBF0', accent: '#16A34A',  screen: 'MaterialMarketplace' },
-  { label: 'Jobs',          emoji: '💼', count: '1,800+', bg: '#F3EFFE', accent: '#7C3AED',  screen: 'Jobs' },
-  { label: 'Courses',       emoji: '📚', count: '120+',   bg: '#FFF0F0', accent: '#DC2626',  screen: 'Courses' },
-  { label: 'Tenders',       emoji: '📋', count: '340+',   bg: '#FFFBEB', accent: '#D97706',  screen: null },
-];
-
-const MASTER = [
-  // Contractors
-  { type: 'Contractors', emoji: '🏗️', bg: '#EFF6FF', name: 'Rahul Civil Works',        sub: 'Civil Contractor · Ahmedabad',          rating: '4.8', reviews: 124, cta: 'Contact' },
-  { type: 'Contractors', emoji: '⚡', bg: '#FEFCE8', name: 'Mehta Electrical',           sub: 'Electrical Contractor · Gandhinagar',   rating: '4.6', reviews: 87,  cta: 'Contact' },
-  { type: 'Contractors', emoji: '🔧', bg: '#F0F9FF', name: 'BuildRight Plumbing',        sub: 'Plumbing Contractor · Vadodara',        rating: '4.7', reviews: 63,  cta: 'Contact' },
-  { type: 'Contractors', emoji: '🎨', bg: '#FDF4FF', name: 'Colours Pro Painting',       sub: 'Painting Contractor · Surat',           rating: '4.5', reviews: 48,  cta: 'Contact' },
-  { type: 'Contractors', emoji: '💧', bg: '#EFF6FF', name: 'AquaShield Waterproofing',   sub: 'Waterproofing · Ahmedabad',             rating: '4.9', reviews: 210, cta: 'Contact' },
-  // Professionals
-  { type: 'Professionals', emoji: '🏛️', bg: '#F0FDF4', name: 'Priya Agarwal',           sub: 'Architect · 6 yrs exp · Ahmedabad',    rating: '4.9', reviews: 89,  cta: 'Book' },
-  { type: 'Professionals', emoji: '📐', bg: '#EFF6FF', name: 'Ankit Shah',               sub: 'Civil Engineer · 8 yrs · Ahmedabad',   rating: '4.7', reviews: 103, cta: 'Book' },
-  { type: 'Professionals', emoji: '🛋️', bg: '#FDF2F8', name: 'Riya Mehta',              sub: 'Interior Designer · 5 yrs · Surat',    rating: '4.8', reviews: 72,  cta: 'Book' },
-  { type: 'Professionals', emoji: '🔩', bg: '#F8FAFC', name: 'Ketan Patel',              sub: 'Structural Engineer · 10 yrs · Vadodara', rating: '4.6', reviews: 56, cta: 'Book' },
-  // Materials
-  { type: 'Materials', emoji: '🏗️', bg: '#FFF7ED', name: 'Gujarat Cement Traders',      sub: 'OPC 53 Grade · ₹340/bag',              rating: '4.8', reviews: 320, cta: 'Quote' },
-  { type: 'Materials', emoji: '⚙️', bg: '#F1F5F9', name: 'Raj Steel & TMT',             sub: 'Fe 500D TMT Bars · ₹58/kg',            rating: '4.7', reviews: 198, cta: 'Quote' },
-  { type: 'Materials', emoji: '🟫', bg: '#FFFBEB', name: 'Morbi Tiles Hub',              sub: 'Vitrified Tiles · ₹45/sqft',           rating: '4.9', reviews: 445, cta: 'Quote' },
-  { type: 'Materials', emoji: '🎨', bg: '#FDF4FF', name: 'Asian Paints Dealer',          sub: 'Exterior & Interior · ₹280/ltr',       rating: '4.8', reviews: 267, cta: 'Quote' },
-  // Jobs
-  { type: 'Jobs', emoji: '💼', bg: '#EFF6FF', name: 'Site Engineer',                     sub: 'Shapoorji Pallonji · Ahmedabad · ₹45K/mo', rating: null, reviews: 34, cta: 'Apply' },
-  { type: 'Jobs', emoji: '⚡', bg: '#FEFCE8', name: 'Electrical Supervisor',              sub: 'L&T Construction · Gandhinagar · ₹55K/mo', rating: null, reviews: 12, cta: 'Apply' },
+const FILTER_TABS = [
+  { key: 'all', label: 'All' },
+  { key: 'worker', label: 'Solo Workers' },
+  { key: 'contractor', label: 'Contractors' },
+  { key: 'professional', label: 'Professionals' },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const PROFILE_SCREEN = {
-  professional: 'ProfessionalProfile',
   worker: 'WorkerProfile',
-  supplier: 'SupplierProfile',
-  business: 'BusinessProfile',
+  contractor: 'ContractorProfile',
+  professional: 'ProfessionalProfile',
 };
 
 const TYPE_LABEL = {
+  worker: 'Solo Workers',
+  contractor: 'Contractors',
   professional: 'Professionals',
-  worker: 'Contractors',
-  supplier: 'Suppliers',
-  business: 'Companies',
 };
 
 const TYPE_EMOJI = {
-  professional: '🏛️',
   worker: '👷',
-  supplier: '🏭',
-  business: '🏢',
+  contractor: '👷‍♂️',
+  professional: '🏛️',
 };
 
 const TYPE_BG = {
+  worker: '#E5E5E5',
+  contractor: '#E5E5E5',
   professional: '#EDE7F6',
-  worker: '#FFF3E0',
-  supplier: '#E3F2FD',
-  business: '#E8F5E9',
 };
 
 function firestoreUserToResult(user) {
   const pt = (user.profileType || '').toLowerCase();
-  const name = user.name || user.companyName || 'Unknown';
-  const cat = user.designation || user.category || user.workerSkill || user.supplierCategory || '';
+  const name = user.name || 'Unknown';
+  const cat = user.designation || user.category || user.workerSkill || '';
   const city = user.city || '';
   return {
     uid: user.uid,
     profileScreen: PROFILE_SCREEN[pt] || null,
-    type: TYPE_LABEL[pt] || 'Users',
+    type: TYPE_LABEL[pt] || 'Providers',
     emoji: TYPE_EMOJI[pt] || '👤',
     bg: TYPE_BG[pt] || '#F5F5F5',
     name,
     sub: [cat, city].filter(Boolean).join('  ·  '),
-    rating: user.rating ? String(user.rating) : '4.5',
+    rating: user.rating ? String(user.rating) : null,
     reviews: user.reviewCount || 0,
-    cta: 'View',
   };
-}
-
-function groupResults(query) {
-  const q = query.toLowerCase().trim();
-  const matched = MASTER.filter(
-    (item) =>
-      item.name.toLowerCase().includes(q) ||
-      item.sub.toLowerCase().includes(q) ||
-      item.type.toLowerCase().includes(q)
-  );
-  const groups = {};
-  matched.forEach((item) => {
-    if (!groups[item.type]) groups[item.type] = [];
-    groups[item.type].push(item);
-  });
-  return Object.entries(groups).map(([title, data]) => ({ title, data }));
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -174,56 +131,63 @@ function TrendingChip({ label, onPress }) {
   );
 }
 
-function CategoryCard({ item, onPress }) {
+function FilterTabs({ active, onChange }) {
   return (
-    <TouchableOpacity
-      style={[styles.catCard, { backgroundColor: item.bg }]}
-      onPress={onPress}
-      activeOpacity={0.82}
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.filterTabsRow}
+      keyboardShouldPersistTaps="handled"
     >
-      <View style={[styles.catIconBg, { backgroundColor: item.accent + '22' }]}>
-        <Text style={styles.catEmoji}>{item.emoji}</Text>
-      </View>
-      <Text style={[styles.catLabel, { color: item.accent }]}>{item.label}</Text>
-      <View style={[styles.catBadge, { backgroundColor: item.accent + '18' }]}>
-        <Text style={[styles.catBadgeText, { color: item.accent }]}>{item.count} listed</Text>
-      </View>
-    </TouchableOpacity>
+      {FILTER_TABS.map((tab) => {
+        const isActive = active === tab.key;
+        return (
+          <TouchableOpacity
+            key={tab.key}
+            style={[styles.filterTab, isActive && styles.filterTabActive]}
+            onPress={() => onChange(tab.key)}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.filterTabText, isActive && styles.filterTabTextActive]}>{tab.label}</Text>
+          </TouchableOpacity>
+        );
+      })}
+    </ScrollView>
   );
 }
 
-function ResultCard({ item, onCta }) {
+function ResultCard({ item, onPress }) {
   return (
-    <View style={styles.resultCard}>
+    <TouchableOpacity style={styles.resultCard} onPress={onPress} activeOpacity={0.85}>
       <View style={[styles.resultAvatar, { backgroundColor: item.bg }]}>
         <Text style={styles.resultEmoji}>{item.emoji}</Text>
       </View>
       <View style={styles.resultInfo}>
         <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
         <Text style={styles.resultSub} numberOfLines={1}>{item.sub}</Text>
-        {item.rating ? (
-          <View style={styles.resultRatingRow}>
+        <View style={styles.resultRatingRow}>
+          {item.rating ? (
             <View style={styles.ratingBadge}>
               <Text style={styles.ratingBadgeStar}>★</Text>
               <Text style={styles.ratingBadgeVal}>{item.rating}</Text>
             </View>
-            <Text style={styles.resultReviews}>{item.reviews} reviews</Text>
-          </View>
-        ) : (
-          <View style={styles.resultRatingRow}>
-            <Text style={styles.appliedText}>👥 {item.reviews} applied</Text>
-          </View>
-        )}
+          ) : (
+            <View style={styles.newBadge}>
+              <Text style={styles.newBadgeText}>New</Text>
+            </View>
+          )}
+          {item.reviews > 0 && <Text style={styles.resultReviews}>{item.reviews} reviews</Text>}
+        </View>
       </View>
-      <TouchableOpacity style={styles.ctaBtn} onPress={onCta} activeOpacity={0.85}>
-        <Text style={styles.ctaBtnText}>{item.cta}</Text>
-      </TouchableOpacity>
-    </View>
+      <View style={styles.ctaBtn}>
+        <Text style={styles.ctaBtnText}>View</Text>
+      </View>
+    </TouchableOpacity>
   );
 }
 
 function NoResults({ query, onChipPress }) {
-  const suggestions = ['Site Engineer', 'Civil Contractor', 'Cement', 'AutoCAD'];
+  const suggestions = ['Electrician', 'Civil Contractor', 'Site Engineer', 'Mason'];
   return (
     <View style={styles.noResults}>
       <Text style={styles.noResultsEmoji}>🔍</Text>
@@ -244,9 +208,9 @@ function NoResults({ query, onChipPress }) {
   );
 }
 
-// ─── Empty State ──────────────────────────────────────────────────────────────
+// ─── Empty State (no query yet) ────────────────────────────────────────────────
 
-function EmptyState({ recent, onRecentPress, onRecentRemove, onClearRecent, onTrendingPress, navigation }) {
+function EmptyState({ recent, onRecentPress, onRecentRemove, onClearRecent, onTrendingPress }) {
   return (
     <ScrollView
       showsVerticalScrollIndicator={false}
@@ -280,20 +244,6 @@ function EmptyState({ recent, onRecentPress, onRecentRemove, onClearRecent, onTr
         </View>
       </View>
 
-      {/* Categories */}
-      <View style={styles.section}>
-        <SectionHeading title="Browse by Category" />
-        <View style={styles.catGrid}>
-          {CATEGORIES.map((cat) => (
-            <CategoryCard
-              key={cat.label}
-              item={cat}
-              onPress={() => cat.screen && navigation.navigate(cat.screen)}
-            />
-          ))}
-        </View>
-      </View>
-
       <View style={{ height: 48 }} />
     </ScrollView>
   );
@@ -306,7 +256,8 @@ export default function SearchScreen({ navigation, route }) {
   const [query, setQuery]         = useState(route?.params?.query || '');
   const [recent, setRecent]       = useState(INITIAL_RECENT);
   const [searching, setSearching] = useState(false);
-  const [liveResults, setLiveResults] = useState(null);
+  const [rawResults, setRawResults] = useState(null); // null = no query submitted yet
+  const [activeFilter, setActiveFilter] = useState('all');
   const debounceRef = useRef(null);
 
   useEffect(() => {
@@ -315,25 +266,19 @@ export default function SearchScreen({ navigation, route }) {
   }, []);
 
   useEffect(() => {
-    if (!query.trim()) { setLiveResults(null); return; }
+    if (!query.trim()) { setRawResults(null); return; }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     setSearching(true);
     debounceRef.current = setTimeout(async () => {
       try {
         const users = await searchUsers(query);
-        if (users.length > 0) {
-          const items = users.map(firestoreUserToResult);
-          const groups = {};
-          items.forEach(item => {
-            if (!groups[item.type]) groups[item.type] = [];
-            groups[item.type].push(item);
-          });
-          setLiveResults(Object.entries(groups).map(([title, data]) => ({ title, data })));
-        } else {
-          setLiveResults([]);
-        }
+        // Only Solo Workers / Contractors / Professionals are searchable providers.
+        const providers = (users || []).filter(u =>
+          PROVIDER_TYPES.includes((u.profileType || '').toLowerCase())
+        );
+        setRawResults(providers);
       } catch (_) {
-        setLiveResults(null);
+        setRawResults([]);
       } finally {
         setSearching(false);
       }
@@ -341,14 +286,19 @@ export default function SearchScreen({ navigation, route }) {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query]);
 
-  const staticSections = useMemo(() => {
-    if (!query.trim()) return null;
-    return groupResults(query);
-  }, [query]);
-
-  const sections = liveResults !== null
-    ? (liveResults.length > 0 ? liveResults : staticSections)
-    : staticSections;
+  const sections = useMemo(() => {
+    if (!rawResults) return null;
+    const filtered = activeFilter === 'all'
+      ? rawResults
+      : rawResults.filter(u => (u.profileType || '').toLowerCase() === activeFilter);
+    const items = filtered.map(firestoreUserToResult);
+    const groups = {};
+    items.forEach(item => {
+      if (!groups[item.type]) groups[item.type] = [];
+      groups[item.type].push(item);
+    });
+    return Object.entries(groups).map(([title, data]) => ({ title, data }));
+  }, [rawResults, activeFilter]);
 
   const addToRecent = (text) => {
     if (!text.trim()) return;
@@ -387,7 +337,7 @@ export default function SearchScreen({ navigation, route }) {
           <TextInput
             ref={inputRef}
             style={styles.searchInput}
-            placeholder="Search professionals, materials, jobs..."
+            placeholder="Search workers, contractors, professionals..."
             placeholderTextColor={LIGHT}
             value={query}
             onChangeText={setQuery}
@@ -395,7 +345,7 @@ export default function SearchScreen({ navigation, route }) {
             returnKeyType="search"
             autoCorrect={false}
           />
-          {query.length > 0 ? (
+          {query.length > 0 && (
             <TouchableOpacity
               onPress={() => setQuery('')}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -404,15 +354,16 @@ export default function SearchScreen({ navigation, route }) {
                 <Text style={styles.clearBtnText}>✕</Text>
               </View>
             </TouchableOpacity>
-          ) : (
-            <TouchableOpacity hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={styles.micIcon}>🎤</Text>
-            </TouchableOpacity>
           )}
         </View>
       </View>
 
       <View style={styles.headerDivider} />
+
+      {/* ── Filter Tabs (once a search is active) ── */}
+      {!showEmpty && (
+        <FilterTabs active={activeFilter} onChange={setActiveFilter} />
+      )}
 
       {/* ── Body ── */}
       {showEmpty && (
@@ -422,7 +373,6 @@ export default function SearchScreen({ navigation, route }) {
           onRecentRemove={removeRecent}
           onClearRecent={clearRecent}
           onTrendingPress={handleChipPress}
-          navigation={navigation}
         />
       )}
 
@@ -448,16 +398,10 @@ export default function SearchScreen({ navigation, route }) {
           renderItem={({ item }) => (
             <ResultCard
               item={item}
-              onCta={() => {
+              onPress={() => {
                 addToRecent(query);
                 if (item.uid && item.profileScreen) {
                   navigation.navigate(item.profileScreen, { uid: item.uid });
-                } else if (item.type === 'Materials') {
-                  navigation.navigate('MaterialMarketplace');
-                } else if (item.type === 'Jobs') {
-                  navigation.navigate('Jobs');
-                } else {
-                  navigation.navigate('CategoryList', { category: item.type, profileType: 'professional' });
                 }
               }}
             />
@@ -485,7 +429,7 @@ export default function SearchScreen({ navigation, route }) {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
+const styles = injectFonts({
   container: { flex: 1, backgroundColor: BG },
 
   // ── Header
@@ -517,8 +461,17 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   clearBtnText: { fontSize: 9, fontWeight: '900', color: MID },
-  micIcon: { fontSize: 16 },
   headerDivider: { height: 1, backgroundColor: BORDER },
+
+  // ── Filter tabs
+  filterTabsRow: { paddingHorizontal: 14, paddingVertical: 10, gap: 8 },
+  filterTab: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+    backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER,
+  },
+  filterTabActive: { backgroundColor: ORANGE, borderColor: ORANGE },
+  filterTabText: { fontSize: 13, fontWeight: '700', color: MID },
+  filterTabTextActive: { color: '#FFFFFF' },
 
   // ── Empty scroll
   emptyScroll: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 16 },
@@ -564,29 +517,6 @@ const styles = StyleSheet.create({
   trendFlame: { fontSize: 12 },
   trendChipText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
 
-  // ── Categories
-  catGrid: {
-    flexDirection: 'row', flexWrap: 'wrap',
-    gap: 12,
-  },
-  catCard: {
-    width: CARD_W, borderRadius: 18, padding: 16,
-    alignItems: 'flex-start', gap: 8,
-    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 }, elevation: 2,
-    borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)',
-  },
-  catIconBg: {
-    width: 52, height: 52, borderRadius: 14,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  catEmoji: { fontSize: 28 },
-  catLabel: { fontSize: 14, fontWeight: '800', marginTop: 2 },
-  catBadge: {
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
-  },
-  catBadgeText: { fontSize: 11, fontWeight: '600' },
-
   // ── Results
   resultsList: { paddingBottom: 40 },
   resultSectionHead: {
@@ -623,8 +553,12 @@ const styles = StyleSheet.create({
   },
   ratingBadgeStar: { fontSize: 11, color: '#F59E0B' },
   ratingBadgeVal: { fontSize: 12, fontWeight: '800', color: '#92400E' },
+  newBadge: {
+    backgroundColor: '#F5F5F0', borderRadius: 6,
+    paddingHorizontal: 6, paddingVertical: 2,
+  },
+  newBadgeText: { fontSize: 11, fontWeight: '800', color: LIGHT },
   resultReviews: { fontSize: 11, color: LIGHT, fontWeight: '500' },
-  appliedText: { fontSize: 12, color: LIGHT, fontWeight: '500' },
   ctaBtn: {
     backgroundColor: ORANGE, paddingHorizontal: 15, paddingVertical: 9,
     borderRadius: 12, flexShrink: 0,

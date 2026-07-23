@@ -1,13 +1,13 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { injectFonts } from '../theme/typography';
 
 const ORANGE = '#FF6B2B';
 
 const TABS = [
-  { icon: '🏠', label: 'Home',   screen: 'Home' },
-  { icon: '🔍', label: 'Search', screen: 'Search' },
-  { icon: '➕', label: 'Post',   screen: 'PostJob', post: true },
-  { icon: '💬', label: 'Chat',   screen: 'ChatList' },
-  { icon: '👤', label: 'Profile',screen: 'MyDashboard' },
+  { icon: '🏠', label: 'Home',    screen: 'Home' },
+  { icon: '🔍', label: 'Search',  screen: 'Search' },
+  { icon: '💬', label: 'Chat',    screen: 'ChatList' },
+  { icon: '👤', label: 'Profile', screen: 'MyDashboard' },
 ];
 
 export default function BottomNav({ navigation, active, onProfilePress }) {
@@ -29,18 +29,14 @@ export default function BottomNav({ navigation, active, onProfilePress }) {
             onPress={handlePress}
             activeOpacity={0.7}
           >
-            {tab.post ? (
-              <View style={styles.postBtn}>
-                <Text style={styles.postIcon}>➕</Text>
-              </View>
-            ) : isActive ? (
+            {isActive ? (
               <View style={styles.activeIconWrap}>
                 <Text style={styles.icon}>{tab.icon}</Text>
               </View>
             ) : (
               <Text style={styles.icon}>{tab.icon}</Text>
             )}
-            <Text style={[styles.label, isActive && styles.labelActive, tab.post && styles.postLabel]}>
+            <Text style={[styles.label, isActive && styles.labelActive]}>
               {tab.label}
             </Text>
           </TouchableOpacity>
@@ -50,7 +46,7 @@ export default function BottomNav({ navigation, active, onProfilePress }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = injectFonts({
   nav: {
     flexDirection: 'row',
     backgroundColor: '#fff',
@@ -72,13 +68,4 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF3E0',
     alignItems: 'center', justifyContent: 'center',
   },
-  postBtn: {
-    width: 44, height: 44, borderRadius: 14,
-    backgroundColor: ORANGE, alignItems: 'center', justifyContent: 'center',
-    marginTop: -18,
-    shadowColor: ORANGE, shadowOpacity: 0.45, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
-  },
-  postIcon: { fontSize: 20, color: '#fff' },
-  postLabel: { color: ORANGE, fontWeight: '700' },
 });

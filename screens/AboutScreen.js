@@ -2,9 +2,10 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, Linking, Alert,
 } from 'react-native';
+import { injectFonts } from '../theme/typography';
 
-const BLUE = '#FF6B2B';
-const ORANGE = '#FF6B2B';
+const BLUE = '#262626';
+const ORANGE = '#262626';
 
 const APP_VERSION = '1.0.0';
 const BUILD_NUMBER = '100';
@@ -157,44 +158,44 @@ export default function AboutScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F0' },
+const styles = injectFonts({
+  container: { flex: 1, backgroundColor: '#FAF9F5' },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingTop: 52, paddingBottom: 14, paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
+    backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E5E5',
   },
   backBtn: {
     width: 36, height: 36, borderRadius: 18,
-    backgroundColor: '#FFF3E0', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center',
   },
-  backArrow: { fontSize: 18, fontWeight: '700', color: '#FF6B2B' },
-  headerTitle: { fontSize: 17, fontWeight: '800', color: '#1A1A1A' },
+  backArrow: { fontSize: 18, fontWeight: '700', color: '#262626' },
+  headerTitle: { fontSize: 17, fontWeight: '800', color: '#262626' },
   scroll: { flex: 1 },
 
   hero: {
     backgroundColor: '#FFFFFF', alignItems: 'center',
     paddingVertical: 32, paddingHorizontal: 16,
-    borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
+    borderBottomWidth: 1, borderBottomColor: '#E5E5E5',
   },
   appIcon: {
     width: 100, height: 100, borderRadius: 24,
-    backgroundColor: '#FFF3E0', alignItems: 'center', justifyContent: 'center',
-    marginBottom: 14, shadowColor: '#FF6B2B', shadowOpacity: 0.2, shadowRadius: 12, elevation: 4,
+    backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center',
+    marginBottom: 14, shadowColor: '#262626', shadowOpacity: 0.2, shadowRadius: 12, elevation: 4,
   },
-  appName: { fontSize: 28, fontWeight: '800', color: '#1A1A1A', marginBottom: 4 },
-  appTagline: { fontSize: 14, color: '#666666', fontWeight: '600', marginBottom: 14 },
+  appName: { fontSize: 28, fontWeight: '800', color: '#262626', marginBottom: 4 },
+  appTagline: { fontSize: 14, color: '#737373', fontWeight: '600', marginBottom: 14 },
   versionRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   versionBadge: {
-    backgroundColor: '#FFF3E0', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4,
-    borderWidth: 1, borderColor: '#FFE0C4',
+    backgroundColor: '#F2F2F2', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4,
+    borderWidth: 1, borderColor: '#E5E5E5',
   },
   versionText: { fontSize: 12, fontWeight: '700', color: BLUE },
   madeInIndia: { fontSize: 13, color: '#888', fontWeight: '600' },
 
   statsRow: {
     flexDirection: 'row', backgroundColor: '#FFFFFF', paddingVertical: 20,
-    borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
+    borderBottomWidth: 1, borderBottomColor: '#E5E5E5',
   },
   statItem: { flex: 1, alignItems: 'center' },
   statValue: { fontSize: 18, fontWeight: '800', color: ORANGE, marginBottom: 4 },
@@ -202,9 +203,9 @@ const styles = StyleSheet.create({
 
   card: {
     backgroundColor: '#FFFFFF', marginHorizontal: 16, marginTop: 16,
-    borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#EFEFEF',
+    borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#E5E5E5',
   },
-  cardTitle: { fontSize: 15, fontWeight: '800', color: '#1A1A1A', marginBottom: 12 },
+  cardTitle: { fontSize: 15, fontWeight: '800', color: '#262626', marginBottom: 12 },
   cardBody: { fontSize: 13, color: '#555', lineHeight: 21 },
 
   featureRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
@@ -213,11 +214,11 @@ const styles = StyleSheet.create({
 
   contactRow: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
+    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#E5E5E5',
   },
   contactIcon: {
     width: 40, height: 40, borderRadius: 12,
-    backgroundColor: '#FFF3E0', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center',
   },
   contactLabel: { fontSize: 12, color: '#888', fontWeight: '600', marginBottom: 2 },
   contactValue: { fontSize: 13, color: BLUE, fontWeight: '700' },
@@ -225,10 +226,10 @@ const styles = StyleSheet.create({
 
   legalRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
+    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#E5E5E5',
   },
   legalIcon: { fontSize: 18 },
-  legalText: { flex: 1, fontSize: 14, fontWeight: '600', color: '#1A1A1A' },
+  legalText: { flex: 1, fontSize: 14, fontWeight: '600', color: '#262626' },
   legalArrow: { fontSize: 20, color: '#CCC' },
 
   footer: { marginHorizontal: 16, marginTop: 20, alignItems: 'center', paddingVertical: 16 },

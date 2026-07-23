@@ -1,167 +1,27 @@
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  SectionList, StatusBar, ActivityIndicator,
+  SectionList, StatusBar, ActivityIndicator, Alert,
 } from 'react-native';
+import { injectFonts } from '../theme/typography';
 import { useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { BLUE } from '../constants/colors';
+import { auth } from '../config/firebase';
 import {
   subscribeNotifications,
   markNotificationRead,
   markAllNotificationsRead,
+  deleteNotification,
+  deleteAllNotifications,
+  getGuestNotifications,
+  markGuestNotificationRead,
+  markAllGuestNotificationsRead,
+  deleteGuestNotification,
+  clearGuestNotifications,
 } from '../services/notificationService';
 
 const LIGHT_BLUE = '#E0F5FE';
-
-// ─── Sample Data ──────────────────────────────────────────────────────────────
-
-const ALL_NOTIFICATIONS = [
-  {
-    id: 'nw1',
-    type: 'work_confirm',
-    icon: '🛡️',
-    iconBg: '#DCFCE7',
-    iconColor: '#15803D',
-    title: 'Confirm work marked by customer',
-    description: 'Suresh Patel marked ₹20,000 work complete with you. Confirm to add this to your verified profile.',
-    time: '30 min ago',
-    unread: true,
-    filter: 'Work',
-  },
-  {
-    id: 'nw2',
-    type: 'work_verified',
-    icon: '✅',
-    iconBg: '#F0FDF4',
-    iconColor: '#15803D',
-    title: 'Work confirmed! ₹45,000 added to profile',
-    description: 'Kavya Shah confirmed the work. ₹45,000 has been added to your verified work history. Tamper-proof record created.',
-    time: '2 hr ago',
-    unread: true,
-    filter: 'Work',
-  },
-  {
-    id: 'n1',
-    type: 'message',
-    icon: '🔔',
-    iconBg: LIGHT_BLUE,
-    iconColor: BLUE,
-    title: 'New message from Rahul Mehta',
-    description: 'Site engineer ke baare mein baat karni thi, kya aap kal available hain?',
-    time: '2 min ago',
-    unread: true,
-    filter: 'Messages',
-  },
-  {
-    id: 'n2',
-    type: 'job_update',
-    icon: '✅',
-    iconBg: '#F0FFF4',
-    iconColor: '#38A169',
-    title: 'Application shortlisted!',
-    description: 'Shapoorji Pallonji ne aapki Site Engineer application shortlist ki hai. Interview schedule hogi.',
-    time: '15 min ago',
-    unread: true,
-    filter: 'Jobs',
-  },
-  {
-    id: 'n3',
-    type: 'profile_view',
-    icon: '👁️',
-    iconBg: '#FDF4FF',
-    iconColor: '#9F7AEA',
-    title: '5 people viewed your profile',
-    description: 'Aapka profile Suresh Patel, Priya Agarwal aur 3 aur logon ne dekha aaj',
-    time: '1 hr ago',
-    unread: true,
-    filter: 'All',
-  },
-  {
-    id: 'n4',
-    type: 'job_match',
-    icon: '💼',
-    iconBg: '#FFFBEB',
-    iconColor: '#D97706',
-    title: 'New job matching your skills',
-    description: 'L&T Construction: Structural Engineer chahiye — Ahmedabad, ₹65K/mo. Aapke skills se match karta hai!',
-    time: '2 hr ago',
-    unread: true,
-    filter: 'Jobs',
-  },
-  {
-    id: 'n5',
-    type: 'payment',
-    icon: '₹',
-    iconBg: '#F0FFF4',
-    iconColor: '#276749',
-    title: 'Payment received ₹25,000',
-    description: 'Ankit Shah ne AutoCAD Drawing project ke liye ₹25,000 bheje hain. Amount credited.',
-    time: '3 hr ago',
-    unread: false,
-    filter: 'Payments',
-  },
-  {
-    id: 'n6',
-    type: 'review',
-    icon: '⭐',
-    iconBg: '#FFFBEB',
-    iconColor: '#F59E0B',
-    title: 'New review from Kavya Shah',
-    description: '"Excellent work on our G+4 project. Very professional and delivered on time." — ⭐⭐⭐⭐⭐',
-    time: 'Yesterday',
-    unread: false,
-    filter: 'All',
-  },
-  {
-    id: 'n7',
-    type: 'job_match',
-    icon: '💼',
-    iconBg: '#FFFBEB',
-    iconColor: '#D97706',
-    title: 'Urgent: Electrician needed in Surat',
-    description: 'Tata Projects: Electrical Supervisor — Surat, ₹55K/mo. Apply karo abhi, sirf 3 seats bachi hain!',
-    time: 'Yesterday',
-    unread: false,
-    filter: 'Jobs',
-  },
-  {
-    id: 'n8',
-    type: 'message',
-    icon: '🔔',
-    iconBg: LIGHT_BLUE,
-    iconColor: BLUE,
-    title: 'Gujarat Cement Traders ka message',
-    description: 'OPC 53 Grade ki aaj ki rate list ready hai — ₹340/bag. 100+ bags pe free delivery.',
-    time: 'Yesterday',
-    unread: false,
-    filter: 'Messages',
-  },
-  {
-    id: 'n9',
-    type: 'payment',
-    icon: '₹',
-    iconBg: '#F0FFF4',
-    iconColor: '#276749',
-    title: 'Payment received ₹8,500',
-    description: 'Ravi Patel ne 3D Visualization project ke liye ₹8,500 bheje hain. Invoice #INV-2024-089.',
-    time: '2 days ago',
-    unread: false,
-    filter: 'Payments',
-  },
-  {
-    id: 'n10',
-    type: 'job_update',
-    icon: '✅',
-    iconBg: '#F0FFF4',
-    iconColor: '#38A169',
-    title: 'Profile verified successfully!',
-    description: 'Badhai ho! Aapka Construction Corner profile verify ho gaya. Ab aap "Verified" badge ke saath dikhenge.',
-    time: '3 days ago',
-    unread: false,
-    filter: 'All',
-  },
-];
 
 const FILTERS = ['All', 'Work', 'Jobs', 'Messages', 'Payments'];
 
@@ -191,7 +51,7 @@ function groupByDate(notifications) {
 
 // ─── Notification Card ────────────────────────────────────────────────────────
 
-function NotifCard({ item, onPress }) {
+function NotifCard({ item, onPress, onDelete }) {
   const isWorkConfirm = item.type === 'work_confirm';
   return (
     <TouchableOpacity
@@ -222,13 +82,24 @@ function NotifCard({ item, onPress }) {
 
       {/* Unread dot */}
       {item.unread && <View style={styles.unreadDot} />}
+
+      {/* Delete */}
+      <TouchableOpacity
+        style={styles.deleteBtn}
+        onPress={onDelete}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
+        <Text style={styles.deleteBtnText}>✕</Text>
+      </TouchableOpacity>
     </TouchableOpacity>
   );
 }
 
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
-function firestoreNotifToCard(n) {
+// Works for both a real Firestore notification doc and a guest AsyncStorage
+// item — both share the same { id, type, message, read, createdAt } shape.
+function notifToCard(n) {
   const typeMap = {
     work_confirmation: { icon: '🛡️', iconBg: '#DCFCE7', iconColor: '#15803D', filter: 'Work', type: 'work_confirm' },
     work_confirmed:   { icon: '✅', iconBg: '#F0FDF4', iconColor: '#15803D', filter: 'Work', type: 'work_verified' },
@@ -258,27 +129,39 @@ function firestoreNotifToCard(n) {
 
 export default function NotificationsScreen({ navigation }) {
   const [activeFilter, setActiveFilter] = useState('All');
-  const [notifications, setNotifications] = useState(ALL_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const uidRef = useRef(null);
+  const isGuestRef = useRef(false);
   const unsubRef = useRef(null);
 
   useEffect(() => {
-    AsyncStorage.getItem('uid').then(uid => {
-      if (!uid) { setLoading(false); return; }
-      uidRef.current = uid;
-      unsubRef.current = subscribeNotifications(uid, (items) => {
-        setLoading(false);
-        if (items.length > 0) {
-          const mapped = items.map(firestoreNotifToCard);
-          setNotifications([...mapped, ...ALL_NOTIFICATIONS]);
-        } else {
-          setNotifications(ALL_NOTIFICATIONS);
-        }
-      });
-    });
+    init();
     return () => { if (unsubRef.current) unsubRef.current(); };
   }, []);
+
+  const init = async () => {
+    try {
+      const uid = await AsyncStorage.getItem('uid');
+      if (!uid) { setLoading(false); return; }
+      uidRef.current = uid;
+
+      if (auth.currentUser) {
+        isGuestRef.current = false;
+        unsubRef.current = subscribeNotifications(uid, (items) => {
+          setLoading(false);
+          setNotifications(items.map(notifToCard));
+        });
+      } else {
+        isGuestRef.current = true;
+        const items = await getGuestNotifications();
+        setLoading(false);
+        setNotifications(items.map(notifToCard));
+      }
+    } catch (_) {
+      setLoading(false);
+    }
+  };
 
   const filtered = activeFilter === 'All'
     ? notifications
@@ -289,16 +172,46 @@ export default function NotificationsScreen({ navigation }) {
 
   const markAllRead = async () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
-    if (uidRef.current) await markAllNotificationsRead(uidRef.current);
+    if (!uidRef.current) return;
+    if (isGuestRef.current) await markAllGuestNotificationsRead();
+    else await markAllNotificationsRead(uidRef.current);
   };
 
-  const markRead = async (id, isFirestore) => {
+  const markRead = async (id) => {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, unread: false } : n))
     );
-    if (uidRef.current && isFirestore) {
-      await markNotificationRead(uidRef.current, id);
-    }
+    if (!uidRef.current) return;
+    if (isGuestRef.current) await markGuestNotificationRead(id);
+    else await markNotificationRead(uidRef.current, id);
+  };
+
+  const deleteOne = async (id) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    if (!uidRef.current) return;
+    if (isGuestRef.current) await deleteGuestNotification(id);
+    else await deleteNotification(uidRef.current, id);
+  };
+
+  const handleClearAll = () => {
+    if (notifications.length === 0) return;
+    Alert.alert(
+      'Clear all notifications?',
+      'This will permanently remove all your notifications.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear All',
+          style: 'destructive',
+          onPress: async () => {
+            setNotifications([]);
+            if (!uidRef.current) return;
+            if (isGuestRef.current) await clearGuestNotifications();
+            else await deleteAllNotifications(uidRef.current);
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -318,13 +231,18 @@ export default function NotificationsScreen({ navigation }) {
             </View>
           )}
         </View>
-        {unreadCount > 0 ? (
-          <TouchableOpacity onPress={markAllRead}>
-            <Text style={styles.markAllBtn}>Mark all read</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={{ width: 80 }} />
-        )}
+        <View style={styles.headerActions}>
+          {unreadCount > 0 && (
+            <TouchableOpacity onPress={markAllRead}>
+              <Text style={styles.markAllBtn}>Mark all read</Text>
+            </TouchableOpacity>
+          )}
+          {notifications.length > 0 && (
+            <TouchableOpacity onPress={handleClearAll}>
+              <Text style={styles.clearAllBtn}>Clear all</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Filter tabs */}
@@ -364,15 +282,18 @@ export default function NotificationsScreen({ navigation }) {
         sections={sections}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <NotifCard item={item} onPress={() => {
-            const isFirestore = !ALL_NOTIFICATIONS.find(n => n.id === item.id);
-            markRead(item.id, isFirestore);
-            if (item.type === 'work_confirm') navigation.navigate('ConfirmWork', { workId: item.workId });
-            else if (item.type === 'work_verified') navigation.navigate('WorkHistory');
-            else if (item.type === 'message') navigation.navigate('ChatList');
-            else if (item.type === 'job_update' || item.type === 'job_match') navigation.navigate('Jobs');
-            else if (item.type === 'payment' || item.type === 'review') navigation.navigate('MyDashboard');
-          }} />
+          <NotifCard
+            item={item}
+            onPress={() => {
+              markRead(item.id);
+              if (item.type === 'work_confirm') navigation.navigate('ConfirmWork', { workId: item.workId });
+              else if (item.type === 'work_verified') navigation.navigate('WorkHistory');
+              else if (item.type === 'message') navigation.navigate('ChatList');
+              else if (item.type === 'job_update' || item.type === 'job_match') navigation.navigate('Home');
+              else if (item.type === 'payment' || item.type === 'review') navigation.navigate('MyDashboard');
+            }}
+            onDelete={() => deleteOne(item.id)}
+          />
         )}
         renderSectionHeader={({ section: { title } }) => (
           <View style={styles.sectionHeader}>
@@ -383,12 +304,17 @@ export default function NotificationsScreen({ navigation }) {
         ListEmptyComponent={() => (
           <View style={styles.empty}>
             <Text style={styles.emptyIcon}>🔔</Text>
-            <Text style={styles.emptyTitle}>No notifications here</Text>
-            <Text style={styles.emptySub}>
-              {activeFilter === 'All'
-                ? "You're all caught up!"
-                : `No ${activeFilter.toLowerCase()} notifications yet`}
-            </Text>
+            {notifications.length === 0 ? (
+              <>
+                <Text style={styles.emptyTitle}>No notifications yet</Text>
+                <Text style={styles.emptySub}>You'll see updates about your work, messages and more here</Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.emptyTitle}>No notifications here</Text>
+                <Text style={styles.emptySub}>{`No ${activeFilter.toLowerCase()} notifications yet`}</Text>
+              </>
+            )}
           </View>
         )}
         showsVerticalScrollIndicator={false}
@@ -401,7 +327,7 @@ export default function NotificationsScreen({ navigation }) {
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
+const styles = injectFonts({
   container: { flex: 1, backgroundColor: '#F2F0ED' },
 
   // Header
@@ -415,14 +341,16 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   backIcon: { fontSize: 26, color: '#1A202C', lineHeight: 30 },
-  headerCenter: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 10 },
   headerTitle: { fontSize: 18, fontWeight: '900', color: '#1A202C' },
   headerBadge: {
     backgroundColor: BLUE, borderRadius: 10,
     paddingHorizontal: 7, paddingVertical: 2,
   },
   headerBadgeText: { fontSize: 11, fontWeight: '800', color: 'white' },
-  markAllBtn: { fontSize: 12, fontWeight: '700', color: BLUE, width: 80, textAlign: 'right' },
+  headerActions: { alignItems: 'flex-end', gap: 4 },
+  markAllBtn: { fontSize: 12, fontWeight: '700', color: BLUE },
+  clearAllBtn: { fontSize: 12, fontWeight: '700', color: '#E53E3E' },
 
   // Filters
   filterWrap: {
@@ -478,6 +406,11 @@ const styles = StyleSheet.create({
     width: 9, height: 9, borderRadius: 5, backgroundColor: BLUE,
     marginTop: 5, flexShrink: 0,
   },
+  deleteBtn: {
+    width: 26, height: 26, borderRadius: 13, backgroundColor: '#F2F0ED',
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginLeft: 4,
+  },
+  deleteBtnText: { fontSize: 11, fontWeight: '800', color: '#A0ADB8' },
 
   separator: { height: 1, backgroundColor: '#F0F4F8', marginLeft: 74 },
 
@@ -486,5 +419,5 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: 10 },
   emptyIcon: { fontSize: 52 },
   emptyTitle: { fontSize: 18, fontWeight: '800', color: '#2D3748' },
-  emptySub: { fontSize: 13, color: '#A0ADB8' },
+  emptySub: { fontSize: 13, color: '#A0ADB8', textAlign: 'center', paddingHorizontal: 40 },
 });

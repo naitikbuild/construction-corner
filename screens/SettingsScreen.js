@@ -1,72 +1,221 @@
 import { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  StatusBar, Switch, Alert, Linking, Share, ActivityIndicator,
+  View, Text, ScrollView, TouchableOpacity,
+  StyleSheet, StatusBar, Switch, Alert, Linking,
+  ActivityIndicator, Modal, TextInput,
 } from 'react-native';
+import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { signOut, deleteUser, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
-import BottomNav from '../components/BottomNav';
-
-import { auth } from '../config/firebase';
+import { signOut, deleteUser } from 'firebase/auth';
+import { auth, db } from '../config/firebase';
+import { doc, deleteDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { getProfile, updateProfile } from '../services/userService';
-import { db } from '../config/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
-const ORANGE = '#FF6B2B';
-const ORANGE_LIGHT = '#FFF3E0';
 
 const APP_VERSION = '1.0.0';
+const SUPPORT_EMAIL = 'support@constructioncorner.in';
 const SUPPORT_WHATSAPP = 'https://wa.me/919876543210?text=Hi%2C%20I%20need%20help%20with%20Construction%20Corner%20app';
-const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.constructioncorner';
-const SHARE_MSG = 'Join me on Construction Corner – India\'s #1 Construction Network! Find verified contractors, professionals & material suppliers. Download: https://play.google.com/store/apps/details?id=com.constructioncorner';
 
-const PROFILE_SCREEN = {
-  professional: 'ProfessionalProfile',
-  worker: 'WorkerProfile',
-  business: 'BusinessProfile',
-  supplier: 'SupplierProfile',
-};
+// ─── Text input modal (Change phone / Change email / Report a problem) ───────
+function InputModal({ visible, title, placeholder, value, onChangeText, onClose, onSave, multiline, keyboardType }) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={m.overlay}>
+        <View style={m.sheet}>
+          <Text style={m.title}>{title}</Text>
+          <TextInput
+            style={[m.input, multiline && m.inputMultiline]}
+            value={value}
+            onChangeText={onChangeText}
+            placeholder={placeholder}
+            placeholderTextColor="#8E8E8E"
+            multiline={multiline}
+            keyboardType={keyboardType || 'default'}
+            autoFocus
+          />
+          <View style={m.btnRow}>
+            <TouchableOpacity style={m.cancelBtn} onPress={onClose}>
+              <Text style={m.cancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={m.saveBtn} onPress={onSave}>
+              <Text style={m.saveBtnText}>Save</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const m = injectFonts({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', paddingHorizontal: 24 },
+  sheet: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 20 },
+  title: { fontSize: 15, fontWeight: '700', color: '#262626', marginBottom: 14 },
+  input: {
+    borderWidth: 1.5, borderColor: '#E5E5E5', borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: '#262626',
+  },
+  inputMultiline: { minHeight: 90, textAlignVertical: 'top' },
+  btnRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  cancelBtn: { flex: 1, height: 46, borderRadius: 12, borderWidth: 1.5, borderColor: '#E5E5E5', alignItems: 'center', justifyContent: 'center' },
+  cancelBtnText: { fontSize: 14, fontWeight: '600', color: '#262626' },
+  saveBtn: { flex: 1, height: 46, borderRadius: 12, backgroundColor: '#262626', alignItems: 'center', justifyContent: 'center' },
+  saveBtnText: { fontSize: 14, fontWeight: '600', color: '#FFFFFF' },
+});
+
+// ─── Reusable rows ─────────────────────────────────────────────────────────
+function Row({ label, subtitle, onPress, right, danger }) {
+  return (
+    <TouchableOpacity
+      style={s.row}
+      onPress={onPress}
+      activeOpacity={onPress ? 0.7 : 1}
+      disabled={!onPress}
+    >
+      <View style={{ flex: 1 }}>
+        <Text style={[s.rowLabel, danger && s.rowLabelDanger]}>{label}</Text>
+        {subtitle ? <Text style={s.rowSub}>{subtitle}</Text> : null}
+      </View>
+      {right !== undefined ? right : (onPress ? <Text style={s.rowArrow}>›</Text> : null)}
+    </TouchableOpacity>
+  );
+}
+
+function ToggleRow({ label, subtitle, value, onToggle }) {
+  return (
+    <View style={s.row}>
+      <View style={{ flex: 1 }}>
+        <Text style={s.rowLabel}>{label}</Text>
+        {subtitle ? <Text style={s.rowSub}>{subtitle}</Text> : null}
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onToggle}
+        trackColor={{ false: '#E5E5E5', true: '#EAF7EF' }}
+        thumbColor={value ? '#22A559' : '#FFFFFF'}
+      />
+    </View>
+  );
+}
+
+function Group({ title, rightNote, children }) {
+  return (
+    <View style={s.groupWrap}>
+      <View style={s.groupHeadRow}>
+        <Text style={s.groupLabel}>{title}</Text>
+        {rightNote ? <Text style={s.groupNote}>{rightNote}</Text> : null}
+      </View>
+      <View style={s.group}>{children}</View>
+    </View>
+  );
+}
 
 export default function SettingsScreen({ navigation }) {
-  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [uid, setUid] = useState(null);
-  const [notifSaving, setNotifSaving] = useState(false);
-  const [notifs, setNotifs] = useState({
-    jobAlerts: true,
-    messages: true,
-    workUpdates: true,
-    tenders: false,
-    marketing: false,
-  });
+  const [profile, setProfile] = useState(null);
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
+  const [phoneModal, setPhoneModal] = useState(false);
+  const [phoneInput, setPhoneInput] = useState('');
+  const [emailModal, setEmailModal] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+  const [reportModal, setReportModal] = useState(false);
+  const [reportInput, setReportInput] = useState('');
 
-  const loadProfile = async () => {
+  useEffect(() => { load(); }, []);
+
+  const load = async () => {
     try {
       const storedUid = await AsyncStorage.getItem('uid');
-      if (!storedUid) return;
+      if (!storedUid) { setLoading(false); return; }
       setUid(storedUid);
-      const data = await getProfile(storedUid);
-      if (data) {
-        setProfile(data);
-        if (data.notificationPrefs) setNotifs({ ...notifs, ...data.notificationPrefs });
+
+      let data = null;
+      try { data = await getProfile(storedUid); } catch (_) {}
+      if (!data) {
+        try {
+          const local = await AsyncStorage.getItem('localProfile');
+          if (local) data = JSON.parse(local);
+        } catch (_) {}
       }
+      if (data) setProfile(data);
     } catch (_) {}
+    finally { setLoading(false); }
   };
 
-  const handleToggleNotif = async (key) => {
-    const updated = { ...notifs, [key]: !notifs[key] };
-    setNotifs(updated);
-    setNotifSaving(true);
+  const isGuest = !!uid && uid.startsWith('guest_');
+
+  // ── Persist any profile patch — Firestore for real users, AsyncStorage for guests
+  const persistSetting = async (patch) => {
+    const merged = { ...(profile || {}), ...patch };
+    setProfile(merged);
+    if (!uid) return;
     try {
-      if (uid) {
-        await updateDoc(doc(db, 'users', uid), { notificationPrefs: updated });
+      if (isGuest) {
+        await AsyncStorage.setItem('localProfile', JSON.stringify({ ...merged, uid }));
+      } else {
+        await updateProfile(uid, patch);
       }
-    } catch (_) {}
-    finally { setNotifSaving(false); }
+    } catch (_) {
+      Alert.alert('Could not save', 'Your change could not be saved. Please try again.');
+    }
   };
 
+  const notifs = {
+    push: profile?.notificationPrefs?.push !== false,
+    messages: profile?.notificationPrefs?.messages !== false,
+    workRequests: profile?.notificationPrefs?.workRequests !== false,
+  };
+  const toggleNotif = (key) => {
+    persistSetting({ notificationPrefs: { ...notifs, [key]: !notifs[key] } });
+  };
+
+  const profileVisible = profile?.profileVisible !== false;
+  const available = profile?.available !== false;
+  const callPrivacy = profile?.callPrivacy || 'everyone';
+  const blockedUsers = profile?.blockedUsers || [];
+
+  const unblockUser = (blockedUid) => {
+    persistSetting({ blockedUsers: blockedUsers.filter(u => u.uid !== blockedUid) });
+  };
+
+  // ── Account: phone / email ────────────────────────────────────────────────
+  const openPhoneModal = () => { setPhoneInput(profile?.phone || ''); setPhoneModal(true); };
+  const savePhone = async () => {
+    const v = phoneInput.trim();
+    if (!v) { setPhoneModal(false); return; }
+    await persistSetting({ phone: v });
+    await AsyncStorage.setItem('phone', v);
+    setPhoneModal(false);
+  };
+
+  const openEmailModal = () => { setEmailInput(profile?.email || ''); setEmailModal(true); };
+  const saveEmail = async () => {
+    const v = emailInput.trim();
+    if (!v) { setEmailModal(false); return; }
+    await persistSetting({ email: v });
+    setEmailModal(false);
+  };
+
+  // ── Support: report a problem ─────────────────────────────────────────────
+  const submitReport = async () => {
+    const message = reportInput.trim();
+    if (!message) { setReportModal(false); return; }
+    try {
+      if (uid && !isGuest) {
+        await addDoc(collection(db, 'reports'), { uid, message, createdAt: serverTimestamp() });
+      }
+    } catch (_) {}
+    setReportInput('');
+    setReportModal(false);
+    Alert.alert('Thanks for letting us know', 'Our team will look into this.');
+  };
+
+  // ── Navigation shortcuts ──────────────────────────────────────────────────
+  const goEditProfile = () => navigation.navigate('EditProfile', { profileType: (profile?.profileType || '').toLowerCase() || undefined });
+  const goWorkHistory = () => navigation.navigate('WorkHistory', { uid });
+  const goMyReviews = () => navigation.navigate('ReviewsList', { uid });
+
+  // ── Sign out ───────────────────────────────────────────────────────────────
   const handleSignOut = () => {
     Alert.alert(
       'Sign Out',
@@ -77,10 +226,8 @@ export default function SettingsScreen({ navigation }) {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
-            try {
-              await signOut(auth);
-              await AsyncStorage.clear();
-            } catch (_) {}
+            try { if (auth.currentUser) await signOut(auth); } catch (_) {}
+            await AsyncStorage.clear();
             navigation.reset({ index: 0, routes: [{ name: 'AccountType' }] });
           },
         },
@@ -88,302 +235,248 @@ export default function SettingsScreen({ navigation }) {
     );
   };
 
+  // ── Delete account — confirmed twice ─────────────────────────────────────
   const handleDeleteAccount = () => {
     Alert.alert(
       'Delete Account',
-      'This is permanent. Your profile, work history, and all data will be deleted. This cannot be undone.',
+      'This will permanently delete your profile, work history and all data. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete Account',
-          style: 'destructive',
-          onPress: () => confirmDeleteAccount(),
-        },
+        { text: 'Continue', style: 'destructive', onPress: confirmDeleteStep2 },
       ]
     );
   };
 
-  const confirmDeleteAccount = async () => {
+  const confirmDeleteStep2 = () => {
+    Alert.alert(
+      'Are you absolutely sure?',
+      'This is your last chance to cancel — your account will be deleted immediately and cannot be recovered.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete Permanently', style: 'destructive', onPress: performDelete },
+      ]
+    );
+  };
+
+  const performDelete = async () => {
     try {
-      const user = auth.currentUser;
-      if (!user) throw new Error('Not logged in');
-      await deleteUser(user);
+      if (uid && !isGuest) {
+        try { await deleteDoc(doc(db, 'users', uid)); } catch (_) {}
+      }
+      if (auth.currentUser) {
+        await deleteUser(auth.currentUser);
+      }
       await AsyncStorage.clear();
       navigation.reset({ index: 0, routes: [{ name: 'AccountType' }] });
     } catch (err) {
       if (err.code === 'auth/requires-recent-login') {
-        Alert.alert(
-          'Re-login Required',
-          'For security, please sign out and sign in again before deleting your account.',
-          [{ text: 'OK' }]
-        );
-      } else {
-        Alert.alert(
-          'Cannot Delete',
-          'Please contact support at support@constructioncorner.in to delete your account.',
-          [{ text: 'OK' }]
-        );
+        Alert.alert('Re-login Required', 'For security, please sign out and sign in again before deleting your account.');
+        return;
       }
+      await AsyncStorage.clear();
+      navigation.reset({ index: 0, routes: [{ name: 'AccountType' }] });
     }
   };
 
-  const handleShare = async () => {
-    try {
-      await Share.share({ message: SHARE_MSG, title: 'Construction Corner' });
-    } catch (_) {}
-  };
-
-  const handleRateApp = () => {
-    Linking.openURL(PLAY_STORE_URL).catch(() =>
-      Alert.alert('Error', 'Could not open Play Store. Please search for Construction Corner on Play Store.')
+  if (loading) {
+    return (
+      <View style={s.center}>
+        <ActivityIndicator size="large" color="#262626" />
+      </View>
     );
-  };
-
-  const handleWhatsAppSupport = () => {
-    Linking.openURL(SUPPORT_WHATSAPP).catch(() =>
-      Alert.alert('Error', 'Could not open WhatsApp. Please contact support@constructioncorner.in')
-    );
-  };
-
-  const handleViewProfile = () => {
-    if (!profile || !uid) return;
-    const pt = (profile.profileType || '').toLowerCase();
-    const screen = PROFILE_SCREEN[pt] || 'MyDashboard';
-    navigation.navigate(screen, { uid });
-  };
-
-  const displayName = profile?.name || profile?.companyName || 'Your Profile';
-  const displayRole = [
-    profile?.designation || profile?.category || profile?.workerSkill || profile?.companyType || '',
-    profile?.city,
-  ].filter(Boolean).join(' · ');
-
-  const SettingRow = ({ icon, label, onPress, right, danger, subtitle }) => (
-    <TouchableOpacity
-      style={[styles.row, !onPress && { opacity: 0.8 }]}
-      onPress={onPress}
-      activeOpacity={onPress ? 0.7 : 1}
-    >
-      <View style={[styles.rowIcon, danger && styles.rowIconDanger]}>
-        <Text style={styles.rowIconText}>{icon}</Text>
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.rowLabel, danger && styles.rowLabelDanger]}>{label}</Text>
-        {subtitle ? <Text style={styles.rowSub}>{subtitle}</Text> : null}
-      </View>
-      {right !== undefined ? right : <Text style={styles.rowArrow}>›</Text>}
-    </TouchableOpacity>
-  );
-
-  const ToggleRow = ({ icon, label, value, onToggle, subtitle }) => (
-    <View style={styles.row}>
-      <View style={styles.rowIcon}>
-        <Text style={styles.rowIconText}>{icon}</Text>
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.rowLabel}>{label}</Text>
-        {subtitle ? <Text style={styles.rowSub}>{subtitle}</Text> : null}
-      </View>
-      <Switch
-        value={value}
-        onValueChange={onToggle}
-        trackColor={{ false: '#E0E0E0', true: ORANGE }}
-        thumbColor="#fff"
-      />
-    </View>
-  );
+  }
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+    <View style={s.screen}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Text style={styles.backIcon}>←</Text>
+      <View style={s.nav}>
+        <TouchableOpacity style={s.navBtn} onPress={() => navigation.goBack()}>
+          <Text style={s.navBack}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Settings</Text>
-        <View style={{ width: 36 }} />
+        <Text style={s.navTitle}>Settings</Text>
+        <View style={s.navBtn} />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
 
-        {/* Profile Card */}
-        <TouchableOpacity style={styles.profileCard} onPress={handleViewProfile} activeOpacity={0.85}>
-          <View style={styles.profileAvatar}>
-            <Text style={{ fontSize: 32 }}>
-              {profile?.profileType === 'worker' ? '👷'
-                : profile?.profileType === 'supplier' ? '🏭'
-                : profile?.profileType === 'business' ? '🏢'
-                : '🏛️'}
-            </Text>
+        {/* ACCOUNT */}
+        <Group title="ACCOUNT">
+          <Row label="Edit Profile" onPress={goEditProfile} />
+          <Row label="Change Phone Number" subtitle={profile?.phone ? `+91 ${profile.phone}` : 'Not added'} onPress={openPhoneModal} />
+          <Row label="Change Email" subtitle={profile?.email || 'Not added'} onPress={openEmailModal} />
+          <ToggleRow
+            label="Profile Visibility"
+            subtitle={profileVisible ? 'Visible in search results' : 'Hidden from search results'}
+            value={profileVisible}
+            onToggle={() => persistSetting({ profileVisible: !profileVisible })}
+          />
+        </Group>
+
+        {/* WORK */}
+        <Group title="WORK">
+          <ToggleRow
+            label="Availability"
+            subtitle={available ? 'Available for work' : 'Marked as Busy'}
+            value={available}
+            onToggle={() => persistSetting({ available: !available })}
+          />
+          <Row label="Work History" subtitle="View your verified work history" onPress={goWorkHistory} />
+          <Row label="My Reviews" onPress={goMyReviews} />
+        </Group>
+
+        {/* NOTIFICATIONS */}
+        <Group title="NOTIFICATIONS">
+          <ToggleRow label="Push Notifications" value={notifs.push} onToggle={() => toggleNotif('push')} />
+          <ToggleRow label="New Message Alerts" value={notifs.messages} onToggle={() => toggleNotif('messages')} />
+          <ToggleRow label="Work Request Alerts" value={notifs.workRequests} onToggle={() => toggleNotif('workRequests')} />
+        </Group>
+
+        {/* PRIVACY */}
+        <Group title="PRIVACY">
+          <Row
+            label="Who Can Call Me"
+            subtitle={callPrivacy === 'clients' ? 'Only clients I’ve worked with' : 'Everyone'}
+            onPress={() => persistSetting({ callPrivacy: callPrivacy === 'everyone' ? 'clients' : 'everyone' })}
+          />
+          <View style={s.blockedWrap}>
+            <Text style={s.rowLabel}>Blocked Users</Text>
+            {blockedUsers.length === 0 ? (
+              <Text style={s.rowSub}>No blocked users</Text>
+            ) : (
+              blockedUsers.map((u, i) => (
+                <View key={u.uid || i} style={s.blockedRow}>
+                  <Text style={s.blockedName} numberOfLines={1}>{u.name || 'User'}</Text>
+                  <TouchableOpacity onPress={() => unblockUser(u.uid)}>
+                    <Text style={s.unblockText}>Unblock</Text>
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.profileName} numberOfLines={1}>{displayName}</Text>
-            <Text style={styles.profileRole} numberOfLines={1}>{displayRole || 'Construction Professional'}</Text>
-            <View style={styles.profileBadge}>
-              <Text style={styles.profileBadgeText}>
-                CC Score: {profile?.ccScore || 500}
-              </Text>
-            </View>
-          </View>
-          <Text style={styles.profileArrow}>›</Text>
-        </TouchableOpacity>
+        </Group>
 
-        {/* Account */}
-        <Text style={styles.groupLabel}>Account</Text>
-        <View style={styles.group}>
-          <SettingRow icon="✏️" label="Edit Profile" onPress={() => navigation.navigate('EditProfile')} />
-          <SettingRow icon="🔖" label="Saved Profiles" onPress={() => navigation.navigate('Bookmarks')} />
-          <SettingRow icon="📊" label="Work History" onPress={() => navigation.navigate('WorkHistory')} />
-          <SettingRow icon="💰" label="Commission Wallet" onPress={() => navigation.navigate('CommissionWallet')} />
-        </View>
-
-        {/* Notifications */}
-        <Text style={styles.groupLabel}>
-          Notifications {notifSaving ? '• Saving...' : ''}
-        </Text>
-        <View style={styles.group}>
-          <ToggleRow icon="💼" label="Job Alerts" subtitle="New jobs matching your profile" value={notifs.jobAlerts} onToggle={() => handleToggleNotif('jobAlerts')} />
-          <ToggleRow icon="💬" label="Messages" subtitle="New messages from your network" value={notifs.messages} onToggle={() => handleToggleNotif('messages')} />
-          <ToggleRow icon="✅" label="Work Updates" subtitle="Work confirmations and reviews" value={notifs.workUpdates} onToggle={() => handleToggleNotif('workUpdates')} />
-          <ToggleRow icon="📋" label="Tender Updates" subtitle="New tenders in your area" value={notifs.tenders} onToggle={() => handleToggleNotif('tenders')} />
-          <ToggleRow icon="📢" label="Offers & Promotions" subtitle="Deals and platform updates" value={notifs.marketing} onToggle={() => handleToggleNotif('marketing')} />
-        </View>
-
-        {/* Privacy & Security */}
-        <Text style={styles.groupLabel}>Privacy & Security</Text>
-        <View style={styles.group}>
-          <SettingRow
-            icon="🗑️"
-            label="Delete Account"
-            subtitle="Permanently delete all your data"
-            danger
-            onPress={handleDeleteAccount}
+        {/* SUPPORT */}
+        <Group title="SUPPORT">
+          <Row
+            label="Help & FAQ"
+            onPress={() => Linking.openURL(SUPPORT_WHATSAPP).catch(() =>
+              Alert.alert('Help & FAQ', `For help, reach us at ${SUPPORT_EMAIL}`))}
           />
-        </View>
+          <Row
+            label="Contact Support"
+            subtitle={SUPPORT_EMAIL}
+            onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`)}
+          />
+          <Row label="Report a Problem" onPress={() => { setReportInput(''); setReportModal(true); }} />
+        </Group>
 
-        {/* Help & Support */}
-        <Text style={styles.groupLabel}>Help & Support</Text>
-        <View style={styles.group}>
-          <SettingRow
-            icon="💬"
-            label="WhatsApp Support"
-            subtitle="Chat with us on WhatsApp"
-            onPress={handleWhatsAppSupport}
-          />
-          <SettingRow
-            icon="⭐"
-            label="Rate the App"
-            subtitle="Love Construction Corner? Leave a review!"
-            onPress={handleRateApp}
-          />
-          <SettingRow
-            icon="📤"
-            label="Share with Friends"
-            subtitle="Invite your network to join"
-            onPress={handleShare}
-          />
-          <SettingRow
-            icon="📧"
-            label="Email Support"
-            subtitle="support@constructioncorner.in"
-            onPress={() => Linking.openURL('mailto:support@constructioncorner.in')}
-          />
-        </View>
+        {/* LEGAL */}
+        <Group title="LEGAL">
+          <Row label="Privacy Policy" onPress={() => navigation.navigate('Privacy')} />
+          <Row label="Terms of Service" onPress={() => navigation.navigate('Terms')} />
+        </Group>
 
-        {/* About */}
-        <Text style={styles.groupLabel}>About</Text>
-        <View style={styles.group}>
-          <SettingRow icon="ℹ️" label="About Construction Corner" onPress={() => navigation.navigate('About')} />
-          <SettingRow icon="📜" label="Terms of Service" onPress={() => navigation.navigate('Terms')} />
-          <SettingRow icon="🛡️" label="Privacy Policy" onPress={() => navigation.navigate('Privacy')} />
-          <SettingRow
-            icon="🏷️"
-            label="App Version"
-            onPress={null}
-            right={<Text style={styles.versionText}>v{APP_VERSION}</Text>}
-          />
-        </View>
+        {/* ABOUT */}
+        <Group title="ABOUT">
+          <Row label="App Version" right={<Text style={s.versionText}>v{APP_VERSION}</Text>} />
+        </Group>
 
-        {/* Sign Out */}
-        <View style={styles.signOutSection}>
-          <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
-            <Text style={styles.signOutBtnText}>🚪  Sign Out</Text>
-          </TouchableOpacity>
-          <Text style={styles.madeInIndia}>Made with ❤️ in India 🇮🇳</Text>
-        </View>
+        {/* ACCOUNT ACTIONS */}
+        <Group title="ACCOUNT ACTIONS">
+          <Row label="Sign Out" onPress={handleSignOut} />
+          <Row label="Delete Account" subtitle="Permanently delete all your data" danger onPress={handleDeleteAccount} />
+        </Group>
 
-        <View style={{ height: 100 }} />
       </ScrollView>
 
-      <BottomNav navigation={navigation} active="Settings" />
+      <InputModal
+        visible={phoneModal}
+        title="Change Phone Number"
+        placeholder="10-digit mobile number"
+        value={phoneInput}
+        onChangeText={setPhoneInput}
+        onClose={() => setPhoneModal(false)}
+        onSave={savePhone}
+        keyboardType="phone-pad"
+      />
+      <InputModal
+        visible={emailModal}
+        title="Change Email"
+        placeholder="you@example.com"
+        value={emailInput}
+        onChangeText={setEmailInput}
+        onClose={() => setEmailModal(false)}
+        onSave={saveEmail}
+        keyboardType="email-address"
+      />
+      <InputModal
+        visible={reportModal}
+        title="Report a Problem"
+        placeholder="Describe what went wrong..."
+        value={reportInput}
+        onChangeText={setReportInput}
+        onClose={() => setReportModal(false)}
+        onSave={submitReport}
+        multiline
+      />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F0' },
-  header: {
-    backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingTop: 52, paddingBottom: 14,
-  },
-  backBtn: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: '#F5F5F0', alignItems: 'center', justifyContent: 'center',
-  },
-  backIcon: { fontSize: 18, color: '#1A1A1A' },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: '#1A1A1A' },
-  scroll: { flex: 1 },
+const GREEN       = '#22A559';
+const GREEN_LIGHT  = '#EAF7EF';
+const DARK          = '#262626';
+const BG            = '#FAF9F5';
+const FILL          = '#F2F2F2';
+const BORDER        = '#E5E5E5';
+const MID            = '#737373';
+const LIGHT          = '#8E8E8E';
+const ALERT          = '#B00020';
 
-  profileCard: {
-    backgroundColor: '#FFFFFF', margin: 16, borderRadius: 16, padding: 16,
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    borderWidth: 1, borderColor: '#EFEFEF',
-    shadowColor: '#FF6B2B', shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
-  },
-  profileAvatar: {
-    width: 60, height: 60, borderRadius: 18, backgroundColor: ORANGE_LIGHT,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  profileName: { fontSize: 16, fontWeight: '800', color: '#1A1A1A', marginBottom: 3 },
-  profileRole: { fontSize: 12, color: '#666666', marginBottom: 6 },
-  profileBadge: {
-    backgroundColor: ORANGE_LIGHT, paddingHorizontal: 8, paddingVertical: 3,
-    borderRadius: 8, alignSelf: 'flex-start',
-  },
-  profileBadgeText: { fontSize: 11, fontWeight: '700', color: ORANGE },
-  profileArrow: { fontSize: 22, color: '#CCC' },
+const s = injectFonts({
+  screen: { flex: 1, backgroundColor: BG },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: BG },
 
-  groupLabel: {
-    fontSize: 11, fontWeight: '800', color: '#888', textTransform: 'uppercase',
-    letterSpacing: 1.5, paddingHorizontal: 20, marginBottom: 6, marginTop: 12,
+  nav: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 14, paddingTop: 52, paddingBottom: 12,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1, borderBottomColor: BORDER,
   },
+  navBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: FILL, alignItems: 'center', justifyContent: 'center',
+  },
+  navBack: { fontSize: 20, fontWeight: '700', color: DARK },
+  navTitle: { flex: 1, textAlign: 'center', fontSize: 15, fontWeight: '600', color: DARK },
+
+  groupWrap: { marginHorizontal: 14, marginTop: 20 },
+  groupHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingHorizontal: 2 },
+  groupLabel: { fontSize: 11, fontWeight: '600', color: LIGHT, letterSpacing: 1 },
+  groupNote: { fontSize: 11, color: LIGHT },
   group: {
-    backgroundColor: '#FFFFFF', marginHorizontal: 16, borderRadius: 16,
-    overflow: 'hidden', borderWidth: 1, borderColor: '#EFEFEF',
+    backgroundColor: '#FFFFFF', borderRadius: 16,
+    borderWidth: 1, borderColor: BORDER, overflow: 'hidden',
   },
-  row: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: '#EFEFEF', gap: 12,
-  },
-  rowIcon: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: '#F5F5F0', alignItems: 'center', justifyContent: 'center',
-  },
-  rowIconDanger: { backgroundColor: '#FFF0F0' },
-  rowIconText: { fontSize: 18 },
-  rowLabel: { fontSize: 14, fontWeight: '600', color: '#1A1A1A' },
-  rowLabelDanger: { color: '#E74C3C' },
-  rowSub: { fontSize: 11, color: '#888', marginTop: 1 },
-  rowArrow: { fontSize: 20, color: '#CCC' },
-  versionText: { fontSize: 13, fontWeight: '700', color: '#666666' },
 
-  signOutSection: { marginHorizontal: 16, marginTop: 24, alignItems: 'center', gap: 12 },
-  signOutBtn: {
-    width: '100%', backgroundColor: '#FFF0F0', borderRadius: 14, paddingVertical: 15,
-    alignItems: 'center', borderWidth: 1, borderColor: '#FFCACA',
+  row: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 14, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: BORDER,
+    gap: 10,
   },
-  signOutBtnText: { fontSize: 15, fontWeight: '800', color: '#E74C3C' },
-  madeInIndia: { fontSize: 13, color: '#888', fontWeight: '500' },
+  rowLabel: { fontSize: 14, fontWeight: '600', color: DARK },
+  rowLabelDanger: { color: ALERT },
+  rowSub: { fontSize: 11, color: LIGHT, marginTop: 2 },
+  rowArrow: { fontSize: 18, color: LIGHT },
+  versionText: { fontSize: 13, fontWeight: '600', color: MID },
+
+  blockedWrap: { paddingHorizontal: 14, paddingVertical: 14 },
+  blockedRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 8, borderTopWidth: 1, borderTopColor: BORDER, marginTop: 8,
+  },
+  blockedName: { fontSize: 13, fontWeight: '500', color: DARK, flex: 1 },
+  unblockText: { fontSize: 12, fontWeight: '700', color: GREEN },
 });

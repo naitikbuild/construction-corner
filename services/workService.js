@@ -3,8 +3,13 @@ import {
   collection, addDoc, doc, getDoc, updateDoc,
   getDocs, query, where, serverTimestamp, increment,
 } from 'firebase/firestore';
+import { DEMO_MODE } from '../config/demoMode';
+import { getDemoProfile, isDemoUid } from '../demoData';
 
 export const markWorkComplete = async (workData) => {
+  if (DEMO_MODE && isDemoUid(workData.providerId)) {
+    throw new Error('This is a demo profile for preview purposes — work records can\'t be created against it.');
+  }
   const ref = await addDoc(collection(db, 'pending_work'), {
     ...workData,
     status: 'pending',
@@ -56,12 +61,17 @@ export const confirmWork = async (workId, commission) => {
 };
 
 export const getVerifiedWork = async (uid) => {
+  if (DEMO_MODE && isDemoUid(uid)) {
+    const demo = getDemoProfile(uid);
+    return demo?.demoVerifiedWork || [];
+  }
   const q = query(collection(db, 'verified_work'), where('providerId', '==', uid));
   const snap = await getDocs(q);
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 };
 
 export const getPendingWork = async (uid) => {
+  if (DEMO_MODE && isDemoUid(uid)) return []; // demo profiles have no pending bookings
   const q = query(
     collection(db, 'pending_work'),
     where('providerId', '==', uid),
@@ -72,6 +82,29 @@ export const getPendingWork = async (uid) => {
 };
 
 export const getTotalVerifiedAmount = async (uid) => {
+  if (DEMO_MODE && isDemoUid(uid)) {
+    const demo = getDemoProfile(uid);
+    return demo?.demoVerifiedAmount || 0;
+  }
   const works = await getVerifiedWork(uid);
   return works.reduce((sum, w) => sum + (Number(w.amount) || 0), 0);
+};
+
+// All services a client has booked — pending confirmation + verified — most recent first.
+export const getWorkByCustomer = async (uid) => {
+  const [pendingSnap, verifiedSnap] = await Promise.all([
+    getDocs(query(collection(db, 'pending_work'), where('customerId', '==', uid))),
+    getDocs(query(collection(db, 'verified_work'), where('customerId', '==', uid))),
+  ]);
+  const pending = pendingSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(w => w.status === 'pending');
+  const verified = verifiedSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const all = [...pending, ...verified];
+  all.sort((a, b) => {
+    const at = a.verifiedAt?.toMillis?.() ?? a.createdAt?.toMillis?.() ?? 0;
+    const bt = b.verifiedAt?.toMillis?.() ?? b.createdAt?.toMillis?.() ?? 0;
+    return bt - at;
+  });
+  return all;
 };

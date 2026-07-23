@@ -2,8 +2,9 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar,
 } from 'react-native';
+import { injectFonts } from '../theme/typography';
 
-const BLUE = '#FF6B2B';
+const BLUE = '#262626';
 
 const sections = [
   {
@@ -147,37 +148,37 @@ export default function PrivacyPolicyScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F0' },
+const styles = injectFonts({
+  container: { flex: 1, backgroundColor: '#FAF9F5' },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingTop: 52, paddingBottom: 14, paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
+    backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E5E5',
   },
   backBtn: {
     width: 36, height: 36, borderRadius: 18,
-    backgroundColor: '#FFF3E0', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#E5E5E5', alignItems: 'center', justifyContent: 'center',
   },
-  backArrow: { fontSize: 18, fontWeight: '700', color: '#FF6B2B' },
-  headerTitle: { fontSize: 17, fontWeight: '800', color: '#1A1A1A' },
-  scroll: { flex: 1, backgroundColor: '#F5F5F0' },
+  backArrow: { fontSize: 18, fontWeight: '700', color: '#262626' },
+  headerTitle: { fontSize: 17, fontWeight: '800', color: '#262626' },
+  scroll: { flex: 1, backgroundColor: '#FAF9F5' },
   heroBand: {
     backgroundColor: '#FFFFFF', margin: 16, borderRadius: 16, padding: 20,
-    borderWidth: 1, borderColor: '#EFEFEF', alignItems: 'center',
+    borderWidth: 1, borderColor: '#E5E5E5', alignItems: 'center',
   },
   heroIcon: { fontSize: 48, marginBottom: 10 },
-  heroTitle: { fontSize: 20, fontWeight: '800', color: '#1A1A1A', marginBottom: 4 },
-  heroSub: { fontSize: 11, color: '#888', marginBottom: 12 },
+  heroTitle: { fontSize: 20, fontWeight: '800', color: '#262626', marginBottom: 4 },
+  heroSub: { fontSize: 11, color: '#8E8E8E', marginBottom: 12 },
   heroBody: { fontSize: 13, color: '#555', lineHeight: 20, textAlign: 'center' },
   section: {
     backgroundColor: '#FFFFFF', marginHorizontal: 16, marginBottom: 12,
-    borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#EFEFEF',
+    borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#E5E5E5',
   },
-  sectionTitle: { fontSize: 14, fontWeight: '800', color: '#1A1A1A', marginBottom: 10 },
+  sectionTitle: { fontSize: 14, fontWeight: '800', color: '#262626', marginBottom: 10 },
   sectionBody: { fontSize: 13, color: '#555', lineHeight: 21 },
   footer: {
     marginHorizontal: 16, marginTop: 8, padding: 16,
-    backgroundColor: '#F5F5F0', borderRadius: 12,
+    backgroundColor: '#FAF9F5', borderRadius: 12,
     alignItems: 'center',
   },
   footerText: { fontSize: 12, color: '#999', textAlign: 'center', lineHeight: 20 },

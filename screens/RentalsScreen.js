@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, TextInput,
 } from 'react-native';
+import { injectFonts } from '../theme/typography';
 
 const CATEGORIES = [
   { id: 'all', label: 'All', emoji: '🏗️' },
@@ -239,7 +240,7 @@ export default function RentalsScreen({ navigation, route }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = injectFonts({
   container: { flex: 1, backgroundColor: '#F2F0ED' },
 
   header: { backgroundColor: '#fff', borderBottomWidth: 2, borderBottomColor: '#D9D4CC', paddingBottom: 8 },

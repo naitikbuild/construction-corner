@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, Dimensions,
 } from 'react-native';
+import { injectFonts } from '../theme/typography';
 
 const { width } = Dimensions.get('window');
 
@@ -204,7 +205,7 @@ export default function ProfessionalCategoryScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = injectFonts({
   root: { flex: 1, backgroundColor: BG },
 
   // HEADER

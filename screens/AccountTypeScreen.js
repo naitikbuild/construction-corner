@@ -2,6 +2,7 @@ import {
   View, Text, TouchableOpacity, StyleSheet,
   StatusBar, SafeAreaView,
 } from 'react-native';
+import { injectFonts } from '../theme/typography';
 import { BLUE, CONCRETE_BORDER, CONCRETE_TEXT } from '../constants/colors';
 
 export default function AccountTypeScreen({ navigation }) {
@@ -19,7 +20,7 @@ export default function AccountTypeScreen({ navigation }) {
         {/* Personal */}
         <TouchableOpacity
           style={[styles.card, styles.cardPersonal]}
-          onPress={() => navigation.navigate('Login', { accountType: 'personal' })}
+          onPress={() => navigation.push('Login', { role: 'personal', profileType: 'personal' })}
           activeOpacity={0.82}
         >
           <Text style={styles.cardEmoji}>🏠</Text>
@@ -35,7 +36,7 @@ export default function AccountTypeScreen({ navigation }) {
         {/* Business */}
         <TouchableOpacity
           style={[styles.card, styles.cardBusiness]}
-          onPress={() => navigation.navigate('BusinessType')}
+          onPress={() => navigation.push('BusinessType')}
           activeOpacity={0.82}
         >
           <Text style={styles.cardEmoji}>🏢</Text>
@@ -59,7 +60,7 @@ export default function AccountTypeScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = injectFonts({
   container: { flex: 1, backgroundColor: '#fff', paddingHorizontal: 24 },
 
   header: { paddingTop: 32, marginBottom: 36, alignItems: 'center' },

@@ -10,108 +10,92 @@ import { getProfile, recordProfileView } from '../services/userService';
 import { getVerifiedWork, getTotalVerifiedAmount } from '../services/workService';
 import { createChat } from '../services/chatService';
 import { toggleBookmark, isBookmarked } from '../services/bookmarkService';
-import { auth } from '../config/firebase';
 import { formatAmountIndian } from '../utils/format';
 
-const SLOT_SIZE = Math.floor((Dimensions.get('window').width - 28 - 32 - 16) / 3);
+const GALLERY_SLOT = Math.floor((Dimensions.get('window').width - 28 - 16 - 16) / 3);
 
-function PortfolioGrid({ photos = [] }) {
-  const filled = Array.isArray(photos) ? photos.filter(Boolean).slice(0, 6) : [];
+// ─── CREW: stacked avatars + count bubble ──────────────────────────────────
+function CrewRow({ teamSize, trades }) {
+  const n = Number(teamSize) || 0;
+  if (n <= 0) {
+    return <Text style={s.placeholder}>Add your crew details</Text>;
+  }
+  const shown = Math.min(n, 3);
+  const extra = n - shown;
+  const tradesText = trades.length > 0 ? trades.slice(0, 2).join(', ') : 'General crew';
   return (
     <View>
-      <Text style={s.sLabel}>PORTFOLIO</Text>
-      {filled.length === 0 ? (
-        <Text style={s.placeholder}>No portfolio photos added yet</Text>
-      ) : (
-        <View style={wp.grid}>
-          {filled.map((uri, i) => (
-            <View key={i} style={wp.slot}>
-              <Image source={{ uri }} style={wp.thumb} resizeMode="cover" />
-            </View>
-          ))}
-        </View>
-      )}
-    </View>
-  );
-}
-
-function VerifiedPortfolioGrid({ items = [] }) {
-  return (
-    <View>
-      <View style={s.verHeader}>
-        <Text style={s.sLabel}>VERIFIED PORTFOLIO</Text>
-        <Text style={s.verNote}>from completed jobs</Text>
+      <View style={cw.stack}>
+        {Array.from({ length: shown }).map((_, i) => (
+          <View key={i} style={[cw.avatar, i > 0 && { marginLeft: -12 }]}>
+            <Text style={cw.avatarIcon}>👷</Text>
+          </View>
+        ))}
+        {extra > 0 && (
+          <View style={[cw.avatar, cw.avatarBubble, { marginLeft: -12 }]}>
+            <Text style={cw.bubbleText}>+{extra}</Text>
+          </View>
+        )}
       </View>
-      {items.length === 0 ? (
-        <Text style={s.placeholder}>No verified portfolio yet — this fills in automatically as real jobs are completed and confirmed through the app</Text>
-      ) : (
-        <View style={wp.grid}>
-          {items.map((item, i) => (
-            <View key={item.id || i} style={wp.slot}>
-              <Image source={{ uri: item.photo }} style={wp.thumb} resizeMode="cover" />
-              <View style={wp.verifiedBadge}>
-                <Text style={wp.verifiedBadgeText}>✓</Text>
-              </View>
-            </View>
-          ))}
-        </View>
-      )}
+      <Text style={cw.crewText}>{n} worker{n === 1 ? '' : 's'} · {tradesText}</Text>
     </View>
   );
 }
 
-const wp = injectFonts({
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  slot: { width: SLOT_SIZE, height: SLOT_SIZE, borderRadius: 10, overflow: 'hidden' },
-  thumb: { width: '100%', height: '100%' },
-  verifiedBadge: {
-    position: 'absolute', top: 5, right: 5,
-    width: 18, height: 18, borderRadius: 9,
-    backgroundColor: '#22A559', alignItems: 'center', justifyContent: 'center',
+const cw = injectFonts({
+  stack: { flexDirection: 'row', alignItems: 'center' },
+  avatar: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: '#F2F2F2', borderWidth: 2, borderColor: '#FFFFFF',
+    alignItems: 'center', justifyContent: 'center',
   },
-  verifiedBadgeText: { fontSize: 10, color: '#fff', fontWeight: '900' },
+  avatarIcon: { fontSize: 17 },
+  avatarBubble: { backgroundColor: '#262626' },
+  bubbleText: { fontSize: 12, fontWeight: '700', color: '#FFFFFF' },
+  crewText: { fontSize: 13, fontWeight: '500', color: '#737373', marginTop: 10 },
 });
 
-// ─── Chip list (SERVICES / TOOLS) ───────────────────────────────────────────
-function ChipsList({ items = [], emptyText }) {
-  if (items.length === 0) {
-    return <Text style={s.placeholder}>{emptyText}</Text>;
+// ─── SERVICES chips ─────────────────────────────────────────────────────────
+function ServicesChips({ services = [] }) {
+  if (services.length === 0) {
+    return <Text style={s.placeholder}>Add services</Text>;
   }
   return (
     <View style={s.chipsWrap}>
-      {items.map((item, i) => (
-        <View key={i} style={s.plainChip}>
-          <Text style={s.plainChipText}>{item}</Text>
+      {services.map((sv, i) => (
+        <View key={i} style={s.hashChip}>
+          <Text style={s.hashChipText}>{sv}</Text>
         </View>
       ))}
     </View>
   );
 }
 
-// ─── EXPERIENCE (work history) ──────────────────────────────────────────────
-function calcExperienceDuration(entry) {
-  const start = Number(entry.startYear);
-  if (!start) return '';
-  const end = entry.current ? new Date().getFullYear() : (Number(entry.endYear) || start);
-  const yrs = Math.max(0, end - start);
-  if (yrs <= 0) return '<1 yr';
-  return `${yrs} yr${yrs === 1 ? '' : 's'}`;
-}
-
-function ExperienceList({ entries = [] }) {
+// ─── PROJECTS list ──────────────────────────────────────────────────────────
+function ProjectsList({ projects = [] }) {
+  if (projects.length === 0) {
+    return <Text style={s.placeholder}>Add your projects</Text>;
+  }
   return (
     <View>
-      {entries.map((e, i) => (
-        <View key={i} style={[ex.row, i > 0 && ex.rowBorder]}>
-          <Text style={ex.icon}>💼</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={ex.title} numberOfLines={1}>{e.title || 'Role'}</Text>
-            <Text style={ex.meta} numberOfLines={1}>
-              {[
-                e.company || null,
-                e.startYear ? `${e.startYear} – ${e.current ? 'Present' : (e.endYear || 'Present')}` : null,
-                calcExperienceDuration(e),
-              ].filter(Boolean).join(' · ')}
+      {projects.map((p, i) => (
+        <View key={i} style={[pj.row, i > 0 && pj.rowBorder]}>
+          <View style={pj.thumb}>
+            {p.photoUri ? (
+              <Image source={{ uri: p.photoUri }} style={pj.thumbImg} resizeMode="cover" />
+            ) : (
+              <Text style={pj.thumbIcon}>🏗️</Text>
+            )}
+          </View>
+          <View style={pj.info}>
+            <Text style={pj.name} numberOfLines={1}>{p.name || 'Untitled project'}</Text>
+            <Text style={pj.meta} numberOfLines={1}>
+              {[p.location, p.value ? formatAmountIndian(p.value) : null].filter(Boolean).join(' · ')}
+            </Text>
+          </View>
+          <View style={[pj.badge, p.status === 'ongoing' ? pj.badgeOngoing : pj.badgeDone]}>
+            <Text style={[pj.badgeText, p.status === 'ongoing' ? pj.badgeTextOngoing : pj.badgeTextDone]}>
+              {p.status === 'ongoing' ? 'ONGOING' : 'DONE'}
             </Text>
           </View>
         </View>
@@ -120,43 +104,100 @@ function ExperienceList({ entries = [] }) {
   );
 }
 
-const ex = injectFonts({
-  row: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 10 },
+const pj = injectFonts({
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
   rowBorder: { borderTopWidth: 1, borderTopColor: '#E5E5E5' },
-  icon: { fontSize: 14, marginTop: 1 },
-  title: { fontSize: 13, fontWeight: '700', color: '#262626', marginBottom: 2 },
+  thumb: {
+    width: 46, height: 46, borderRadius: 10,
+    backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  },
+  thumbImg: { width: '100%', height: '100%' },
+  thumbIcon: { fontSize: 18, opacity: 0.5 },
+  info: { flex: 1 },
+  name: { fontSize: 13, fontWeight: '700', color: '#262626', marginBottom: 2 },
   meta: { fontSize: 12, color: '#8E8E8E', fontWeight: '500' },
+  badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  badgeOngoing: { backgroundColor: '#FFF3E0' },
+  badgeDone: { backgroundColor: '#EAF7EF' },
+  badgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
+  badgeTextOngoing: { color: '#B26A00' },
+  badgeTextDone: { color: '#1E874B' },
 });
 
-// ─── QUALIFICATIONS rows ────────────────────────────────────────────────────
-function QualificationRows({ rows = [] }) {
-  if (rows.length === 0) {
-    return <Text style={s.placeholder}>Not added yet</Text>;
-  }
+// ─── GALLERY grid ───────────────────────────────────────────────────────────
+function GalleryGrid({ items = [] }) {
+  const filled = items.slice(0, 6);
+  const slots = [...filled, ...Array(Math.max(0, 6 - filled.length)).fill(null)];
   return (
-    <View>
-      {rows.map((r, i) => (
-        <View key={r.key} style={[ql.row, i > 0 && ql.rowBorder]}>
-          <Text style={ql.label}>{r.label}</Text>
-          <Text style={ql.value} numberOfLines={1}>{r.value}</Text>
+    <View style={gl.grid}>
+      {slots.map((item, i) => (
+        <View key={i} style={gl.tile}>
+          {item?.uri ? (
+            <>
+              <Image source={{ uri: item.uri }} style={gl.thumb} resizeMode="cover" />
+              {item.caption ? (
+                <Text style={gl.caption} numberOfLines={1}>{item.caption}</Text>
+              ) : null}
+            </>
+          ) : (
+            <View style={gl.placeholder}>
+              <Text style={gl.placeholderIcon}>🖼️</Text>
+              <Text style={gl.placeholderText}>browse</Text>
+            </View>
+          )}
         </View>
       ))}
     </View>
   );
 }
 
-const ql = injectFonts({
+const gl = injectFonts({
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  tile: { width: GALLERY_SLOT },
+  thumb: { width: GALLERY_SLOT, height: GALLERY_SLOT, borderRadius: 10 },
+  caption: { fontSize: 10, color: '#8E8E8E', fontWeight: '500', marginTop: 4 },
+  placeholder: {
+    width: GALLERY_SLOT, height: GALLERY_SLOT, borderRadius: 10,
+    backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center',
+  },
+  placeholderIcon: { fontSize: 18, opacity: 0.35, marginBottom: 2 },
+  placeholderText: { fontSize: 10, color: '#B5B5B5', fontWeight: '600' },
+});
+
+// ─── LICENSE & REGISTRATION rows ────────────────────────────────────────────
+function LicenseRows({ rows = [] }) {
+  if (rows.length === 0) {
+    return <Text style={s.placeholder}>Not added yet</Text>;
+  }
+  return (
+    <View>
+      {rows.map((r, i) => (
+        <View key={r.key} style={[lc.row, i > 0 && lc.rowBorder]}>
+          <Text style={lc.label}>{r.label}</Text>
+          <View style={lc.valueRow}>
+            <Text style={lc.value} numberOfLines={1}>{r.value}</Text>
+            {r.verified && <Text style={lc.tick}>✓</Text>}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const lc = injectFonts({
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 },
   rowBorder: { borderTopWidth: 1, borderTopColor: '#E5E5E5' },
   label: { fontSize: 13, fontWeight: '600', color: '#262626' },
-  value: { fontSize: 13, fontWeight: '500', color: '#737373', flexShrink: 1 },
+  valueRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
+  value: { fontSize: 13, fontWeight: '500', color: '#737373' },
+  tick: { fontSize: 13, fontWeight: '900', color: '#1877F2' },
 });
 
-export default function ProfessionalProfileScreen({ navigation, route }) {
+export default function ContractorProfileScreen({ navigation, route }) {
   const viewUid = route?.params?.uid ?? null;
 
   const [loading, setLoading] = useState(true);
-  const [professional, setProfessional] = useState(null);
+  const [contractor, setContractor] = useState(null);
   const [verifiedAmt, setVerifiedAmt] = useState(0);
   const [verifiedWork, setVerifiedWork] = useState([]);
   const [myUid, setMyUid] = useState(null);
@@ -189,9 +230,9 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
         } catch (_) {}
       }
 
-      setProfessional(profile);
+      setContractor(profile);
 
-      // Verified work — only meaningful for real Firebase users
+      // Verified work — only meaningful for real Firebase users (and demo profiles)
       if (uid && !uid.startsWith('guest_')) {
         try {
           const [amt, works] = await Promise.all([
@@ -207,12 +248,12 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
   };
 
   const handleCall = () => {
-    if (professional?.available === false) {
-      Alert.alert('Not taking projects', 'This professional is marked Busy and is not taking calls right now. Send a message instead.');
+    if (contractor?.available === false) {
+      Alert.alert('Not taking projects', 'This contractor is marked Busy and is not taking calls right now. Send a message instead.');
       return;
     }
-    const phone = professional?.phone;
-    if (!phone) { Alert.alert('No phone number', 'This professional has not added a phone number yet.'); return; }
+    const phone = contractor?.phone;
+    if (!phone) { Alert.alert('No phone number', 'This contractor has not added a phone number yet.'); return; }
     Linking.openURL(`tel:+91${phone}`).catch(() => Alert.alert('Could not open dialler.'));
   };
 
@@ -222,15 +263,15 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
       const myName = await AsyncStorage.getItem('userName') || 'Me';
       const chatId = await createChat(
         { uid: myUid, name: myName },
-        { uid: viewUid, name: professional?.name || 'Professional' }
+        { uid: viewUid, name: contractor?.companyName || contractor?.name || 'Contractor' }
       );
       navigation.navigate('Chat', {
         conversation: {
           id: chatId,
           uid: viewUid,
-          name: professional?.name || 'Professional',
-          role: professional?.designation || 'Professional',
-          emoji: '🏛️',
+          name: contractor?.companyName || contractor?.name || 'Contractor',
+          role: contractor?.contractorType || 'Contractor',
+          emoji: '👷‍♂️',
           avatarBg: '#F2F2F2',
           online: false,
         },
@@ -243,17 +284,17 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
     try {
       const saved = await toggleBookmark(myUid, {
         uid: viewUid,
-        name: professional?.name || 'Professional',
-        profileType: 'professional',
-        category: professional?.designation || '',
-        city: professional?.city || '',
+        name: contractor?.companyName || contractor?.name || 'Contractor',
+        profileType: 'contractor',
+        category: contractor?.contractorType || '',
+        city: contractor?.city || '',
       });
       setBookmarked(saved);
     } catch (_) {}
   };
 
   const handleOpenLink = () => {
-    const url = professional?.website;
+    const url = contractor?.contractorWebsite;
     if (!url) return;
     const withScheme = /^https?:\/\//i.test(url) ? url : `https://${url}`;
     Linking.openURL(withScheme).catch(() => Alert.alert('Could not open link.'));
@@ -270,41 +311,42 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
   // ── Derived display values ────────────────────────────────────────────────
   const isOwn = !viewUid || viewUid === myUid;
 
-  const name        = professional?.name || 'Add your name';
-  const designation = professional?.designation || professional?.category || 'Add your skill';
-  const experience  = professional?.experience || null;
-  const employment  = professional?.selfEmployed || '';
-  const degree      = professional?.degree || '';
-  const regNumber   = professional?.regNumber || '';
+  const name          = contractor?.companyName || contractor?.name || 'Add your name';
+  const contractorType = contractor?.contractorType || contractor?.category || 'Add your trade';
 
-  const area        = professional?.area || '';
-  const city        = professional?.city || '';
-  const pincode     = professional?.pincode || '';
-  const nativePlace = [professional?.nativePlaceCity, professional?.nativePlaceState].filter(Boolean).join(', ');
-  const currentLoc  = [area, city].filter(Boolean).join(', ') + (pincode ? ` — ${pincode}` : '');
+  const area        = contractor?.area || '';
+  const city         = contractor?.city || '';
+  const nativePlace  = [contractor?.nativePlaceCity, contractor?.nativePlaceState].filter(Boolean).join(', ');
+  const currentLoc   = [area, city].filter(Boolean).join(', ');
 
-  const bio         = professional?.bio || '';
-  const extraSkills = professional?.extraSkills?.length > 0 ? professional.extraSkills : (professional?.skillTags || []);
-  const services    = professional?.services?.length > 0 ? professional.services : extraSkills;
-  const tools       = professional?.tools || [];
-  const website     = professional?.website || '';
-  const available   = professional?.available !== false;
-  const isVerified  = !!(professional?.verificationNumber || professional?.verified);
+  const available    = contractor?.available !== false;
+  const website       = contractor?.contractorWebsite || '';
+  const verificationType = contractor?.verificationType || '';
+  const isVerified    = !!(contractor?.verificationNumber || contractor?.verified);
 
-  const experienceHistory = (professional?.experienceHistory || [])
-    .filter(e => e && (e.title || e.company))
-    .slice()
-    .sort((a, b) => {
-      const aKey = a.current ? Infinity : (Number(a.endYear) || Number(a.startYear) || 0);
-      const bKey = b.current ? Infinity : (Number(b.endYear) || Number(b.startYear) || 0);
-      if (bKey !== aKey) return bKey - aKey;
-      return (Number(b.startYear) || 0) - (Number(a.startYear) || 0);
-    });
+  const teamSize     = contractor?.contractorTeamSize || '';
+  const services     = contractor?.services?.length > 0
+    ? contractor.services
+    : (contractor?.otherSkills?.length > 0 ? contractor.otherSkills : (contractor?.skillTags || []));
 
-  const qualificationRows = [
-    { key: 'degree', label: 'Degree / Qualification', value: degree },
-    { key: 'reg', label: 'Registration Number', value: regNumber },
-    { key: 'employment', label: 'Employment', value: employment },
+  const projects     = contractor?.projects || [];
+  const galleryItems = contractor?.gallery?.length > 0
+    ? contractor.gallery
+    : (contractor?.workPhotos || []).map(uri => ({ uri, caption: '' }));
+
+  const licenseRows = [
+    {
+      key: 'aadhaar', label: 'Aadhaar',
+      value: contractor?.aadhaar || (verificationType === 'aadhaar' ? contractor?.verificationNumber : ''),
+      verified: isVerified && verificationType === 'aadhaar',
+    },
+    {
+      key: 'gst', label: 'GST',
+      value: contractor?.gst || (verificationType === 'gst' ? contractor?.verificationNumber : ''),
+      verified: isVerified && verificationType === 'gst',
+    },
+    { key: 'pan', label: 'PAN', value: contractor?.pan || '', verified: false },
+    { key: 'labour', label: 'Labour Licence', value: contractor?.labourLicence || '', verified: false },
   ].filter(r => !!r.value);
 
   const ratedWork = verifiedWork.filter(w => w.rating && w.rating > 0);
@@ -315,8 +357,7 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
 
   const amtStr = formatAmountIndian(verifiedAmt);
   const jobsCount = verifiedWork.length;
-  const onTimeRate = professional?.onTimeRate || '—';
-  const verifiedPortfolio = verifiedWork.filter(w => w.photo);
+  const onTimeRate = contractor?.onTimeRate || '—';
 
   const reviews = ratedWork
     .slice()
@@ -335,7 +376,7 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
         <TouchableOpacity style={s.navBtn} onPress={() => navigation.goBack()}>
           <Text style={s.navBack}>←</Text>
         </TouchableOpacity>
-        <Text style={s.navTitle}>Professional</Text>
+        <Text style={s.navTitle}>Contractor</Text>
         <TouchableOpacity
           style={s.navBtn}
           onPress={isOwn ? undefined : handleBookmark}
@@ -349,13 +390,13 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
 
         <View style={s.sheet}>
 
-          {/* ── 2. IDENTITY ──────────────────────────────────────────────── */}
+          {/* ── 2. LOGO + IDENTITY ─────────────────────────────────────── */}
           <View style={s.heroRow}>
-            <View style={s.avatar}>
-              {professional?.photoUri ? (
-                <Image source={{ uri: professional.photoUri }} style={s.avatarImg} />
+            <View style={s.logoBox}>
+              {contractor?.photoUri ? (
+                <Image source={{ uri: contractor.photoUri }} style={s.logoImg} />
               ) : (
-                <Text style={s.avatarIcon}>🏛️</Text>
+                <Text style={s.logoPlaceholder}>Logo</Text>
               )}
             </View>
             <View style={s.heroInfo}>
@@ -367,9 +408,10 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
                   </View>
                 )}
               </View>
-              <View style={s.designationPill}>
-                <Text style={s.designationPillText}>{designation.toUpperCase()}</Text>
+              <View style={s.contractorPill}>
+                <Text style={s.contractorPillText}>CONTRACTOR</Text>
               </View>
+              <Text style={s.heroType} numberOfLines={1}>{contractorType}</Text>
             </View>
           </View>
 
@@ -386,7 +428,7 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
             {available ? (
               <View style={s.chipAvail}>
                 <View style={s.chipDot} />
-                <Text style={s.chipAvailText}>Available for projects</Text>
+                <Text style={s.chipAvailText}>Taking new projects</Text>
               </View>
             ) : (
               <View style={s.chipBusy}>
@@ -402,15 +444,17 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
 
           <View style={s.divider} />
 
-          {/* ── 5. VERIFIED WORK (immutable, real completed work only) ─── */}
+          {/* ── 5. VERIFIED WORK ────────────────────────────────────────── */}
           <View style={s.verHeader}>
             <Text style={s.verLabel}>✓ VERIFIED WORK</Text>
-            <Text style={s.verNote}>cannot be edited</Text>
+            {isVerified && verificationType ? (
+              <Text style={s.verNote}>via {verificationType === 'gst' ? 'GST' : 'Aadhaar'}</Text>
+            ) : null}
           </View>
           <View style={s.verStats}>
             <View style={s.verStat}>
-              <Text style={s.verStatAmt}>{amtStr}</Text>
-              <Text style={s.verStatLbl}>Earned</Text>
+              <Text style={s.verStatVal}>{amtStr}</Text>
+              <Text style={s.verStatLbl}>Value</Text>
             </View>
             <View style={s.verStatSep} />
             <View style={s.verStat}>
@@ -428,9 +472,6 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
               <Text style={s.verStatLbl}>Rating</Text>
             </View>
           </View>
-          <Text style={s.verCaption}>Earnings from projects booked on the app</Text>
-
-          <View style={s.divider} />
 
           {/* ── 6. ACTION BUTTONS ───────────────────────────────────────── */}
           <View style={s.actionRow}>
@@ -454,52 +495,40 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
 
           <View style={s.divider} />
 
-          {/* ── 7. SERVICES ──────────────────────────────────────────────── */}
+          {/* ── 7. CREW ──────────────────────────────────────────────────── */}
+          <Text style={s.sLabel}>CREW</Text>
+          <CrewRow teamSize={teamSize} trades={services} />
+
+          <View style={s.divider} />
+
+          {/* ── 8. SERVICES ──────────────────────────────────────────────── */}
           <Text style={s.sLabel}>SERVICES</Text>
-          <ChipsList items={services} emptyText="Add services" />
+          <ServicesChips services={services} />
 
           <View style={s.divider} />
 
-          {/* ── 8. TOOLS ─────────────────────────────────────────────────── */}
-          <Text style={s.sLabel}>TOOLS</Text>
-          <ChipsList items={tools} emptyText="Add tools" />
+          {/* ── 9. PROJECTS ──────────────────────────────────────────────── */}
+          <Text style={s.sLabel}>PROJECTS</Text>
+          <ProjectsList projects={projects} />
 
           <View style={s.divider} />
 
-          {/* ── 9. ABOUT ─────────────────────────────────────────────────── */}
-          <Text style={s.sLabel}>ABOUT</Text>
-          <Text style={bio ? s.aboutText : s.placeholder}>
-            {bio || 'Add a short bio to attract more clients'}
-          </Text>
-
-          {/* ── 9.5 EXPERIENCE (optional, hidden if none added) ──────────── */}
-          {experienceHistory.length > 0 && (
-            <>
-              <View style={s.divider} />
-              <Text style={s.sLabel}>EXPERIENCE</Text>
-              <ExperienceList entries={experienceHistory} />
-            </>
-          )}
+          {/* ── 10. GALLERY ──────────────────────────────────────────────── */}
+          <Text style={s.sLabel}>GALLERY</Text>
+          <GalleryGrid items={galleryItems} />
 
           <View style={s.divider} />
 
-          {/* ── 10. QUALIFICATIONS ───────────────────────────────────────── */}
-          <Text style={s.sLabel}>QUALIFICATIONS</Text>
-          <QualificationRows rows={qualificationRows} />
+          {/* ── 11. LICENSE & REGISTRATION ───────────────────────────────── */}
+          <View style={s.verHeader}>
+            <Text style={s.sLabel}>LICENSE & REGISTRATION</Text>
+            <Text style={s.verNote}>Optional</Text>
+          </View>
+          <LicenseRows rows={licenseRows} />
 
           <View style={s.divider} />
 
-          {/* ── 11. PORTFOLIO (uploaded, up to 6) ────────────────────────── */}
-          <PortfolioGrid photos={professional?.workPhotos} />
-
-          <View style={s.divider} />
-
-          {/* ── 12. VERIFIED PORTFOLIO (from confirmed jobs only) ────────── */}
-          <VerifiedPortfolioGrid items={verifiedPortfolio} />
-
-          <View style={s.divider} />
-
-          {/* ── 13. REVIEWS ──────────────────────────────────────────────── */}
+          {/* ── 12. REVIEWS ──────────────────────────────────────────────── */}
           <Text style={s.sLabel}>REVIEWS</Text>
           {reviews.length === 0 ? (
             <Text style={s.placeholder}>No reviews yet</Text>
@@ -529,18 +558,18 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
   );
 }
 
-const GREEN       = '#22A559';
-const DEEP_GREEN   = '#1E874B';
-const GREEN_LIGHT  = '#EAF7EF';
-const DARK          = '#262626';
-const BG            = '#FAF9F5';
-const FILL          = '#F2F2F2';
-const BORDER        = '#E5E5E5';
-const MID            = '#737373';
-const LIGHT          = '#8E8E8E';
-const FAINT          = '#B5B5B5';
-const STAR           = '#FFB830';
-const LINK_BLUE      = '#1877F2';
+const GREEN        = '#22A559';
+const DEEP_GREEN    = '#1E874B';
+const GREEN_LIGHT   = '#EAF7EF';
+const DARK           = '#262626';
+const BG             = '#FAF9F5';
+const FILL           = '#F2F2F2';
+const BORDER         = '#E5E5E5';
+const MID             = '#737373';
+const LIGHT           = '#8E8E8E';
+const FAINT           = '#B5B5B5';
+const STAR            = '#FFB830';
+const LINK_BLUE       = '#1877F2';
 
 const s = injectFonts({
   screen: { flex: 1, backgroundColor: BG },
@@ -570,15 +599,15 @@ const s = injectFonts({
   },
   divider: { height: 1, backgroundColor: BORDER, marginVertical: 16 },
 
-  // ── 2. IDENTITY
+  // ── 2. LOGO + IDENTITY
   heroRow: { flexDirection: 'row', gap: 14, marginBottom: 14 },
-  avatar: {
-    width: 72, height: 72, borderRadius: 36,
+  logoBox: {
+    width: 72, height: 72, borderRadius: 14,
     backgroundColor: FILL, borderWidth: 1, borderColor: BORDER,
     alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
   },
-  avatarImg: { width: 72, height: 72, borderRadius: 36 },
-  avatarIcon: { fontSize: 34 },
+  logoImg: { width: 72, height: 72, borderRadius: 14 },
+  logoPlaceholder: { fontSize: 12, fontWeight: '600', color: LIGHT },
   heroInfo: { flex: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   heroName: { fontSize: 18, fontWeight: '700', color: DARK, flexShrink: 1 },
@@ -587,11 +616,12 @@ const s = injectFonts({
     backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center',
   },
   verifiedText: { fontSize: 10, color: '#fff', fontWeight: '900' },
-  designationPill: {
+  contractorPill: {
     alignSelf: 'flex-start', backgroundColor: DARK, borderRadius: 5,
     paddingHorizontal: 8, paddingVertical: 3, marginBottom: 6,
   },
-  designationPillText: { fontSize: 9, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.6 },
+  contractorPillText: { fontSize: 9, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.6 },
+  heroType: { fontSize: 13, fontWeight: '500', color: MID },
 
   // ── 3. LOCATION
   heroLoc:    { fontSize: 12, color: LIGHT },
@@ -623,10 +653,8 @@ const s = injectFonts({
   verStats: { flexDirection: 'row', alignItems: 'center' },
   verStat:  { flex: 1, alignItems: 'center' },
   verStatVal: { fontSize: 16, fontWeight: '700', color: DEEP_GREEN, marginBottom: 2 },
-  verStatAmt: { fontSize: 16, fontWeight: '700', color: DEEP_GREEN, marginBottom: 2 },
   verStatLbl: { fontSize: 10, fontWeight: '500', color: LIGHT },
   verStatSep: { width: 1, height: 28, backgroundColor: BORDER },
-  verCaption: { fontSize: 11, color: LIGHT, fontWeight: '500', marginTop: 10, textAlign: 'center' },
 
   // ── SECTION LABEL (shared)
   sLabel: {
@@ -656,18 +684,15 @@ const s = injectFonts({
     alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
   },
 
-  // ── 7/8. SERVICES / TOOLS chips
+  // ── 8. SERVICES chips
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  plainChip: {
+  hashChip: {
     backgroundColor: FILL, borderRadius: 20,
     paddingHorizontal: 12, paddingVertical: 6,
   },
-  plainChipText: { fontSize: 12, fontWeight: '500', color: MID },
+  hashChipText: { fontSize: 12, fontWeight: '500', color: MID },
 
-  // ── 9. ABOUT
-  aboutText: { fontSize: 14, color: MID, lineHeight: 22 },
-
-  // ── 13. REVIEWS
+  // ── 12. REVIEWS
   reviewRow: { paddingVertical: 12 },
   reviewRowBorder: { borderTopWidth: 1, borderTopColor: BORDER },
   reviewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },

@@ -2,6 +2,7 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar,
 } from 'react-native';
+import { injectFonts } from '../theme/typography';
 
 const sections = [
   {
@@ -159,7 +160,7 @@ export default function TermsScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = injectFonts({
   container: { flex: 1, backgroundColor: '#F5F5F0' },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

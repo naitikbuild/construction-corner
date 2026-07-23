@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, TextInput, Alert,
 } from 'react-native';
+import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../config/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
@@ -24,7 +25,7 @@ function GradBtn({ label, onPress, disabled }) {
       disabled={disabled}
     >
       <View style={ss.gradBg} pointerEvents="none">
-        {['#FF6B2B', '#FF7A35', '#FF8840', '#FF8C00'].map((c, i) => (
+        {['#262626', '#2E2E2E', '#333333', '#333333'].map((c, i) => (
           <View key={i} style={{ flex: 1, backgroundColor: c }} />
         ))}
       </View>
@@ -296,7 +297,7 @@ export default function LeaveReviewScreen({ navigation, route }) {
   );
 }
 
-const ss = StyleSheet.create({
+const ss = injectFonts({
   root: { flex: 1, backgroundColor: '#fff' },
 
   // Header
@@ -329,7 +330,7 @@ const ss = StyleSheet.create({
   workerName: { fontSize: 16, fontWeight: '800', color: TEXT },
   workerRole: { fontSize: 13, color: MUTED, fontWeight: '500' },
   workTypePill: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
-  workTypeText: { fontSize: 12, color: '#FF6B2B', fontWeight: '600' },
+  workTypeText: { fontSize: 12, color: '#262626', fontWeight: '600' },
   workAmt: { fontSize: 12, color: MUTED, fontWeight: '500' },
   verifiedBadge: {
     backgroundColor: GREEN_LIGHT, borderRadius: 8,
@@ -343,9 +344,9 @@ const ss = StyleSheet.create({
   sectionSub: { fontSize: 12, color: MUTED, marginBottom: 10, marginTop: -6 },
   starRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   star: { fontSize: 42, color: '#D1D5DB' },
-  starActive: { color: '#E8A900' },
+  starActive: { color: '#FFB830' },
   starLabel: {
-    fontSize: 15, fontWeight: '700', color: '#E8A900', marginTop: 6,
+    fontSize: 15, fontWeight: '700', color: '#FFB830', marginTop: 6,
   },
 
   // Tags
@@ -356,7 +357,7 @@ const ss = StyleSheet.create({
     backgroundColor: '#fff',
   },
   tagGoodActive: { backgroundColor: GREEN_LIGHT, borderColor: GREEN },
-  tagBadActive: { backgroundColor: '#FEF2F2', borderColor: '#EF4444' },
+  tagBadActive: { backgroundColor: '#FEF2F2', borderColor: '#B00020' },
   tagText: { fontSize: 13, fontWeight: '600', color: MUTED },
   tagTextActive: { color: TEXT },
 
@@ -406,7 +407,7 @@ const ss = StyleSheet.create({
   successSub: { fontSize: 14, color: MUTED, textAlign: 'center', lineHeight: 22, marginBottom: 20 },
   successStars: { flexDirection: 'row', gap: 6, marginBottom: 16 },
   successStar: { fontSize: 32, color: '#D1D5DB' },
-  successStarActive: { color: '#E8A900' },
+  successStarActive: { color: '#FFB830' },
   successTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginBottom: 28 },
   successTag: { backgroundColor: GREEN_LIGHT, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
   successTagText: { fontSize: 12, fontWeight: '700', color: GREEN },

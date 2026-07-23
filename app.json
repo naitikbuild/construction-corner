@@ -23,7 +23,13 @@
     },
     "plugins": [
       "expo-font",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Construction Corner uses your location to auto-fill your current city, state and pincode on your profile."
+        }
+      ]
     ],
     "extra": {
       "eas": {

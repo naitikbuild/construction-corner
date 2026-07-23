@@ -3,6 +3,7 @@ import {
   View, Text, TouchableOpacity, StyleSheet,
   StatusBar, SafeAreaView, BackHandler, Alert,
 } from 'react-native';
+import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { BLUE, BLUE_DIM } from '../constants/colors';
@@ -82,7 +83,7 @@ export default function OnboardingScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = injectFonts({
   container: { flex: 1, backgroundColor: '#fff', padding: 24, alignItems: 'center' },
   skipBtn: { alignSelf: 'flex-end', marginTop: 8, padding: 4 },
   skipText: { fontSize: 14, fontWeight: '700', color: '#aaa' },

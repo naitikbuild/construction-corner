@@ -8,6 +8,7 @@ import { getAllUsers } from '../services/userService';
 const PROFILE_SCREEN = {
   professional: 'ProfessionalProfile',
   worker:       'WorkerProfile',
+  contractor:   'ContractorProfile',
   supplier:     'SupplierProfile',
   business:     'BusinessProfile',
 };
@@ -40,8 +41,8 @@ function ProfileCard({ profile, isLast, onPress }) {
 
 // ─── Map Firestore user to card shape ─────────────────────────────────────────
 function firestoreUserToCard(user) {
-  const emojiMap = { professional: '🏛️', worker: '👷', supplier: '🏭', business: '🏢' };
-  const bgMap = { professional: '#EDE7F6', worker: '#FFF3E0', supplier: '#E3F2FD', business: '#E8F5E9' };
+  const emojiMap = { professional: '🏛️', worker: '👷', contractor: '👷‍♂️', supplier: '🏭', business: '🏢' };
+  const bgMap = { professional: '#EDE7F6', worker: '#FFF3E0', contractor: '#E5E5E5', supplier: '#E3F2FD', business: '#E8F5E9' };
   const pt = (user.profileType || '').toLowerCase();
   return {
     uid: user.uid,
@@ -88,7 +89,7 @@ export default function CategoryListScreen({ navigation, route }) {
       )
     : profiles;
 
-  const typeLabel = { professional: 'professionals', worker: 'workers', supplier: 'suppliers', business: 'companies' }[profileType] || 'profiles';
+  const typeLabel = { professional: 'professionals', worker: 'workers', contractor: 'contractors', supplier: 'suppliers', business: 'companies' }[profileType] || 'profiles';
   const countLabel = loading ? 'Loading...' : `${displayed.length} ${typeLabel} found`;
 
   return (

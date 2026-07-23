@@ -1,721 +1,764 @@
 import { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, StatusBar, useWindowDimensions, Alert, ActivityIndicator,
+  StyleSheet, StatusBar, Alert, ActivityIndicator, Linking,
+  Image, Dimensions,
 } from 'react-native';
+import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getProfile, recordProfileView } from '../services/userService';
+import * as ImagePicker from 'expo-image-picker';
+import { getProfile, recordProfileView, updateProfile } from '../services/userService';
 import { getTotalVerifiedAmount, getVerifiedWork } from '../services/workService';
 import { createChat } from '../services/chatService';
 import { toggleBookmark, isBookmarked } from '../services/bookmarkService';
 import { auth } from '../config/firebase';
+import { formatAmountK } from '../utils/format';
 
-// ─── Section Label ────────────────────────────────────────────────────────────
-function SLabel({ text }) {
-  return <Text style={ss.sLabel}>{text.toUpperCase()}</Text>;
+const SLOT_SIZE = Math.floor((Dimensions.get('window').width - 28 - 16) / 3);
+
+function AvailabilityChip({ available }) {
+  return available ? (
+    <View style={s.chipAvail}>
+      <View style={s.chipDot} />
+      <Text style={s.chipAvailText}>Available now</Text>
+    </View>
+  ) : (
+    <View style={s.chipUnavail}>
+      <Text style={s.chipUnavailText}>Unavailable</Text>
+    </View>
+  );
 }
 
-// ─── Divider ─────────────────────────────────────────────────────────────────
-function Divider() {
-  return <View style={ss.divider} />;
-}
-
-// ─── Data ─────────────────────────────────────────────────────────────────────
-const WORKER = {
-  name: 'Ramesh Patel',
-  designation: 'Electrician',
-  location: 'Ahmedabad, Gujarat',
-  avatar: '👷',
-  rating: '4.7',
-  reviews: 38,
-  years: 7,
-  verifiedAmt: '₹2.4L',
-  jobs: 38,
-  repeatClients: 12,
-  onTime: '96%',
-  trustScore: 88,
-  dailyRate: '₹900',
-};
-
-const SKILLS = [
-  'House Wiring', 'Panel Installation', 'Industrial Wiring',
-  'Switchboard Setup', 'Fault Repair', 'Generator Work',
-  'CCTV Installation', 'Solar Panel',
-];
-
-const PHOTOS = [
-  { emoji: '⚡', bg: '#FFF8E1' }, { emoji: '🔌', bg: '#E8F5E9' }, { emoji: '🏠', bg: '#E3F2FD' },
-  { emoji: '🔧', bg: '#FCE4EC' }, { emoji: '🏭', bg: '#EDE7F6' }, { emoji: '☀️', bg: '#FFF3E0' },
-];
-
-const VERIFIED_JOBS = [
-  { type: 'House Wiring – 3BHK', amount: '₹22,000', location: 'Navrangpura, Ahmedabad', date: '12 Jan 2024' },
-  { type: 'Industrial Panel Upgrade', amount: '₹45,000', location: 'Naroda GIDC, Ahmedabad', date: '03 Dec 2023' },
-  { type: 'CCTV + Electrical Setup', amount: '₹18,500', location: 'Gandhinagar Sec-7', date: '18 Nov 2023' },
-];
-
-const REVIEWS = [
-  {
-    text: 'Ramesh completed the full wiring of our 3BHK on time and within budget. Very clean work — no exposed wires, proper labeling. Will hire again!',
-    name: 'Suresh Mehta',
-    company: 'Home Owner',
-    stars: 5,
-  },
-  {
-    text: 'Came on time, fixed the panel issue in 2 hours. Diagnosed the problem immediately. Honest about pricing and skilled at work.',
-    name: 'Kiran Industries',
-    company: 'Factory Manager',
-    stars: 5,
-  },
-];
-
-// ─── Screen ───────────────────────────────────────────────────────────────────
-export default function WorkerProfileScreen({ navigation, route }) {
-  const viewUid = route?.params?.uid ?? null;
-  const { width } = useWindowDimensions();
-  const photoSize = (width - 4) / 3;
-  const [loading, setLoading] = useState(true);
-  const [liveWorker, setLiveWorker] = useState(null);
-  const [verifiedAmt, setVerifiedAmt] = useState('₹0');
-  const [verifiedJobs, setVerifiedJobs] = useState([]);
-  const [myUid, setMyUid] = useState(null);
-  const [bookmarked, setBookmarked] = useState(false);
-
-  useEffect(() => {
-    loadProfile();
-  }, []);
-
-  const loadProfile = async () => {
-    try {
-      const uid = viewUid || auth.currentUser?.uid;
-      const me = await AsyncStorage.getItem('uid');
-      setMyUid(me);
-      if (!uid) { setLoading(false); return; }
-      if (uid !== me) {
-        recordProfileView(uid, me);
-        isBookmarked(me, uid).then(saved => setBookmarked(saved)).catch(() => {});
-      }
-      const [profile, totalAmt, jobs] = await Promise.all([
-        getProfile(uid),
-        getTotalVerifiedAmount(uid),
-        getVerifiedWork(uid),
-      ]);
-      if (profile) setLiveWorker(profile);
-      setVerifiedAmt(totalAmt > 0 ? `₹${totalAmt.toLocaleString('en-IN')}` : '₹0');
-      setVerifiedJobs(jobs.slice(0, 3));
-    } catch (_) {}
-    finally { setLoading(false); }
-  };
-
-  const handleChat = async () => {
-    if (!viewUid || viewUid === myUid) return;
-    try {
-      const myName = await AsyncStorage.getItem('userName') || 'Me';
-      const chatId = await createChat(
-        { uid: myUid, name: myName },
-        { uid: viewUid, name: liveWorker?.name || 'Worker' }
-      );
-      navigation.navigate('Chat', {
-        conversation: {
-          id: chatId,
-          uid: viewUid,
-          name: liveWorker?.name || 'Worker',
-          role: liveWorker?.workerSkill || 'Worker',
-          emoji: '👷',
-          avatarBg: '#FFF3E0',
-          online: false,
-        }
-      });
-    } catch (_) { Alert.alert('Error', 'Could not open chat.'); }
-  };
-
-  const displayWorker = {
-    name: liveWorker?.name || 'Add your name',
-    designation: liveWorker?.workerSkill || 'Add your skill',
-    location: [liveWorker?.city, liveWorker?.state].filter(Boolean).join(', ') || 'Add location',
-    avatar: '👷',
-    rating: liveWorker?.rating || '—',
-    reviews: liveWorker?.reviews || 0,
-    years: liveWorker?.workerExperience || liveWorker?.experience || '—',
-    verifiedAmt,
-    jobs: liveWorker?.jobsCompleted || 0,
-    repeatClients: liveWorker?.repeatClients || 0,
-    onTime: liveWorker?.onTimeRate || '—',
-    trustScore: liveWorker?.trustScore || 0,
-    dailyRate: liveWorker?.dailyRate || 'Not set',
-  };
-
-  const isIncomplete = !liveWorker;
-
-  if (loading) {
-    return (
-      <View style={[ss.screen, { alignItems: 'center', justifyContent: 'center' }]}>
-        <ActivityIndicator size="large" color="#1A1A1A" />
-        <Text style={{ marginTop: 12, color: '#888', fontSize: 14 }}>Loading profile...</Text>
-      </View>
-    );
-  }
-
-  if (isIncomplete && !viewUid) {
-    return (
-      <View style={[ss.screen, { alignItems: 'center', justifyContent: 'center', padding: 32 }]}>
-        <Text style={{ fontSize: 52, marginBottom: 16 }}>👷</Text>
-        <Text style={{ fontSize: 20, fontWeight: '900', color: '#1A1A1A', marginBottom: 8, textAlign: 'center' }}>Profile Incomplete</Text>
-        <Text style={{ fontSize: 14, color: '#888', textAlign: 'center', lineHeight: 22, marginBottom: 24 }}>
-          Please complete your profile to appear in search results and attract clients.
-        </Text>
-        <TouchableOpacity
-          style={{ backgroundColor: '#1A1A1A', paddingVertical: 14, paddingHorizontal: 28, borderRadius: 12 }}
-          onPress={() => navigation.navigate('EditProfile')}
-        >
-          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>Complete Profile →</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
+function WorkPhotoGrid({ photos = [], isOwn, onAdd, onReplace, onRemove, onEditSection }) {
+  const filled = Array.isArray(photos) ? photos.slice(0, 6) : [];
+  const slots  = [...filled, ...Array(Math.max(0, 6 - filled.length)).fill(null)];
   return (
-    <View style={ss.screen}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-
-      {/* ── 1. TOP NAV ─────────────────────────────────────────────────────── */}
-      <View style={ss.nav}>
-        <TouchableOpacity style={ss.navBtn} onPress={() => navigation.goBack()}>
-          <Text style={ss.navBack}>←</Text>
-        </TouchableOpacity>
-        <Text style={ss.navTitle}>Worker Profile</Text>
-        {viewUid && viewUid !== myUid && (
-          <TouchableOpacity
-            style={ss.navBtn}
-            onPress={async () => {
-              if (!myUid) return;
-              const lp = liveWorker || {};
-              const saved = await toggleBookmark(myUid, {
-                uid: viewUid,
-                name: lp.name || lp.companyName || 'Worker',
-                profileType: 'worker',
-                category: lp.workerSkill || lp.category || '',
-                city: lp.city || '',
-                state: lp.state || '',
-              });
-              setBookmarked(saved);
-              Alert.alert(saved ? 'Bookmarked! 🔖' : 'Removed', saved ? 'Profile saved to bookmarks.' : 'Removed from bookmarks.');
-            }}
-          >
-            <Text style={ss.navShare}>{bookmarked ? '🔖' : '☆'}</Text>
-          </TouchableOpacity>
-        )}
+    <View>
+      <View style={wp.labelRow}>
+        <View style={wp.labelLeft}>
+          <Text style={wp.label}>WORK</Text>
+          {isOwn && (
+            <TouchableOpacity onPress={onEditSection} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={wp.editPencil}>✏️</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        {isOwn && <Text style={wp.labelHint}>Tap to replace · ✕ to remove</Text>}
       </View>
-
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>
-
-        {/* ── 2. HERO SECTION ───────────────────────────────────────────────── */}
-        <View style={ss.heroCard}>
-          {/* Photo row */}
-          <View style={ss.heroTop}>
-            <View style={ss.avatarCircle}>
-              <Text style={{ fontSize: 36 }}>{WORKER.avatar}</Text>
-            </View>
-            <View style={ss.heroInfo}>
-              <Text style={ss.heroName}>{displayWorker.name}</Text>
-              <Text style={ss.heroDesig}>{displayWorker.designation}</Text>
-              <Text style={ss.heroLoc}>📍 {displayWorker.location}</Text>
-            </View>
-          </View>
-
-          <Divider />
-
-          {/* Quick stats strip */}
-          <View style={ss.heroStrip}>
-            <Text style={ss.heroStripStar}>⭐ {WORKER.rating}</Text>
-            <Text style={ss.heroStripMuted}> ({WORKER.reviews} Reviews)</Text>
-            <Text style={ss.heroStripSep}>  ·  </Text>
-            <Text style={ss.heroStripVerified}>✅ Verified</Text>
-            <Text style={ss.heroStripSep}>  ·  </Text>
-            <Text style={ss.heroStripItem}>{WORKER.years} Yrs Exp</Text>
-            <Text style={ss.heroStripSep}>  ·  </Text>
-            <View style={ss.availRow}>
-              <View style={ss.availDot} />
-              <Text style={ss.availText}> Available Today</Text>
-            </View>
-          </View>
-
-          <Divider />
-
-          {/* Action buttons */}
-          <View style={ss.heroActions}>
-            <TouchableOpacity
-              style={ss.hireBtn}
-              onPress={handleChat}
-              activeOpacity={0.85}
-            >
-              <Text style={ss.hireBtnText}>Hire Now</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={ss.outlineBtn}
-              onPress={handleChat}
-              activeOpacity={0.85}
-            >
-              <Text style={ss.outlineBtnText}>💬 Chat</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={ss.outlineBtn}
-              onPress={() => navigation.navigate('MarkWorkComplete', {
-                workerName: displayWorker.name,
-                workerRole: displayWorker.designation,
-                workerEmoji: '👷',
-                workerUid: viewUid,
-              })}
-              activeOpacity={0.85}
-            >
-              <Text style={ss.outlineBtnText}>✅ Work Done</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* ── 3. TRUST SCORE CARD ───────────────────────────────────────────── */}
-        <View style={ss.trustCard}>
-          {/* Score header */}
-          <View style={ss.trustTopRow}>
-            <View>
-              <Text style={ss.trustCardLabel}>Trust Score</Text>
-              <Text style={ss.trustCardScore}>{WORKER.trustScore} / 100</Text>
-            </View>
-            <View style={ss.trustScoreBadge}>
-              <Text style={ss.trustScoreBadgeText}>Excellent</Text>
-            </View>
-          </View>
-
-          {/* Score bar */}
-          <View style={ss.trustBarTrack}>
-            <View style={[ss.trustBarFill, { width: `${WORKER.trustScore}%` }]} />
-          </View>
-
-          {/* Verified earnings — prominent */}
-          <View style={ss.verEarningsBox}>
-            <Text style={ss.verEarningsLabel}>✓  Verified Earnings</Text>
-            <Text style={ss.verEarningsAmt}>{displayWorker.verifiedAmt}</Text>
-            <Text style={ss.verEarningsSub}>Confirmed by clients · Cannot be edited</Text>
-          </View>
-
-          {/* 3 stats */}
-          <View style={ss.trustStats}>
-            <View style={ss.trustStat}>
-              <Text style={ss.trustStatVal}>{WORKER.jobs}</Text>
-              <Text style={ss.trustStatLbl}>Jobs{'\n'}Completed</Text>
-            </View>
-            <View style={ss.trustStatSep} />
-            <View style={ss.trustStat}>
-              <Text style={ss.trustStatVal}>{WORKER.repeatClients}</Text>
-              <Text style={ss.trustStatLbl}>Repeat{'\n'}Clients</Text>
-            </View>
-            <View style={ss.trustStatSep} />
-            <View style={ss.trustStat}>
-              <Text style={[ss.trustStatVal, { color: '#4CAF50' }]}>{WORKER.onTime}</Text>
-              <Text style={ss.trustStatLbl}>On-Time{'\n'}Rate</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* ── 4. SKILLS ─────────────────────────────────────────────────────── */}
-        <View style={ss.card}>
-          <SLabel text="Skills" />
-          <View style={ss.chipsWrap}>
-            {SKILLS.map((sk, i) => (
-              <View key={i} style={ss.chip}>
-                <Text style={ss.chipText}>{sk}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-
-        {/* ── 5. WORK GALLERY ───────────────────────────────────────────────── */}
-        <View style={[ss.card, { paddingHorizontal: 0, paddingBottom: 0, overflow: 'hidden' }]}>
-          <View style={{ paddingHorizontal: 14, paddingBottom: 6 }}>
-            <SLabel text="Work Gallery" />
-            <Text style={ss.galleryNote}>📷  Photos verified by clients</Text>
-          </View>
-          <View style={ss.photoGrid}>
-            {PHOTOS.map((ph, i) => (
-              <TouchableOpacity
-                key={i}
-                style={{ width: photoSize, height: photoSize, padding: 1 }}
-                activeOpacity={0.8}
-              >
-                <View style={[ss.photoCell, { backgroundColor: ph.bg }]}>
-                  <Text style={{ fontSize: 36 }}>{ph.emoji}</Text>
-                </View>
+      <View style={wp.grid}>
+        {slots.map((uri, i) => (
+          <View key={i} style={wp.slot}>
+            {uri ? (
+              isOwn ? (
+                <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.85} onPress={() => onReplace(i)}>
+                  <Image source={{ uri }} style={wp.thumb} resizeMode="cover" />
+                  <TouchableOpacity style={wp.removeBtn} onPress={() => onRemove(i)}>
+                    <Text style={wp.removeBtnText}>✕</Text>
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              ) : (
+                <Image source={{ uri }} style={wp.thumb} resizeMode="cover" />
+              )
+            ) : isOwn ? (
+              <TouchableOpacity style={wp.addSlot} onPress={onAdd} activeOpacity={0.7}>
+                <Text style={wp.addSlotIcon}>+</Text>
               </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* ── 6. VERIFIED WORK HISTORY ──────────────────────────────────────── */}
-        <View style={ss.card}>
-          <SLabel text="Verified Work History" />
-          {verifiedJobs.length === 0 ? (
-            <Text style={{ fontSize: 13, color: '#888', paddingVertical: 8 }}>No verified work yet</Text>
-          ) : verifiedJobs.map((job, i) => (
-            <View key={i} style={[ss.jobRow, i < verifiedJobs.length - 1 && ss.jobRowBorder]}>
-              <View style={{ flex: 1 }}>
-                <View style={ss.jobTopLine}>
-                  <Text style={ss.jobType}>{job.workType || job.description?.split(' ').slice(0, 4).join(' ') || 'Construction Work'}</Text>
-                  <View style={ss.verBadge}>
-                    <Text style={ss.verBadgeText}>✓ Verified</Text>
-                  </View>
-                </View>
-                <Text style={ss.jobMeta}>📍 India  ·  {job.date || ''}</Text>
+            ) : (
+              <View style={wp.placeholder}>
+                <Text style={wp.placeholderIcon}>🖼️</Text>
               </View>
-              <Text style={ss.jobAmt}>₹{Number(job.amount || 0).toLocaleString('en-IN')}</Text>
-            </View>
-          ))}
-          <TouchableOpacity
-            style={ss.viewAllBtn}
-            onPress={() => navigation.navigate('WorkHistory')}
-            activeOpacity={0.8}
-          >
-            <Text style={ss.viewAllText}>View Full Work History →</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* ── 7. EXPERIENCE ─────────────────────────────────────────────────── */}
-        <View style={ss.card}>
-          <SLabel text="Experience" />
-          <View style={ss.expRow}>
-            <Text style={ss.expYears}>{WORKER.years} Years</Text>
-            <Text style={ss.expIn}> in Electrical Work</Text>
+            )}
           </View>
-          <Text style={ss.expSub}>Residential  ·  Commercial  ·  Industrial Sites</Text>
-        </View>
-
-        {/* ── 8. PRICING ────────────────────────────────────────────────────── */}
-        <View style={ss.card}>
-          <SLabel text="Pricing" />
-          <View style={ss.priceRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={ss.priceLabel}>Daily Wage</Text>
-              <Text style={ss.priceAmt}>
-                {WORKER.dailyRate}
-                <Text style={ss.priceUnit}>/day</Text>
-              </Text>
-            </View>
-            <View style={ss.priceSep} />
-            <View style={{ flex: 1, paddingLeft: 16 }}>
-              <Text style={ss.priceLabel}>Monthly Contract</Text>
-              <Text style={ss.priceAvail}>Available on request</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* ── 9. REVIEWS ────────────────────────────────────────────────────── */}
-        <View style={ss.card}>
-          <View style={ss.reviewsHeader}>
-            <SLabel text={`Reviews (${WORKER.reviews})`} />
-            <View style={ss.overallStars}>
-              <Text style={ss.overallNum}>{WORKER.rating}</Text>
-              <Text style={ss.overallStar}>★</Text>
-            </View>
-          </View>
-          {REVIEWS.map((rv, i) => (
-            <View key={i} style={[ss.reviewCard, i > 0 && { marginTop: 10 }]}>
-              <Text style={ss.reviewQuote}>"{rv.text}"</Text>
-              <View style={ss.reviewBottom}>
-                <View>
-                  <Text style={ss.reviewName}>{rv.name}</Text>
-                  <Text style={ss.reviewCompany}>{rv.company}</Text>
-                </View>
-                <Text style={ss.reviewStars}>{'★'.repeat(rv.stars)}</Text>
-              </View>
-            </View>
-          ))}
-          <TouchableOpacity
-            style={ss.viewAllBtn}
-            onPress={() =>
-              navigation.navigate('ReviewsList', {
-                workerName: WORKER.name,
-                workerEmoji: '👷',
-                role: WORKER.designation,
-              })
-            }
-            activeOpacity={0.8}
-          >
-            <Text style={ss.viewAllText}>See all {WORKER.reviews} reviews →</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* ── 10. LOCATION & AVAILABILITY ───────────────────────────────────── */}
-        <View style={ss.card}>
-          <SLabel text="Location & Availability" />
-          <View style={ss.locRow}>
-            <Text style={ss.locPin}>📍</Text>
-            <Text style={ss.locCity}>Ahmedabad</Text>
-          </View>
-          <Text style={ss.locAreas}>Available in:  Ahmedabad · Gandhinagar · Anand</Text>
-          <View style={ss.availStatusRow}>
-            <View style={ss.availDot} />
-            <Text style={ss.availStatusText}> Available Immediately</Text>
-          </View>
-        </View>
-
-        {/* ── 11. BADGES ────────────────────────────────────────────────────── */}
-        <View style={ss.card}>
-          <SLabel text="Achievements" />
-          <View style={ss.badgesWrap}>
-            {[
-              { icon: '🏆', label: 'Top Rated Worker' },
-              { icon: '✓', label: 'Verified Electrician' },
-              { icon: '✅', label: '50+ Jobs Done' },
-            ].map((b, i) => (
-              <View key={i} style={ss.achieveBadge}>
-                <Text style={ss.achieveIcon}>{b.icon}</Text>
-                <Text style={ss.achieveLabel}>{b.label}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-
-      </ScrollView>
-
-      {/* ── 12. STICKY BOTTOM BAR ─────────────────────────────────────────── */}
-      <View style={ss.bottomBar}>
-        <TouchableOpacity style={ss.bottomHireBtn} onPress={handleChat} activeOpacity={0.85}>
-          <Text style={ss.bottomHireBtnText}>Hire Now</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={ss.bottomOutlineBtn} onPress={handleChat} activeOpacity={0.85}>
-          <Text style={ss.bottomOutlineBtnText}>💬 Chat</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={ss.bottomOutlineBtn}
-          onPress={() => navigation.navigate('MarkWorkComplete', {
-            workerName: displayWorker.name,
-            workerRole: displayWorker.designation,
-            workerEmoji: '👷',
-            workerUid: viewUid,
-          })}
-          activeOpacity={0.85}
-        >
-          <Text style={ss.bottomOutlineBtnText}>✅ Work Done</Text>
-        </TouchableOpacity>
+        ))}
       </View>
     </View>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-const ss = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#F5F5F0' },
+const wp = injectFonts({
+  labelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  labelLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  label: {
+    fontSize: 11, fontWeight: '600', color: '#8E8E8E',
+    letterSpacing: 1,
+  },
+  editPencil: { fontSize: 13 },
+  labelHint: { fontSize: 10, color: '#B5B5B5', fontWeight: '500' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  slot: {
+    width: SLOT_SIZE, height: SLOT_SIZE,
+    borderRadius: 10, overflow: 'hidden',
+  },
+  thumb: { width: '100%', height: '100%' },
+  placeholder: {
+    flex: 1, backgroundColor: '#F2F2F2',
+    alignItems: 'center', justifyContent: 'center',
+    borderRadius: 10,
+  },
+  placeholderIcon: { fontSize: 20, opacity: 0.3 },
+  addSlot: {
+    flex: 1, backgroundColor: '#F2F2F2', borderRadius: 10,
+    borderWidth: 1.5, borderColor: '#E5E5E5', borderStyle: 'dashed',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  addSlotIcon: { fontSize: 26, fontWeight: '300', color: '#8E8E8E' },
+  removeBtn: {
+    position: 'absolute', top: 5, right: 5,
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center',
+  },
+  removeBtnText: { fontSize: 10, fontWeight: '900', color: '#fff' },
+});
 
-  // ── 1. TOP NAV
+export default function WorkerProfileScreen({ navigation, route }) {
+  const viewUid = route?.params?.uid ?? null;
+
+  const [loading, setLoading] = useState(true);
+  const [worker, setWorker] = useState(null);
+  const [verifiedAmt, setVerifiedAmt] = useState(0);
+  const [verifiedWork, setVerifiedWork] = useState([]);
+  const [myUid, setMyUid] = useState(null);
+  const [bookmarked, setBookmarked] = useState(false);
+
+  useEffect(() => { load(); }, []);
+
+  const load = async () => {
+    try {
+      const me = await AsyncStorage.getItem('uid');
+      const uid = viewUid || me;
+      setMyUid(me);
+
+      if (!uid) { setLoading(false); return; }
+
+      if (uid !== me) {
+        recordProfileView(uid, me).catch(() => {});
+        isBookmarked(me, uid).then(v => setBookmarked(v)).catch(() => {});
+      }
+
+      // Try Firestore first
+      let profile = null;
+      try { profile = await getProfile(uid); } catch (_) {}
+
+      // Fallback to AsyncStorage for guest/own profile
+      if (!profile && uid === me) {
+        try {
+          const local = await AsyncStorage.getItem('localProfile');
+          if (local) profile = JSON.parse(local);
+        } catch (_) {}
+      }
+
+      setWorker(profile);
+
+      // Verified totals — only meaningful for real Firebase users (and demo profiles)
+      if (uid && !uid.startsWith('guest_')) {
+        try {
+          const [amt, works] = await Promise.all([
+            getTotalVerifiedAmount(uid),
+            getVerifiedWork(uid),
+          ]);
+          setVerifiedAmt(amt || 0);
+          setVerifiedWork(works || []);
+        } catch (_) {}
+      }
+    } catch (_) {}
+    finally { setLoading(false); }
+  };
+
+  const handleOpenLink = () => {
+    const url = worker?.link;
+    if (!url) return;
+    const withScheme = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+    Linking.openURL(withScheme).catch(() => Alert.alert('Could not open link.'));
+  };
+
+  const handleCall = () => {
+    if (worker?.available === false) {
+      Alert.alert('Currently Unavailable', 'This worker is marked unavailable and is not taking calls right now. Send a chat instead.');
+      return;
+    }
+    const phone = worker?.phone;
+    if (!phone) { Alert.alert('No phone number', 'This worker has not added a phone number yet.'); return; }
+    Linking.openURL(`tel:+91${phone}`).catch(() => Alert.alert('Could not open dialler.'));
+  };
+
+  const handleChat = async () => {
+    if (!viewUid || viewUid === myUid) { Alert.alert('This is your own profile'); return; }
+    try {
+      const myName = await AsyncStorage.getItem('userName') || 'Me';
+      const chatId = await createChat(
+        { uid: myUid, name: myName },
+        { uid: viewUid, name: worker?.name || 'Worker' }
+      );
+      navigation.navigate('Chat', {
+        conversation: {
+          id: chatId,
+          uid: viewUid,
+          name: worker?.name || 'Worker',
+          role: worker?.workerSkill || 'Worker',
+          emoji: '👤',
+          avatarBg: '#F2F2F2',
+          online: false,
+        },
+      });
+    } catch (_) { Alert.alert('Error', 'Could not open chat.'); }
+  };
+
+  const handleBookmark = async () => {
+    if (!myUid || !viewUid || viewUid === myUid) return;
+    try {
+      const saved = await toggleBookmark(myUid, {
+        uid: viewUid,
+        name: worker?.name || 'Worker',
+        profileType: 'worker',
+        category: worker?.workerSkill || '',
+        city: worker?.city || '',
+      });
+      setBookmarked(saved);
+    } catch (_) {}
+  };
+
+  const handleOpenSettings = () => navigation.navigate('Settings');
+
+  const handleEditProfile = () => navigation.navigate('EditProfile', { profileType: 'worker' });
+
+  const handleEditSection = (section) => {
+    navigation.navigate('EditProfile', { profileType: 'worker', focusSection: section });
+  };
+
+  // ── Own-profile mutations — patch local state immediately, persist to Firestore
+  // (or AsyncStorage for guest sessions) in the background. ──────────────────────
+  const persistOwnProfileChange = async (patch) => {
+    if (!myUid) return;
+    const merged = { ...(worker || {}), ...patch };
+    setWorker(merged);
+    try {
+      if (myUid.startsWith('guest_')) {
+        await AsyncStorage.setItem('localProfile', JSON.stringify(merged));
+      } else {
+        await updateProfile(myUid, patch);
+      }
+    } catch (_) {
+      Alert.alert('Could not save', 'Your change could not be saved. Please try again.');
+    }
+  };
+
+  const handleToggleAvailability = () => {
+    persistOwnProfileChange({ available: !(worker?.available !== false) });
+  };
+
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please allow photo library access.');
+      return null;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (result.canceled || !result.assets?.[0]?.uri) return null;
+    return result.assets[0].uri;
+  };
+
+  const handleChangeAvatar = async () => {
+    const uri = await pickImage();
+    if (uri) persistOwnProfileChange({ photoUri: uri });
+  };
+
+  const handleAddPhoto = async () => {
+    const photos = worker?.workPhotos || [];
+    if (photos.length >= 6) return;
+    const uri = await pickImage();
+    if (uri) persistOwnProfileChange({ workPhotos: [...photos, uri] });
+  };
+
+  const handleReplacePhoto = async (index) => {
+    const uri = await pickImage();
+    if (!uri) return;
+    const photos = [...(worker?.workPhotos || [])];
+    photos[index] = uri;
+    persistOwnProfileChange({ workPhotos: photos });
+  };
+
+  const handleRemovePhoto = (index) => {
+    Alert.alert('Remove this photo?', 'This will permanently remove it from your profile.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          const photos = (worker?.workPhotos || []).filter((_, i) => i !== index);
+          persistOwnProfileChange({ workPhotos: photos });
+        },
+      },
+    ]);
+  };
+
+  if (loading) {
+    return (
+      <View style={s.center}>
+        <ActivityIndicator size="large" color="#262626" />
+      </View>
+    );
+  }
+
+  // ── Derived display values ────────────────────────────────────────────────
+  const isOwn = !viewUid || viewUid === myUid;
+
+  const name       = worker?.name || 'Add your name';
+  const skills     = worker?.workerSkills?.length > 0
+                       ? worker.workerSkills
+                       : worker?.workerSkill ? [worker.workerSkill] : [];
+  const primarySkill = worker?.primarySkill || skills[0] || 'Add your skill';
+  const skillTags  = worker?.skillTags?.length > 0 ? worker.skillTags : skills.slice(1);
+  const experience = worker?.workerExperience || worker?.experience || null;
+  const area       = worker?.area   || '';
+  const city       = worker?.city   || '';
+  const pincode    = worker?.pincode || '';
+  const about      = worker?.workerAbout || worker?.bio || '';
+  const available  = worker?.available !== false;
+  const nativePlace = [worker?.nativePlaceCity, worker?.nativePlaceState].filter(Boolean).join(', ');
+  const link       = worker?.link || '';
+
+  // Rating, job count and reviews come only from real completed (verified) work.
+  const ratedWork  = verifiedWork.filter(w => w.rating && w.rating > 0);
+  const hasRating  = ratedWork.length > 0;
+  const rating     = hasRating
+    ? (ratedWork.reduce((sum, w) => sum + w.rating, 0) / ratedWork.length).toFixed(1)
+    : null;
+  const jobsCount  = verifiedWork.length;
+  const reviews    = ratedWork.slice().sort((a, b) => {
+    const at = a.verifiedAt?.toMillis?.() ?? 0;
+    const bt = b.verifiedAt?.toMillis?.() ?? 0;
+    return bt - at;
+  });
+
+  const locationShort = [area, city].filter(Boolean).join(', ') + (pincode ? ` · ${pincode}` : '');
+  const locationFull  = [area, city].filter(Boolean).join(', ') + (pincode ? ` — ${pincode}` : '');
+  const amtStr = formatAmountK(verifiedAmt);
+
+  return (
+    <View style={s.screen}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+
+      {/* ── 1. TOP NAV ──────────────────────────────────────────────────────── */}
+      <View style={s.nav}>
+        <TouchableOpacity style={s.navBtn} onPress={() => navigation.goBack()}>
+          <Text style={s.navBack}>←</Text>
+        </TouchableOpacity>
+        <Text style={s.navTitle}>Profile</Text>
+        <TouchableOpacity
+          style={s.navBtn}
+          onPress={isOwn ? handleOpenSettings : handleBookmark}
+          activeOpacity={0.7}
+        >
+          <Text style={s.navShare}>{isOwn ? '⚙️' : (bookmarked ? '🔖' : '☆')}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+
+        <View style={s.sheet}>
+
+          {/* ── 2. HERO ─────────────────────────────────────────────────── */}
+          <View style={s.heroRow}>
+            {isOwn ? (
+              <TouchableOpacity style={s.avatar} onPress={handleChangeAvatar} activeOpacity={0.8}>
+                {worker?.photoUri ? (
+                  <Image source={{ uri: worker.photoUri }} style={s.avatarImg} />
+                ) : (
+                  <Text style={s.avatarIcon}>👤</Text>
+                )}
+                <View style={s.avatarEditBadge}>
+                  <Text style={s.avatarEditIcon}>📷</Text>
+                </View>
+              </TouchableOpacity>
+            ) : (
+              <View style={s.avatar}>
+                {worker?.photoUri ? (
+                  <Image source={{ uri: worker.photoUri }} style={s.avatarImg} />
+                ) : (
+                  <Text style={s.avatarIcon}>👤</Text>
+                )}
+              </View>
+            )}
+            <View style={s.heroInfo}>
+              <View style={s.nameRow}>
+                <Text style={s.heroName} numberOfLines={1}>{name}</Text>
+                <View style={s.verifiedBadge}>
+                  <Text style={s.verifiedText}>✓</Text>
+                </View>
+              </View>
+              <Text style={s.heroSkill} numberOfLines={1}>
+                {primarySkill}{experience ? `  ·  ${experience} yrs exp` : ''}
+              </Text>
+            </View>
+          </View>
+
+          {/* ── 2.5 LOCATION LINES ──────────────────────────────────────── */}
+          <Text style={s.heroLoc} numberOfLines={1}>
+            {locationShort ? `📍 ${locationShort}` : '📍 Add your area'}
+          </Text>
+          <Text style={s.heroNative} numberOfLines={1}>
+            {nativePlace ? `🏠 ${nativePlace}` : '🏠 Add native place'}
+          </Text>
+
+          {/* ── 3. STATUS CHIPS ─────────────────────────────────────────── */}
+          <View style={s.chipsRow}>
+            {isOwn ? (
+              <TouchableOpacity onPress={handleToggleAvailability} activeOpacity={0.75}>
+                <AvailabilityChip available={available} />
+              </TouchableOpacity>
+            ) : (
+              <AvailabilityChip available={available} />
+            )}
+          </View>
+
+          {link ? (
+            <TouchableOpacity onPress={handleOpenLink} activeOpacity={0.7}>
+              <Text style={s.linkText} numberOfLines={1}>🔗 {link}</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          <View style={s.divider} />
+
+          {/* ── 4. VERIFIED WORK ────────────────────────────────────────── */}
+          <View style={s.verHeader}>
+            <Text style={s.verLabel}>✓ VERIFIED WORK</Text>
+            {isOwn && <Text style={s.verNote}>Verified from completed jobs — cannot be edited</Text>}
+          </View>
+          <View style={s.verStats}>
+            <View style={s.verStat}>
+              <Text style={s.verStatAmt}>{amtStr}</Text>
+              <Text style={s.verStatLbl}>Earned</Text>
+            </View>
+            <View style={s.verStatSep} />
+            <View style={s.verStat}>
+              <Text style={s.verStatVal}>{jobsCount}</Text>
+              <Text style={s.verStatLbl}>Jobs</Text>
+            </View>
+            <View style={s.verStatSep} />
+            <View style={s.verStat}>
+              <Text style={s.verStatVal}>{worker?.onTimeRate || '—'}</Text>
+              <Text style={s.verStatLbl}>On-time</Text>
+            </View>
+            <View style={s.verStatSep} />
+            <View style={s.verStat}>
+              <Text style={s.verStatVal}>{hasRating ? `★ ${rating}` : '—'}</Text>
+              <Text style={s.verStatLbl}>Rating</Text>
+            </View>
+          </View>
+
+          {/* ── 4.5 ACTION BUTTONS ───────────────────────────────────────── */}
+          <View style={s.actionRow}>
+            {isOwn ? (
+              <TouchableOpacity style={s.editProfileBtn} onPress={handleEditProfile} activeOpacity={0.85}>
+                <Text style={s.editProfileBtnText}>✏️  Edit Profile</Text>
+              </TouchableOpacity>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={[s.callBtn, !available && s.callBtnLocked]}
+                  onPress={handleCall}
+                  disabled={!available}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[s.callBtnText, !available && s.callBtnTextLocked]}>
+                    {available ? '📞  Call' : '🔒  Call'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.chatBtn} onPress={handleChat} activeOpacity={0.85}>
+                  <Text style={s.chatBtnText}>💬  Chat</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.bookmarkBtn} onPress={handleBookmark} activeOpacity={0.85}>
+                  <Text style={s.bookmarkIcon}>{bookmarked ? '🔖' : '☆'}</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+
+          <View style={s.divider} />
+
+          {/* ── 5. SKILLS ───────────────────────────────────────────────── */}
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>SKILLS</Text>
+            {isOwn && (
+              <TouchableOpacity onPress={() => handleEditSection('skills')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.editPencil}>✏️</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          {(primarySkill && primarySkill !== 'Add your skill') || skillTags.length > 0 || skills.length > 0 ? (
+            <>
+              {primarySkill && primarySkill !== 'Add your skill' && (
+                <View style={s.primarySkillChip}>
+                  <Text style={s.primarySkillText}>{primarySkill}</Text>
+                  <Text style={s.primarySkillBadge}>Designation</Text>
+                </View>
+              )}
+              {skillTags.length > 0 && (
+                <View style={[s.chipsWrap, { marginTop: 10 }]}>
+                  {skillTags.map((sk, i) => (
+                    <View key={i} style={s.hashChip}>
+                      <Text style={s.hashChipText}>#{sk.toLowerCase()}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+              {/* Fallback: old profiles with only workerSkills, no primarySkill/skillTags */}
+              {!worker?.primarySkill && skillTags.length === 0 && skills.length > 1 && (
+                <View style={[s.chipsWrap, { marginTop: 10 }]}>
+                  {skills.slice(1).map((sk, i) => (
+                    <View key={i} style={s.hashChip}>
+                      <Text style={s.hashChipText}>#{sk.toLowerCase()}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </>
+          ) : (
+            <Text style={s.placeholder}>No skills added yet</Text>
+          )}
+
+          <View style={s.divider} />
+
+          {/* ── 6. ABOUT ────────────────────────────────────────────────── */}
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>ABOUT</Text>
+            {isOwn && (
+              <TouchableOpacity onPress={() => handleEditSection('about')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.editPencil}>✏️</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <Text style={about ? s.aboutText : s.placeholder}>
+            {about || 'Add a short bio to attract more clients'}
+          </Text>
+
+          <View style={s.divider} />
+
+          {/* ── 6.5 WORK PHOTOS ─────────────────────────────────────────── */}
+          <WorkPhotoGrid
+            photos={worker?.workPhotos}
+            isOwn={isOwn}
+            onAdd={handleAddPhoto}
+            onReplace={handleReplacePhoto}
+            onRemove={handleRemovePhoto}
+            onEditSection={() => handleEditSection('work')}
+          />
+
+          <View style={s.divider} />
+
+          {/* ── 7.5 REVIEWS ─────────────────────────────────────────────── */}
+          <Text style={s.sLabel}>REVIEWS</Text>
+          {reviews.length === 0 ? (
+            <Text style={s.placeholder}>No reviews yet</Text>
+          ) : (
+            reviews.map((r, i) => (
+              <View key={r.id || i} style={[s.reviewRow, i > 0 && s.reviewRowBorder]}>
+                <View style={s.reviewTop}>
+                  <Text style={s.reviewName}>{r.customerName || 'Customer'}</Text>
+                  <Text style={s.reviewDate}>{r.date || ''}</Text>
+                </View>
+                <View style={s.reviewStars}>
+                  {[1, 2, 3, 4, 5].map(star => (
+                    <Text key={star} style={[s.reviewStarIcon, star <= r.rating && s.reviewStarActive]}>
+                      {star <= r.rating ? '★' : '☆'}
+                    </Text>
+                  ))}
+                </View>
+                {r.review ? <Text style={s.reviewComment}>"{r.review}"</Text> : null}
+              </View>
+            ))
+          )}
+
+        </View>
+
+      </ScrollView>
+
+    </View>
+  );
+}
+
+const GREEN       = '#22A559';
+const DEEP_GREEN   = '#1E874B';
+const GREEN_LIGHT  = '#EAF7EF';
+const DARK          = '#262626';
+const BG            = '#FAF9F5';
+const FILL          = '#F2F2F2';
+const BORDER        = '#E5E5E5';
+const MID            = '#737373';
+const LIGHT          = '#8E8E8E';
+const FAINT          = '#B5B5B5';
+const STAR           = '#FFB830';
+
+const s = injectFonts({
+  screen: { flex: 1, backgroundColor: BG },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: BG },
+
+  // ── TOP NAV
   nav: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 14, paddingTop: 52, paddingBottom: 12,
     backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
+    borderBottomWidth: 1, borderBottomColor: BORDER,
   },
   navBtn: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: '#F5F5F0', alignItems: 'center', justifyContent: 'center',
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: FILL, alignItems: 'center', justifyContent: 'center',
   },
-  navBack: { fontSize: 20, fontWeight: '700', color: '#1A1A1A' },
-  navTitle: { flex: 1, textAlign: 'center', fontSize: 15, fontWeight: '800', color: '#1A1A1A' },
-  navShare: { fontSize: 13, fontWeight: '700', color: '#1A1A1A' },
+  navBack:  { fontSize: 20, fontWeight: '700', color: DARK },
+  navTitle: { flex: 1, textAlign: 'center', fontSize: 15, fontWeight: '600', color: DARK },
+  navShare: { fontSize: 18, color: DARK },
 
-  // ── Shared card
-  card: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 14, marginTop: 12,
-    borderRadius: 14, padding: 14,
-    borderWidth: 1, borderColor: '#EFEFEF',
-  },
-  sLabel: {
-    fontSize: 9, color: '#888888', fontWeight: '700',
-    letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 10,
-  },
-  divider: { height: 1, backgroundColor: '#EFEFEF', marginVertical: 12 },
-
-  // ── 2. HERO
-  heroCard: {
+  // ── SHEET (single continuous card, sections separated by hairline dividers)
+  sheet: {
     backgroundColor: '#FFFFFF',
     marginHorizontal: 14, marginTop: 14,
-    borderRadius: 14, padding: 14,
-    borderWidth: 1, borderColor: '#EFEFEF',
+    borderRadius: 16, padding: 16,
+    borderWidth: 1, borderColor: BORDER,
   },
-  heroTop: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  avatarCircle: {
-    width: 70, height: 70, borderRadius: 35,
-    backgroundColor: '#FFF3E0', borderWidth: 1.5, borderColor: '#FFE0C4',
+  divider: { height: 1, backgroundColor: BORDER, marginVertical: 16 },
+
+  // ── HERO
+  heroRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 14 },
+  avatar: {
+    width: 72, height: 72, borderRadius: 36,
+    backgroundColor: FILL, borderWidth: 1, borderColor: BORDER,
+    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  },
+  avatarImg: { width: 72, height: 72, borderRadius: 36 },
+  avatarIcon: { fontSize: 34 },
+  avatarEditBadge: {
+    position: 'absolute', bottom: 0, right: 0,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: DARK, borderWidth: 2, borderColor: '#FFFFFF',
     alignItems: 'center', justifyContent: 'center',
   },
+  avatarEditIcon: { fontSize: 10 },
   heroInfo: { flex: 1 },
-  heroName: { fontSize: 18, fontWeight: '800', color: '#1A1A1A', marginBottom: 2 },
-  heroDesig: { fontSize: 13, fontWeight: '500', color: '#666666', marginBottom: 3 },
-  heroLoc: { fontSize: 12, color: '#888888' },
-  heroStrip: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
-  heroStripStar: { fontSize: 12, color: '#FFB830', fontWeight: '700' },
-  heroStripMuted: { fontSize: 12, color: '#888888' },
-  heroStripSep: { fontSize: 12, color: '#CCCCCC' },
-  heroStripVerified: { fontSize: 12, color: '#2ECC71', fontWeight: '600' },
-  heroStripItem: { fontSize: 12, color: '#333', fontWeight: '600' },
-  availRow: { flexDirection: 'row', alignItems: 'center' },
-  availDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#2ECC71' },
-  availText: { fontSize: 12, color: '#2ECC71', fontWeight: '600' },
-  heroActions: { flexDirection: 'row', gap: 8 },
-  hireBtn: {
-    flex: 1.5, height: 44, borderRadius: 14,
-    backgroundColor: '#FF6B2B', alignItems: 'center', justifyContent: 'center',
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 },
+  heroName: { fontSize: 18, fontWeight: '700', color: DARK, flexShrink: 1 },
+  verifiedBadge: {
+    width: 18, height: 18, borderRadius: 9,
+    backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center',
   },
-  hireBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
-  outlineBtn: {
-    flex: 1, height: 44, borderRadius: 14,
-    borderWidth: 2, borderColor: '#1A1A2E',
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  outlineBtnText: { color: '#1A1A2E', fontWeight: '700', fontSize: 13 },
+  verifiedText: { fontSize: 10, color: '#fff', fontWeight: '900' },
+  heroSkill: { fontSize: 13, fontWeight: '500', color: MID, marginBottom: 3 },
+  heroLoc:   { fontSize: 12, color: LIGHT },
+  heroNative: { fontSize: 12, color: LIGHT, marginTop: 3 },
 
-  // ── 3. VERIFIED WORK CARD (dark navy)
-  trustCard: {
-    marginHorizontal: 14, marginTop: 12,
-    borderRadius: 14, padding: 14,
-    backgroundColor: '#1A1A2E',
-    overflow: 'hidden',
+  // ── STATUS CHIPS
+  chipsRow: { flexDirection: 'row', gap: 8 },
+  chipAvail: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: GREEN_LIGHT, borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 5,
   },
-  trustTopRow: {
+  chipDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: GREEN },
+  chipAvailText: { fontSize: 12, fontWeight: '600', color: GREEN },
+  chipUnavail: {
+    backgroundColor: FILL, borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 5,
+  },
+  chipUnavailText: { fontSize: 12, fontWeight: '600', color: LIGHT },
+  linkText: { fontSize: 12, fontWeight: '600', color: '#1877F2', marginTop: 8 },
+
+  // ── VERIFIED WORK
+  verHeader: {
     flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'flex-start', marginBottom: 10,
+    alignItems: 'flex-start', marginBottom: 12,
   },
-  trustCardLabel: { fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: '600', marginBottom: 2 },
-  trustCardScore: { fontSize: 28, fontWeight: '800', color: '#FFFFFF' },
-  trustScoreBadge: {
-    backgroundColor: 'rgba(46,204,113,0.2)', borderRadius: 20,
-    borderWidth: 1, borderColor: '#2ECC71',
-    paddingHorizontal: 10, paddingVertical: 4,
-  },
-  trustScoreBadgeText: { fontSize: 11, fontWeight: '800', color: '#2ECC71' },
-  trustBarTrack: {
-    height: 8, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 4,
-    overflow: 'hidden', marginBottom: 14,
-  },
-  trustBarFill: { height: '100%', backgroundColor: '#2ECC71', borderRadius: 4 },
-  verEarningsBox: {
-    backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 10,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
-    padding: 12, alignItems: 'center', marginBottom: 14,
-  },
-  verEarningsLabel: { fontSize: 11, color: 'rgba(255,255,255,0.6)', fontWeight: '700', marginBottom: 4 },
-  verEarningsAmt: { fontSize: 32, fontWeight: '800', color: '#FFFFFF', marginBottom: 2 },
-  verEarningsSub: { fontSize: 10, color: 'rgba(255,255,255,0.4)', fontWeight: '500' },
-  trustStats: { flexDirection: 'row', alignItems: 'center' },
-  trustStat: { flex: 1, alignItems: 'center' },
-  trustStatVal: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', marginBottom: 3 },
-  trustStatLbl: { fontSize: 10, color: 'rgba(255,255,255,0.5)', fontWeight: '600', textAlign: 'center', lineHeight: 14 },
-  trustStatSep: { width: 1, height: 32, backgroundColor: 'rgba(255,255,255,0.1)' },
+  verLabel: { fontSize: 11, fontWeight: '600', color: GREEN, letterSpacing: 0.8 },
+  verNote: { fontSize: 10, color: LIGHT, fontWeight: '500', flexShrink: 1, textAlign: 'right' },
+  verStats: { flexDirection: 'row', alignItems: 'center' },
+  verStat:  { flex: 1, alignItems: 'center' },
+  verStatAmt: { fontSize: 16, fontWeight: '700', color: DEEP_GREEN, marginBottom: 2 },
+  verStatVal: { fontSize: 16, fontWeight: '700', color: DEEP_GREEN, marginBottom: 2 },
+  verStatLbl: { fontSize: 10, fontWeight: '500', color: LIGHT },
+  verStatSep: { width: 1, height: 28, backgroundColor: BORDER },
 
-  // ── 4. SKILLS
+  // ── SECTION LABEL (shared)
+  sLabel: {
+    fontSize: 11, fontWeight: '600', color: LIGHT,
+    letterSpacing: 1, marginBottom: 12,
+  },
+  sectionHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  editPencil: { fontSize: 13 },
+
+  // ── SKILLS
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
-    backgroundColor: '#F5F5F0', borderRadius: 20,
+  skillChip: {
+    backgroundColor: FILL, borderRadius: 20,
     paddingHorizontal: 12, paddingVertical: 6,
-    borderWidth: 1, borderColor: '#EFEFEF',
   },
-  chipText: { fontSize: 12, color: '#1A1A1A', fontWeight: '600' },
+  skillChipText: { fontSize: 12, fontWeight: '500', color: DARK },
+  primarySkillChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: FILL, borderRadius: 12, padding: 12,
+  },
+  primarySkillText: { fontSize: 15, fontWeight: '700', color: DARK, flex: 1 },
+  primarySkillBadge: {
+    fontSize: 9, fontWeight: '700', color: GREEN,
+    backgroundColor: GREEN_LIGHT, paddingHorizontal: 7, paddingVertical: 3,
+    borderRadius: 6, letterSpacing: 0.5, textTransform: 'uppercase',
+  },
+  hashChip: {
+    backgroundColor: FILL, borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 5,
+  },
+  hashChipText: { fontSize: 12, fontWeight: '500', color: MID },
 
-  // ── 5. GALLERY
-  galleryNote: { fontSize: 11, color: '#888888', marginTop: -4, marginBottom: 6 },
-  photoGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  photoCell: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  // ── ABOUT
+  aboutText: { fontSize: 14, color: MID, lineHeight: 22 },
+  placeholder: { fontSize: 13, color: FAINT, fontStyle: 'italic' },
 
-  // ── 6. VERIFIED WORK HISTORY
-  jobRow: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 12, gap: 10,
-  },
-  jobRowBorder: { borderBottomWidth: 1, borderBottomColor: '#EFEFEF' },
-  jobTopLine: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' },
-  jobType: { fontSize: 13, fontWeight: '700', color: '#1A1A1A' },
-  verBadge: {
-    backgroundColor: '#F0FFF4', borderRadius: 20, borderWidth: 1,
-    borderColor: '#2ECC71', paddingHorizontal: 7, paddingVertical: 2,
-  },
-  verBadgeText: { fontSize: 10, fontWeight: '800', color: '#2ECC71' },
-  jobMeta: { fontSize: 11, color: '#888888' },
-  jobAmt: { fontSize: 15, fontWeight: '800', color: '#2ECC71', minWidth: 64, textAlign: 'right' },
-  viewAllBtn: {
-    marginTop: 10, paddingTop: 10,
-    borderTopWidth: 1, borderTopColor: '#EFEFEF',
-    alignItems: 'center',
-  },
-  viewAllText: { fontSize: 13, fontWeight: '700', color: '#FF6B2B' },
+  // ── LOCATION
+  infoRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8 },
+  infoIcon: { fontSize: 14, marginTop: 1 },
+  infoText: { flex: 1, fontSize: 13, fontWeight: '500', color: MID, lineHeight: 20 },
 
-  // ── 7. EXPERIENCE
-  expRow: { flexDirection: 'row', alignItems: 'baseline', marginBottom: 4 },
-  expYears: { fontSize: 22, fontWeight: '800', color: '#1A1A1A' },
-  expIn: { fontSize: 15, fontWeight: '600', color: '#333' },
-  expSub: { fontSize: 13, color: '#888888' },
+  // ── REVIEWS
+  reviewRow: { paddingVertical: 12 },
+  reviewRowBorder: { borderTopWidth: 1, borderTopColor: BORDER },
+  reviewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  reviewName: { fontSize: 13, fontWeight: '700', color: DARK },
+  reviewDate: { fontSize: 11, color: LIGHT, fontWeight: '500' },
+  reviewStars: { flexDirection: 'row', gap: 2, marginBottom: 6 },
+  reviewStarIcon: { fontSize: 14, color: BORDER },
+  reviewStarActive: { color: STAR },
+  reviewComment: { fontSize: 13, color: MID, lineHeight: 20, fontStyle: 'italic' },
 
-  // ── 8. PRICING
-  priceRow: { flexDirection: 'row', alignItems: 'center' },
-  priceLabel: { fontSize: 9, color: '#888888', fontWeight: '700', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1.5 },
-  priceAmt: { fontSize: 28, fontWeight: '800', color: '#1A1A1A' },
-  priceUnit: { fontSize: 14, fontWeight: '600', color: '#888888' },
-  priceSep: { width: 1, height: 40, backgroundColor: '#EFEFEF' },
-  priceAvail: { fontSize: 13, color: '#2ECC71', fontWeight: '600' },
-
-  // ── 9. REVIEWS
-  reviewsHeader: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center',
+  // ── ACTION BUTTONS
+  actionRow: {
+    flexDirection: 'row', gap: 8, marginTop: 16,
   },
-  overallStars: { flexDirection: 'row', alignItems: 'baseline', gap: 2, marginBottom: 10 },
-  overallNum: { fontSize: 22, fontWeight: '800', color: '#1A1A1A' },
-  overallStar: { fontSize: 20, color: '#FFB830' },
-  reviewCard: {
-    backgroundColor: '#F5F5F0', borderRadius: 10,
-    borderWidth: 1, borderColor: '#EFEFEF', padding: 12,
+  callBtn: {
+    flex: 2, height: 50, borderRadius: 14,
+    backgroundColor: DARK, alignItems: 'center', justifyContent: 'center',
   },
-  reviewQuote: { fontSize: 13, color: '#444', lineHeight: 19, fontStyle: 'italic', marginBottom: 10 },
-  reviewBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
-  reviewName: { fontSize: 12, fontWeight: '700', color: '#1A1A1A' },
-  reviewCompany: { fontSize: 11, color: '#888888' },
-  reviewStars: { fontSize: 13, color: '#FFB830' },
-
-  // ── 10. LOCATION
-  locRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 5 },
-  locPin: { fontSize: 16 },
-  locCity: { fontSize: 16, fontWeight: '800', color: '#1A1A1A' },
-  locAreas: { fontSize: 12, color: '#666666', marginBottom: 8 },
-  availStatusRow: { flexDirection: 'row', alignItems: 'center' },
-  availStatusText: { fontSize: 13, color: '#2ECC71', fontWeight: '700' },
-
-  // ── 11. BADGES
-  badgesWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  achieveBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#F5F5F0', borderRadius: 20,
-    paddingHorizontal: 12, paddingVertical: 7,
-    borderWidth: 1, borderColor: '#EFEFEF',
-  },
-  achieveIcon: { fontSize: 14 },
-  achieveLabel: { fontSize: 12, fontWeight: '700', color: '#1A1A1A' },
-
-  // ── 12. STICKY BOTTOM BAR
-  bottomBar: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    flexDirection: 'row', gap: 8,
-    paddingHorizontal: 14, paddingBottom: 28, paddingTop: 10,
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1, borderTopColor: '#EFEFEF',
-  },
-  bottomHireBtn: {
-    flex: 1.5, height: 48, borderRadius: 14,
-    backgroundColor: '#FF6B2B', alignItems: 'center', justifyContent: 'center',
-  },
-  bottomHireBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
-  bottomOutlineBtn: {
-    flex: 1, height: 48, borderRadius: 14,
-    borderWidth: 2, borderColor: '#1A1A2E',
+  callBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 15 },
+  callBtnLocked: { backgroundColor: FILL },
+  callBtnTextLocked: { color: LIGHT },
+  chatBtn: {
+    flex: 1.5, height: 50, borderRadius: 14,
+    borderWidth: 1.5, borderColor: DARK,
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: '#FFFFFF',
   },
-  bottomOutlineBtnText: { color: '#1A1A2E', fontWeight: '700', fontSize: 14 },
+  chatBtnText: { color: DARK, fontWeight: '600', fontSize: 14 },
+  bookmarkBtn: {
+    width: 50, height: 50, borderRadius: 14,
+    borderWidth: 1.5, borderColor: BORDER,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  bookmarkIcon: { fontSize: 20 },
+  editProfileBtn: {
+    flex: 1, height: 50, borderRadius: 14,
+    backgroundColor: DARK, alignItems: 'center', justifyContent: 'center',
+  },
+  editProfileBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 15 },
 });

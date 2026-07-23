@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, SafeAreaView, Alert,
 } from 'react-native';
+import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { signOut } from 'firebase/auth';
 import BottomNav from '../components/BottomNav';
@@ -22,10 +23,7 @@ const ACTIVITY = [
 ];
 
 const QUICK_ACTIONS = [
-  { icon: '📋', label: 'Post Job', screen: 'PostJob', bg: '#FFF3E0', color: ORANGE },
   { icon: '👷', label: 'Find Worker', screen: 'CategoryList', params: { category: 'Workers', profileType: 'worker' }, bg: '#F0FFF4', color: '#2ECC71' },
-  { icon: '🏗️', label: 'Materials', screen: 'MaterialMarketplace', bg: '#FFF7ED', color: '#FF8C00' },
-  { icon: '📊', label: 'Tenders', screen: 'Tenders', bg: '#F5F5F0', color: NAVY },
   { icon: '💬', label: 'Messages', screen: 'ChatList', bg: '#F0FFF4', color: '#2ECC71' },
   { icon: '⚙️', label: 'Settings', screen: 'Settings', bg: '#F5F5F0', color: '#666666' },
 ];
@@ -33,8 +31,10 @@ const QUICK_ACTIONS = [
 const PROFILE_SCREEN_MAP = {
   professional: 'ProfessionalProfile',
   worker: 'WorkerProfile',
+  contractor: 'ContractorProfile',
   supplier: 'SupplierProfile',
   business: 'BusinessProfile',
+  personal: 'PersonalProfile',
 };
 
 export default function MyDashboardScreen({ navigation }) {
@@ -55,6 +55,7 @@ export default function MyDashboardScreen({ navigation }) {
     const pt = (profile.profileType || '').toLowerCase();
     let fields = ['name', 'city', 'profileType', 'category', 'about'];
     if (pt === 'worker') fields = [...fields, 'workerSkill', 'experience', 'phone'];
+    if (pt === 'contractor') fields = [...fields, 'contractorType', 'contractorExperience', 'phone'];
     if (pt === 'professional') fields = [...fields, 'designation', 'experience', 'phone'];
     if (pt === 'business') fields = [...fields, 'companyName', 'phone', 'companyType'];
     if (pt === 'supplier') fields = [...fields, 'companyName', 'phone', 'supplierCategory'];
@@ -69,8 +70,23 @@ export default function MyDashboardScreen({ navigation }) {
       const uid = await AsyncStorage.getItem('uid');
       if (!uid) return;
       setMyUid(uid);
-      const [profile, totalAmt, pending] = await Promise.all([
-        getProfile(uid),
+
+      let profile = null;
+      try { profile = await getProfile(uid); } catch (_) {}
+      if (!profile) {
+        try {
+          const local = await AsyncStorage.getItem('localProfile');
+          if (local) profile = JSON.parse(local);
+        } catch (_) {}
+      }
+
+      if (profile?.profileType === 'personal') {
+        // Client accounts have their own hub — no verified-earnings/trust-score dashboard
+        navigation.replace('PersonalProfile', { uid });
+        return;
+      }
+
+      const [totalAmt, pending] = await Promise.all([
         getTotalVerifiedAmount(uid),
         getPendingWork(uid),
       ]);
@@ -135,7 +151,6 @@ export default function MyDashboardScreen({ navigation }) {
           <View style={styles.headerRight}>
             <TouchableOpacity style={styles.notifBtn} onPress={() => navigation.navigate('Notifications')}>
               <Text style={{ fontSize: 18 }}>🔔</Text>
-              <View style={styles.notifBadge}><Text style={styles.notifBadgeText}>3</Text></View>
             </TouchableOpacity>
             <TouchableOpacity style={styles.avatarBtn} onPress={() => {
               const screen = PROFILE_SCREEN_MAP[profileType] || 'ProfessionalProfile';
@@ -248,33 +263,6 @@ export default function MyDashboardScreen({ navigation }) {
           </>
         )}
 
-        {/* Active Jobs */}
-        <View style={styles.sectionHead}>
-          <Text style={styles.sectionTitle}>Active Job Posts</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('Jobs')}>
-            <Text style={styles.seeAll}>See All →</Text>
-          </TouchableOpacity>
-        </View>
-        {[
-          { icon: '🏗️', title: 'Site Engineer Needed', location: 'Bopal, Ahmedabad', budget: '₹45K/mo', applicants: 7, status: 'Active' },
-          { icon: '📐', title: 'AutoCAD Designer', location: 'Navrangpura, Ahmedabad', budget: '₹25K/mo', applicants: 3, status: 'Active' },
-        ].map((job, i) => (
-          <TouchableOpacity key={i} style={styles.jobCard} onPress={() => navigation.navigate('Jobs')}>
-            <View style={styles.jobIcon}>
-              <Text style={{ fontSize: 22 }}>{job.icon}</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.jobTitle}>{job.title}</Text>
-              <Text style={styles.jobMeta}>{job.location} · {job.budget}</Text>
-              <Text style={styles.jobApplicants}>👥 {job.applicants} applicants</Text>
-            </View>
-            <View style={styles.jobStatusBadge}>
-              <View style={styles.jobStatusDot} />
-              <Text style={styles.jobStatusText}>{job.status}</Text>
-            </View>
-          </TouchableOpacity>
-        ))}
-
         {/* Recent Activity */}
         <View style={styles.sectionHead}>
           <Text style={styles.sectionTitle}>Recent Activity</Text>
@@ -305,7 +293,7 @@ export default function MyDashboardScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = injectFonts({
   container: { flex: 1, backgroundColor: '#F5F5F0' },
   header: { backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#EFEFEF' },
   headerContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 48, paddingBottom: 16 },
@@ -313,8 +301,6 @@ const styles = StyleSheet.create({
   userName: { fontSize: 20, fontWeight: '800', color: '#1A1A1A', marginTop: 2 },
   headerRight: { flexDirection: 'row', gap: 10, alignItems: 'center' },
   notifBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#F5F5F0', alignItems: 'center', justifyContent: 'center', position: 'relative' },
-  notifBadge: { position: 'absolute', top: 4, right: 4, width: 14, height: 14, borderRadius: 7, backgroundColor: '#E74C3C', alignItems: 'center', justifyContent: 'center' },
-  notifBadgeText: { fontSize: 8, fontWeight: '900', color: '#fff' },
   avatarBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#FFF3E0', alignItems: 'center', justifyContent: 'center' },
   scroll: { flex: 1 },
   // Completion Card

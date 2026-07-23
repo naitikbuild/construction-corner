@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, TextInput, Alert, ActivityIndicator,
 } from 'react-native';
+import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { markWorkComplete } from '../services/workService';
@@ -289,7 +290,7 @@ export default function MarkWorkCompleteScreen({ navigation, route }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = injectFonts({
   root: { flex: 1, backgroundColor: '#F5F5F0' },
 
   // HEADER

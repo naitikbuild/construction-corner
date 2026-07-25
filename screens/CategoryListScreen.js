@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { useState, useEffect } from 'react';
 import { getAllUsers } from '../services/userService';
+import { formatAmountIndian } from '../utils/format';
 
 const PROFILE_SCREEN = {
   professional: 'ProfessionalProfile',
@@ -53,7 +54,7 @@ function firestoreUserToCard(user) {
     location: [user.city, user.state].filter(Boolean).join(', ') || 'India',
     experience: user.experience ? `${user.experience} yrs exp` : user.workerExperience ? `${user.workerExperience} yrs exp` : '',
     rating: user.rating ? String(user.rating) : '4.5',
-    verifiedAmt: user.verifiedAmt || '₹0',
+    verifiedAmt: formatAmountIndian(user.totalVerifiedAmount ?? user.demoVerifiedAmount ?? 0),
     highlight: '✓ Verified Member',
   };
 }

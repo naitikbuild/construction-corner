@@ -12,7 +12,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { saveProfile, getProfile } from '../services/userService';
 import { auth } from '../config/firebase';
 import {
-  SOLO_WORKER_CATEGORIES as WORKER_SKILLS,
+  SKILLED_WORKER_CATEGORIES,
+  UNSKILLED_WORKER_CATEGORIES,
   CONTRACTOR_CATEGORIES,
   PROFESSIONAL_CATEGORIES as PROFESSIONAL_SKILLS,
 } from '../constants/categories';
@@ -112,7 +113,7 @@ function Checkbox({ label, checked, onPress }) {
   );
 }
 
-function Dropdown({ label, required, value, options, onSelect, searchable }) {
+function Dropdown({ label, required, value, options, onSelect, searchable, disabled, disabledHint }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
 
@@ -126,16 +127,16 @@ function Dropdown({ label, required, value, options, onSelect, searchable }) {
   return (
     <Field label={label} required={required}>
       <TouchableOpacity
-        style={[styles.input, styles.dropdownTrigger]}
-        onPress={() => setOpen(true)}
-        activeOpacity={0.8}
+        style={[styles.input, styles.dropdownTrigger, disabled && styles.dropdownTriggerDisabled]}
+        onPress={() => { if (!disabled) setOpen(true); }}
+        activeOpacity={disabled ? 1 : 0.8}
       >
         <Text style={value ? { color: TEXT_DARK, fontSize: 15 } : { color: TEXT_LIGHT, fontSize: 15 }}>
-          {value || `Select ${label}`}
+          {value || (disabled && disabledHint ? disabledHint : `Select ${label}`)}
         </Text>
         <Text style={styles.dropdownArrow}>▾</Text>
       </TouchableOpacity>
-      <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
+      <Modal visible={open && !disabled} transparent animationType="fade" onRequestClose={close}>
         <TouchableOpacity style={styles.modalOverlay} onPress={close} activeOpacity={1}>
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>{label}</Text>
@@ -919,18 +920,59 @@ function Step3Worker({ data, setData }) {
     });
   };
 
+  const selectWorkerType = (type) => {
+    if (data.workerType === type) return;
+    // Changing Worker Type invalidates the previously selected skill — the two
+    // lists don't overlap, so the old skill can't carry over.
+    setData({
+      ...data,
+      workerType: type,
+      primarySkill: '',
+      workerSkills: [],
+      skillTags: [],
+      workerSkill: '',
+    });
+  };
+
+  const skillOptions = data.workerType === 'unskilled' ? UNSKILLED_WORKER_CATEGORIES : SKILLED_WORKER_CATEGORIES;
+
   return (
     <ScrollView style={styles.stepScroll} showsVerticalScrollIndicator={false}>
       <Text style={styles.stepTitle}>Worker Details</Text>
       <Text style={styles.stepSub}>Find the right jobs matching your skill</Text>
 
+      <Field label="Worker Type" required>
+        <View style={styles.workerTypeRow}>
+          <TouchableOpacity
+            style={[styles.workerTypeBtn, data.workerType === 'skilled' && styles.workerTypeBtnActive]}
+            onPress={() => selectWorkerType('skilled')}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.workerTypeBtnText, data.workerType === 'skilled' && styles.workerTypeBtnTextActive]}>
+              Skilled
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.workerTypeBtn, data.workerType === 'unskilled' && styles.workerTypeBtnActive]}
+            onPress={() => selectWorkerType('unskilled')}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.workerTypeBtnText, data.workerType === 'unskilled' && styles.workerTypeBtnTextActive]}>
+              Unskilled
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </Field>
+
       <Dropdown
         label="Skill"
         required
         value={data.primarySkill}
-        options={WORKER_SKILLS}
+        options={skillOptions}
         onSelect={selectSkill}
         searchable
+        disabled={!data.workerType}
+        disabledHint="Select Worker Type first"
       />
 
       <Field label="Experience (Years)" required>
@@ -940,6 +982,23 @@ function Step3Worker({ data, setData }) {
           placeholder="e.g. 5"
           keyboardType="number-pad"
         />
+      </Field>
+
+      <Field label="Daily Charge (Optional)">
+        <View style={styles.currencyInputWrap}>
+          <Text style={styles.currencyPrefix}>₹</Text>
+          <TextInput
+            style={styles.currencyInputField}
+            value={data.dailyCharge}
+            onChangeText={(v) => setData({ ...data, dailyCharge: v.replace(/[^0-9]/g, '') })}
+            placeholder="e.g. 800"
+            placeholderTextColor={TEXT_LIGHT}
+            keyboardType="number-pad"
+          />
+        </View>
+        <Text style={styles.skillHint}>
+          A rough guide for clients — not verified, and won't block saving if left blank.
+        </Text>
       </Field>
 
       <Field label="Currently Available for Work">
@@ -1592,8 +1651,10 @@ function Step4({ data, onEdit, profileType }) {
       {/* Worker */}
       {(pt === 'worker' || pt === 'Worker') && (
         <ReviewCard title="Worker Details" onEdit={() => onEdit(detailStep)}>
+          <ReviewRow icon="🛠️" label="Worker Type" value={data.workerType === 'unskilled' ? 'Unskilled' : (data.workerType === 'skilled' ? 'Skilled' : '')} />
           <ReviewRow icon="⭐" label="Skill" value={data.primarySkill || data.workerSkills?.[0] || data.workerSkill} />
           <ReviewRow icon="📅" label="Experience" value={data.workerExperience ? `${data.workerExperience} years` : ''} />
+          <ReviewRow icon="💰" label="Daily Charge" value={data.dailyCharge ? `₹${data.dailyCharge} / day` : ''} />
           <ReviewRow icon="✅" label="Available" value={data.available ? 'Yes' : 'No'} />
         </ReviewCard>
       )}
@@ -1709,6 +1770,7 @@ export default function EditProfileScreen({ navigation, route }) {
     experienceHistory: [],
     // worker
     workPhotos: [],
+    workerType: '',
     workerSkills: [],
     primarySkill: '',
     skillTags: [],
@@ -1716,6 +1778,7 @@ export default function EditProfileScreen({ navigation, route }) {
     workerExperience: '',
     available: true,
     workerAbout: '',
+    dailyCharge: '',
     // contractor
     contractorType: '',
     contractorExperience: '',
@@ -1792,7 +1855,7 @@ export default function EditProfileScreen({ navigation, route }) {
     if (step === detailStep) {
       const pt = profileType || data.role;
       if (pt === 'professional' || pt === 'Professional') return data.designation.length > 0;
-      if (pt === 'worker'       || pt === 'Worker')       return (data.workerSkills || []).length > 0;
+      if (pt === 'worker'       || pt === 'Worker')       return !!data.workerType && (data.workerSkills || []).length > 0;
       if (pt === 'contractor'   || pt === 'Contractor')   return data.contractorType.length > 0 && data.contractorExperience.trim().length > 0;
       if (pt === 'business'     || pt === 'Business')     return data.companyName.trim().length > 0;
       if (pt === 'supplier'     || pt === 'Supplier')     return data.supplierCategory.length > 0;
@@ -2045,6 +2108,14 @@ const styles = injectFonts({
   },
   textarea: { minHeight: 110, paddingTop: 12 },
 
+  currencyInputWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: GREY_BG, borderRadius: 12,
+    borderWidth: 1.5, borderColor: BORDER, paddingHorizontal: 14,
+  },
+  currencyPrefix: { fontSize: 15, fontWeight: '700', color: TEXT_DARK, marginRight: 4 },
+  currencyInputField: { flex: 1, paddingVertical: 13, fontSize: 15, color: TEXT_DARK, fontWeight: '500' },
+
   // Phone
   phonePreview: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
@@ -2077,7 +2148,18 @@ const styles = injectFonts({
 
   // Dropdown
   dropdownTrigger: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  dropdownTriggerDisabled: { backgroundColor: LIGHT_BLUE, opacity: 0.6 },
   dropdownArrow: { fontSize: 16, color: TEXT_LIGHT },
+
+  workerTypeRow: { flexDirection: 'row', gap: 10 },
+  workerTypeBtn: {
+    flex: 1, height: 48, borderRadius: 12,
+    borderWidth: 1.5, borderColor: BORDER, backgroundColor: 'white',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  workerTypeBtnActive: { backgroundColor: BLUE, borderColor: BLUE },
+  workerTypeBtnText: { fontSize: 14, fontWeight: '600', color: TEXT_MID },
+  workerTypeBtnTextActive: { color: '#FFFFFF' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalSheet: {
     backgroundColor: 'white', borderTopLeftRadius: 24, borderTopRightRadius: 24,

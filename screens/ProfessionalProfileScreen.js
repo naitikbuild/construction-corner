@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, Alert, ActivityIndicator, Linking,
@@ -7,8 +7,10 @@ import {
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import { useFocusEffect } from '@react-navigation/native';
 import PhotoViewer from '../components/PhotoViewer';
 import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
+import { useToast } from '../hooks/useToast';
 import { getProfile, recordProfileView, updateProfile } from '../services/userService';
 import { getVerifiedWork, getTotalVerifiedAmount } from '../services/workService';
 import { createChat } from '../services/chatService';
@@ -28,73 +30,37 @@ function PortfolioGrid({ photos = [], isOwn, onAdd, onReplace, onRemove, onView 
   const slotSize = gridWidth > 0 ? Math.floor((gridWidth - GRID_GAP * 2) / 3) - 1 : 0;
   const slotBox = { width: slotSize, height: slotSize };
   const filled = Array.isArray(photos) ? photos.filter(Boolean).slice(0, 6) : [];
-
-  if (!isOwn) {
-    return filled.length === 0 ? (
-      <Text style={s.placeholder}>No gallery photos added yet</Text>
-    ) : (
-      <View style={wp.grid} onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}>
-        {gridWidth === 0 ? null : filled.map((uri, i) => (
-          <TouchableOpacity key={i} style={[wp.slot, slotBox]} activeOpacity={0.85} onPress={() => onView(i)}>
-            <Image source={{ uri }} style={wp.thumb} resizeMode="cover" />
-          </TouchableOpacity>
-        ))}
-      </View>
-    );
-  }
-
   const slots = [...filled, ...Array(Math.max(0, 6 - filled.length)).fill(null)];
-  return (
-    <View>
-      <View style={wp.grid} onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}>
-        {gridWidth === 0 ? null : slots.map((uri, i) => (
-          <View key={i} style={[wp.slot, slotBox]}>
-            {uri ? (
-              <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.85} onPress={() => onView(i)}>
-                <Image source={{ uri }} style={wp.thumb} resizeMode="cover" />
-                <TouchableOpacity style={wp.replaceBtn} onPress={() => onReplace(i)}>
-                  <Text style={wp.replaceBtnText}>🔄</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={wp.removeBtn} onPress={() => onRemove(i)}>
-                  <Text style={wp.removeBtnText}>✕</Text>
-                </TouchableOpacity>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity style={wp.addSlot} onPress={onAdd} activeOpacity={0.7}>
-                <Text style={wp.addSlotIcon}>+</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
 
-function VerifiedPortfolioGrid({ items = [], onView }) {
-  const [gridWidth, setGridWidth] = useState(0);
-  const slotSize = gridWidth > 0 ? Math.floor((gridWidth - GRID_GAP * 2) / 3) - 1 : 0;
-  const slotBox = { width: slotSize, height: slotSize };
   return (
-    <View>
-      <View style={s.verHeader}>
-        <Text style={s.sLabel}>VERIFIED PORTFOLIO</Text>
-        <Text style={s.verNote}>from completed jobs</Text>
-      </View>
-      {items.length === 0 ? (
-        <Text style={s.placeholder}>No verified portfolio yet — this fills in automatically as real jobs are completed and confirmed through the app</Text>
-      ) : (
-        <View style={wp.grid} onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}>
-          {gridWidth === 0 ? null : items.map((item, i) => (
-            <TouchableOpacity key={item.id || i} style={[wp.slot, slotBox]} activeOpacity={0.85} onPress={() => onView(i)}>
-              <Image source={{ uri: item.photo }} style={wp.thumb} resizeMode="cover" />
-              <View style={wp.verifiedBadge}>
-                <Text style={wp.verifiedBadgeText}>✓</Text>
-              </View>
+    <View style={wp.grid} onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}>
+      {gridWidth === 0 ? null : slots.map((uri, i) => (
+        <View key={i} style={[wp.slot, slotBox]}>
+          {uri ? (
+            <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.85} onPress={() => onView(i)}>
+              <Image source={{ uri }} style={wp.thumb} resizeMode="cover" />
+              {isOwn && (
+                <>
+                  <TouchableOpacity style={wp.replaceBtn} onPress={() => onReplace(i)}>
+                    <Text style={wp.replaceBtnText}>🔄</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={wp.removeBtn} onPress={() => onRemove(i)}>
+                    <Text style={wp.removeBtnText}>✕</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </TouchableOpacity>
-          ))}
+          ) : isOwn ? (
+            <TouchableOpacity style={wp.addSlot} onPress={onAdd} activeOpacity={0.7}>
+              <Text style={wp.addSlotIcon}>+</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={wp.placeholder}>
+              <Text style={wp.placeholderIcon}>🖼️</Text>
+            </View>
+          )}
         </View>
-      )}
+      ))}
     </View>
   );
 }
@@ -103,12 +69,12 @@ const wp = injectFonts({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   slot: { borderRadius: 10, overflow: 'hidden' },
   thumb: { width: '100%', height: '100%' },
-  verifiedBadge: {
-    position: 'absolute', top: 5, right: 5,
-    width: 18, height: 18, borderRadius: 9,
-    backgroundColor: '#22A559', alignItems: 'center', justifyContent: 'center',
+  placeholder: {
+    flex: 1, backgroundColor: '#F2F2F2',
+    alignItems: 'center', justifyContent: 'center',
+    borderRadius: 10,
   },
-  verifiedBadgeText: { fontSize: 10, color: '#fff', fontWeight: '900' },
+  placeholderIcon: { fontSize: 20, opacity: 0.3 },
   addSlot: {
     flex: 1, backgroundColor: '#F2F2F2',
     borderWidth: 1.5, borderColor: '#E5E5E5', borderStyle: 'dashed',
@@ -418,15 +384,17 @@ const em = injectFonts({
 });
 
 // ─── Status pill (Available for projects / Not available) ──────────────────
-function AvailabilityPill({ available }) {
+function AvailabilityPill({ available, isOwn }) {
   return available ? (
     <View style={s.chipAvail}>
       <View style={s.chipDot} />
       <Text style={s.chipAvailText}>Available for projects</Text>
+      {isOwn && <Text style={s.chipToggleIcon}>⇄</Text>}
     </View>
   ) : (
     <View style={s.chipBusy}>
       <Text style={s.chipBusyText}>Not available</Text>
+      {isOwn && <Text style={[s.chipToggleIcon, s.chipToggleIconMuted]}>⇄</Text>}
     </View>
   );
 }
@@ -441,7 +409,9 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
   const [myUid, setMyUid] = useState(null);
   const [bookmarked, setBookmarked] = useState(false);
   const [viewer, setViewer] = useState({ visible: false, photos: [], index: 0 });
+  const [hasToggledAvailability, setHasToggledAvailability] = useState(false);
   const { headerAnimatedStyle, headerHeight, onHeaderLayout, onScroll } = useAutoHideHeader();
+  const { toastMessage, toastOpacity, showToast } = useToast();
 
   const openViewer = (photos, index = 0) => setViewer({ visible: true, photos, index });
   const closeViewer = () => setViewer(v => ({ ...v, visible: false }));
@@ -461,9 +431,7 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
   const [qualInstitution, setQualInstitution] = useState('');
   const [qualYear, setQualYear] = useState('');
 
-  useEffect(() => { load(); }, []);
-
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const me = await AsyncStorage.getItem('uid');
       const uid = viewUid || me;
@@ -503,7 +471,10 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
       }
     } catch (_) {}
     finally { setLoading(false); }
-  };
+  }, [viewUid]);
+
+  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const handleCall = () => {
     if (professional?.available === false) {
@@ -535,6 +506,18 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
         },
       });
     } catch (_) { Alert.alert('Error', 'Could not open chat.'); }
+  };
+
+  const handleEnquiry = () => {
+    if (!viewUid || viewUid === myUid) { Alert.alert('This is your own profile'); return; }
+    navigation.navigate('Enquiry', {
+      providerId: viewUid,
+      providerName: professional?.name || 'Professional',
+      providerRole: professional?.designation || '',
+      providerEmoji: '🏛️',
+      services,
+      profileType: 'professional',
+    });
   };
 
   const handleBookmark = async () => {
@@ -584,7 +567,10 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
   };
 
   const handleToggleAvailability = () => {
-    persistOwnProfileChange({ available: !(professional?.available !== false) });
+    const nextAvailable = !(professional?.available !== false);
+    persistOwnProfileChange({ available: nextAvailable });
+    setHasToggledAvailability(true);
+    showToast(nextAvailable ? "You're now available" : "You're now marked busy");
   };
 
   const handleChangeAvatar = async () => {
@@ -809,8 +795,10 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
 
   const amtStr = formatAmountIndian(verifiedAmt);
   const jobsCount = verifiedWork.length;
-  const onTimeRate = professional?.onTimeRate || '—';
-  const verifiedPortfolio = verifiedWork.filter(w => w.photo);
+  // A provider with zero completed jobs can't have a real on-time % or star
+  // rating yet — always show "—"/"New" for those rather than a stray value.
+  const onTimeRate = jobsCount > 0 ? (professional?.onTimeRate || '—') : '—';
+  const ratingDisplay = jobsCount === 0 ? 'New' : (ratingCount > 0 ? `★ ${ratingAvg}` : '—');
 
   const reviews = ratedWork
     .slice()
@@ -892,13 +880,16 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
           {/* ── 4. STATUS PILL + LINK ───────────────────────────────────── */}
           <View style={s.availRow}>
             {isOwn ? (
-              <TouchableOpacity onPress={handleToggleAvailability} activeOpacity={0.75}>
-                <AvailabilityPill available={available} />
+              <TouchableOpacity onPress={handleToggleAvailability} activeOpacity={0.6}>
+                <AvailabilityPill available={available} isOwn />
               </TouchableOpacity>
             ) : (
               <AvailabilityPill available={available} />
             )}
           </View>
+          {isOwn && !hasToggledAvailability && (
+            <Text style={s.availHint}>Tap to change</Text>
+          )}
           {website ? (
             <TouchableOpacity onPress={handleOpenLink} activeOpacity={0.7}>
               <Text style={s.linkText} numberOfLines={1}>🔗 {website}</Text>
@@ -930,7 +921,7 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
             </View>
             <View style={s.verStatSep} />
             <View style={s.verStat}>
-              <Text style={s.verStatVal}>{ratingCount > 0 ? `★ ${ratingAvg}` : '—'}</Text>
+              <Text style={s.verStatVal}>{ratingDisplay}</Text>
               <Text style={s.verStatLbl}>Rating</Text>
             </View>
           </View>
@@ -941,9 +932,18 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
           {/* ── 6. ACTION BUTTONS ───────────────────────────────────────── */}
           <View style={s.actionRow}>
             {isOwn ? (
-              <TouchableOpacity style={s.editProfileBtn} onPress={handleEditProfile} activeOpacity={0.85}>
-                <Text style={s.editProfileBtnText}>✏️  Edit Profile</Text>
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity style={s.editProfileBtn} onPress={handleEditProfile} activeOpacity={0.85}>
+                  <Text style={s.editProfileBtnText}>✏️  Edit Profile</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={s.newWorkRecordBtn}
+                  onPress={() => navigation.navigate('CreateWorkRecord')}
+                  activeOpacity={0.85}
+                >
+                  <Text style={s.newWorkRecordBtnText}>🧾  New Work Record</Text>
+                </TouchableOpacity>
+              </>
             ) : (
               <>
                 <TouchableOpacity
@@ -952,12 +952,15 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
                   disabled={!available}
                   activeOpacity={0.85}
                 >
-                  <Text style={[s.actionCallText, !available && s.actionCallTextLocked]}>
-                    {available ? '📞  Call' : '🔒  Call'}
+                  <Text style={[s.actionCallText, !available && s.actionCallTextLocked]} numberOfLines={1}>
+                    {available ? '📞 Call' : '🔒 Call'}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.actionMsgBtn} onPress={handleMessage} activeOpacity={0.85}>
-                  <Text style={s.actionMsgText}>💬  Chat</Text>
+                  <Text style={s.actionMsgText} numberOfLines={1}>💬 Chat</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.actionEnquiryBtn} onPress={handleEnquiry} activeOpacity={0.85}>
+                  <Text style={s.actionEnquiryText} numberOfLines={1}>📋 Enquiry</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.actionBookmarkBtn} onPress={handleBookmark} activeOpacity={0.85}>
                   <Text style={s.bookmarkIcon}>{bookmarked ? '🔖' : '☆'}</Text>
@@ -983,7 +986,23 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
 
           <View style={s.divider} />
 
-          {/* ── 8. VERIFIED PROJECTS ─────────────────────────────────────── */}
+          {/* ── 8. EXPERIENCE (hidden if none added, unless own profile) ── */}
+          {(experienceHistory.length > 0 || isOwn) && (
+            <>
+              <View style={s.sectionHeadRow}>
+                <Text style={[s.sLabel, { marginBottom: 0 }]}>EXPERIENCE</Text>
+                {isOwn && (
+                  <TouchableOpacity onPress={() => handleEditSection('experience')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Text style={s.editPencil}>✏️</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              <ExperienceList entries={experienceHistory} isOwn={isOwn} onEdit={openEditExperience} onAdd={openAddExperience} />
+              <View style={s.divider} />
+            </>
+          )}
+
+          {/* ── 9. VERIFIED PROJECTS ─────────────────────────────────────── */}
           <View style={s.sectionHeadRow}>
             <Text style={[s.sLabel, { marginBottom: 0 }]}>VERIFIED PROJECTS</Text>
             {isOwn && (
@@ -996,7 +1015,7 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
 
           <View style={s.divider} />
 
-          {/* ── 9. GALLERY (uploaded, up to 6) ───────────────────────────── */}
+          {/* ── 10. GALLERY (uploaded, up to 6) ──────────────────────────── */}
           <View style={s.sectionHeadRow}>
             <Text style={[s.sLabel, { marginBottom: 0 }]}>GALLERY</Text>
             {isOwn && (
@@ -1015,30 +1034,6 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
           />
 
           <View style={s.divider} />
-
-          {/* ── 9.5 VERIFIED PORTFOLIO (from confirmed jobs only) ────────── */}
-          <VerifiedPortfolioGrid
-            items={verifiedPortfolio}
-            onView={(i) => openViewer(verifiedPortfolio.map(w => w.photo), i)}
-          />
-
-          <View style={s.divider} />
-
-          {/* ── 10. EXPERIENCE (hidden if none added, unless own profile) ── */}
-          {(experienceHistory.length > 0 || isOwn) && (
-            <>
-              <View style={s.sectionHeadRow}>
-                <Text style={[s.sLabel, { marginBottom: 0 }]}>EXPERIENCE</Text>
-                {isOwn && (
-                  <TouchableOpacity onPress={() => handleEditSection('experience')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <Text style={s.editPencil}>✏️</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-              <ExperienceList entries={experienceHistory} isOwn={isOwn} onEdit={openEditExperience} onAdd={openAddExperience} />
-              <View style={s.divider} />
-            </>
-          )}
 
           {/* ── 11. SERVICES ─────────────────────────────────────────────── */}
           <View style={s.sectionHeadRow}>
@@ -1155,6 +1150,12 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
         initialIndex={viewer.index}
         onClose={closeViewer}
       />
+
+      {toastMessage ? (
+        <Animated.View style={[s.toast, { opacity: toastOpacity }]} pointerEvents="none">
+          <Text style={s.toastText}>{toastMessage}</Text>
+        </Animated.View>
+      ) : null}
     </View>
   );
 }
@@ -1251,6 +1252,9 @@ const s = injectFonts({
     paddingHorizontal: 14, paddingVertical: 7,
   },
   chipBusyText: { fontSize: 13, fontWeight: '600', color: LIGHT },
+  chipToggleIcon: { fontSize: 12, fontWeight: '700', color: GREEN, marginLeft: 2 },
+  chipToggleIconMuted: { color: LIGHT },
+  availHint: { fontSize: 10, color: FAINT, fontWeight: '500', marginTop: 4 },
   linkText: { fontSize: 13, fontWeight: '600', color: LINK_BLUE, marginTop: 10 },
 
   // ── 5. VERIFIED WORK
@@ -1279,12 +1283,12 @@ const s = injectFonts({
   placeholder: { fontSize: 13, color: FAINT, fontStyle: 'italic' },
 
   // ── 6. ACTIONS (inline)
-  actionRow: { flexDirection: 'row', gap: 8, marginTop: 16 },
+  actionRow: { flexDirection: 'row', gap: 6, marginTop: 16 },
   actionCallBtn: {
-    flex: 1.2, height: 46, borderRadius: 12,
+    flex: 1.3, height: 46, borderRadius: 12,
     backgroundColor: DARK, alignItems: 'center', justifyContent: 'center',
   },
-  actionCallText: { color: '#FFFFFF', fontWeight: '600', fontSize: 14 },
+  actionCallText: { color: '#FFFFFF', fontWeight: '600', fontSize: 12 },
   actionCallBtnLocked: { backgroundColor: FILL },
   actionCallTextLocked: { color: LIGHT },
   actionMsgBtn: {
@@ -1292,9 +1296,15 @@ const s = injectFonts({
     borderWidth: 1.5, borderColor: DARK,
     alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
   },
-  actionMsgText: { color: DARK, fontWeight: '600', fontSize: 13 },
+  actionMsgText: { color: DARK, fontWeight: '600', fontSize: 11 },
+  actionEnquiryBtn: {
+    flex: 1.2, height: 46, borderRadius: 12,
+    borderWidth: 1.5, borderColor: DARK,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
+  },
+  actionEnquiryText: { color: DARK, fontWeight: '600', fontSize: 11 },
   actionBookmarkBtn: {
-    width: 46, height: 46, borderRadius: 12,
+    width: 40, height: 46, borderRadius: 12,
     borderWidth: 1.5, borderColor: BORDER,
     alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
   },
@@ -1304,6 +1314,11 @@ const s = injectFonts({
     alignItems: 'center', justifyContent: 'center',
   },
   editProfileBtnText: { color: DARK, fontWeight: '600', fontSize: 15 },
+  newWorkRecordBtn: {
+    flex: 1, height: 46, borderRadius: 12,
+    backgroundColor: DARK, alignItems: 'center', justifyContent: 'center',
+  },
+  newWorkRecordBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
 
   // ── 7/8. SERVICES / TOOLS chips
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -1327,5 +1342,14 @@ const s = injectFonts({
   reviewStarActive: { color: STAR },
   reviewComment: { fontSize: 13, color: MID, lineHeight: 20, fontStyle: 'italic' },
 
-  bookmarkIcon: { fontSize: 20 },
+  bookmarkIcon: { fontSize: 18 },
+
+  // ── TOAST (brief confirmation, e.g. availability toggled)
+  toast: {
+    position: 'absolute', left: 24, right: 24, bottom: 40,
+    backgroundColor: DARK, borderRadius: 12,
+    paddingVertical: 12, paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  toastText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
 });

@@ -13,6 +13,11 @@
 // instead of hitting Firestore — real profiles and the real verified-work
 // system are never touched by any of this. Turning DEMO_MODE off removes
 // every demo profile from listings, search, and direct profile navigation.
+//
+// Keep stats internally consistent: `jobsCompleted` must equal
+// `demoVerifiedWork.length`, and `demoVerifiedAmount` must equal the sum of
+// `demoVerifiedWork[].amount` — otherwise list/profile views end up showing
+// an earned amount or rating with a contradictory "0 jobs" count.
 // ─────────────────────────────────────────────────────────────────────────
 
 const PLACEHOLDER_PHOTO = (seed) => `https://picsum.photos/seed/${seed}/600/600`;
@@ -53,6 +58,7 @@ export const DEMO_PROFILES = [
     pan: 'AABCR1234F',
     labourLicence: 'GLC/2011/004521',
     onTimeRate: '94%',
+    jobsCompleted: 5,
     workPhotos: [
       PLACEHOLDER_PHOTO('ramesh-work-1'),
       PLACEHOLDER_PHOTO('ramesh-work-2'),
@@ -120,6 +126,7 @@ export const DEMO_PROFILES = [
     pan: 'BXKPS5678K',
     labourLicence: 'GLC/2015/002983',
     onTimeRate: '89%',
+    jobsCompleted: 3,
     workPhotos: [
       PLACEHOLDER_PHOTO('iqbal-work-1'),
       PLACEHOLDER_PHOTO('iqbal-work-2'),
@@ -165,6 +172,7 @@ export const DEMO_PROFILES = [
     primarySkill: 'Mason',
     skillTags: ['Tiler'],
     workerSkill: 'Mason',
+    workerType: 'skilled',
     workerExperience: '11',
     experience: '11',
     available: true,
@@ -230,6 +238,8 @@ export const DEMO_PROFILES = [
     verificationType: 'gst',
     verificationNumber: '24AABCM5678F1Z2',
     verified: true,
+    onTimeRate: '97%',
+    jobsCompleted: 4,
     workPhotos: [
       PLACEHOLDER_PHOTO('meera-work-1'),
       PLACEHOLDER_PHOTO('meera-work-2'),
@@ -251,6 +261,123 @@ export const DEMO_PROFILES = [
       { customerName: 'Sneha Patel', providerName: 'Meera Iyer', amount: 750000, rating: 4, review: 'Good design sense, project took slightly longer than planned but worth it.', date: '08/09/2024', workType: 'Residential Design', status: 'verified' },
     ],
     createdAt: '2024-03-10T09:00:00.000Z',
+  },
+];
+
+// ─────────────────────────────────────────────────────────────────────────
+// DEMO CHAT CONVERSATIONS — preview content for the Messages list / Chat
+// screens only. Entirely client-side and merged in by ChatListScreen.js /
+// ChatScreen.js ONLY when DEMO_MODE is on — never written to (or read from)
+// the real `chats`/`messages` Firestore collections, so turning DEMO_MODE
+// off makes them disappear completely, same as DEMO_PROFILES.
+//
+// Timestamps are computed relative to "now" at module-load time (not
+// hardcoded ISO strings) so they keep rendering as today/yesterday/weekday
+// through the same formatChatTime()/dayLabel() helpers real chats use.
+// ─────────────────────────────────────────────────────────────────────────
+
+function todayAt(hours, minutes) {
+  const d = new Date();
+  d.setHours(hours, minutes, 0, 0);
+  return d;
+}
+
+function yesterdayAt(hours, minutes) {
+  const d = todayAt(hours, minutes);
+  d.setDate(d.getDate() - 1);
+  return d;
+}
+
+// Most recent occurrence of `targetDay` (0=Sun..6=Sat) that is at least 2
+// days back, so it reliably falls in the "weekday name" display bucket
+// instead of collapsing into "Today"/"Yesterday" if today happens to land
+// on that same weekday.
+function recentWeekdayAt(targetDay, hours, minutes) {
+  const d = new Date();
+  let diff = (d.getDay() - targetDay + 7) % 7;
+  if (diff < 2) diff += 7;
+  d.setDate(d.getDate() - diff);
+  d.setHours(hours, minutes, 0, 0);
+  return d;
+}
+
+// `sender: 'me'`/`'them'` are resolved to real uids at load time in
+// ChatScreen.js (the current session's uid vs. the participant's demo uid).
+// `lastReadByOther` is a single "read up to this point" cutoff — any of my
+// own messages timestamped at or before it show read (green ✓✓), matching
+// how real chat read-receipts work, rather than per-message flags.
+export const DEMO_CHATS = [
+  {
+    id: 'demo_chat_1',
+    isDemo: true,
+    unreadCount: 2,
+    lastReadByOther: todayAt(9, 38),
+    participant: {
+      uid: 'demo_chat_participant_1',
+      name: 'Ramesh Yadav',
+      category: 'Mason',
+      profileType: 'worker',
+      photoUri: PLACEHOLDER_PHOTO('ramesh-yadav'),
+      verified: true,
+      available: true,
+    },
+    messages: [
+      { id: 'dc1_m1', sender: 'them', text: 'Namaste sir 🙏 I visited the site today, the wall is ready for plaster.', timestamp: todayAt(9, 12) },
+      { id: 'dc1_m2', sender: 'me', text: "Good. What's your rate for 1,800 sq ft including material?", timestamp: todayAt(9, 20) },
+      { id: 'dc1_m3', sender: 'them', text: '₹1,20,000 total, sir. Labour ₹1,05,000, material ₹15,000. Work in ~6 weeks.', timestamp: todayAt(9, 34) },
+      {
+        id: 'dc1_m4', sender: 'them', type: 'work_record', timestamp: todayAt(9, 36),
+        workRecordId: 'demo_work_record_1',
+        projectName: 'Boundary wall & external plaster',
+        workArea: '1,800 sq ft',
+        contractValue: 120000,
+      },
+      { id: 'dc1_m5', sender: 'me', text: 'Confirmed 👍 Please start tomorrow.', timestamp: todayAt(9, 38) },
+      { id: 'dc1_m6', sender: 'them', text: "Sir, I'll start the plaster work tomorrow morning. Thank you 🙏", timestamp: todayAt(9, 41) },
+    ],
+  },
+  {
+    id: 'demo_chat_2',
+    isDemo: true,
+    unreadCount: 0,
+    lastReadByOther: yesterdayAt(17, 10),
+    participant: {
+      uid: 'demo_chat_participant_2',
+      name: 'Suresh Pawar',
+      category: 'Mason & Tiling',
+      profileType: 'worker',
+      photoUri: PLACEHOLDER_PHOTO('suresh-pawar'),
+      verified: false,
+      available: false,
+    },
+    messages: [
+      { id: 'dc2_m1', sender: 'me', text: 'Hi Suresh, do you take tiling work in Satellite area?', timestamp: yesterdayAt(16, 2) },
+      { id: 'dc2_m2', sender: 'them', text: 'Yes sir, I do tiling and flooring. What is the area size?', timestamp: yesterdayAt(16, 20) },
+      { id: 'dc2_m3', sender: 'me', text: 'About 900 sq ft, 2BHK flat.', timestamp: yesterdayAt(16, 25) },
+      { id: 'dc2_m4', sender: 'them', text: 'I can visit tomorrow evening and give you exact rate.', timestamp: yesterdayAt(16, 41) },
+      { id: 'dc2_m5', sender: 'me', text: 'Can you share a quote for tiling?', timestamp: yesterdayAt(17, 10) },
+    ],
+  },
+  {
+    id: 'demo_chat_3',
+    isDemo: true,
+    unreadCount: 0,
+    lastReadByOther: recentWeekdayAt(1, 12, 2),
+    participant: {
+      uid: 'demo_chat_participant_3',
+      name: 'Sai Constructions',
+      category: 'Contractor',
+      profileType: 'contractor',
+      photoUri: PLACEHOLDER_PHOTO('sai-constructions'),
+      verified: true,
+      available: true,
+    },
+    messages: [
+      { id: 'dc3_m1', sender: 'me', text: 'We need RCC slab work for a G+2 residential project in Bopal.', timestamp: recentWeekdayAt(1, 11, 15) },
+      { id: 'dc3_m2', sender: 'them', text: 'Sure sir. What is the total built-up area and expected start date?', timestamp: recentWeekdayAt(1, 11, 48) },
+      { id: 'dc3_m3', sender: 'me', text: 'Around 4,500 sq ft, starting next month.', timestamp: recentWeekdayAt(1, 12, 2) },
+      { id: 'dc3_m4', sender: 'them', text: "Great, we'll send the crew on Monday 👍", timestamp: recentWeekdayAt(1, 12, 30) },
+    ],
   },
 ];
 

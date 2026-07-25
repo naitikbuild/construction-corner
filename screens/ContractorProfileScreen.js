@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, Alert, ActivityIndicator, Linking,
@@ -7,8 +7,10 @@ import {
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import { useFocusEffect } from '@react-navigation/native';
 import PhotoViewer from '../components/PhotoViewer';
 import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
+import { useToast } from '../hooks/useToast';
 import { getProfile, recordProfileView, updateProfile } from '../services/userService';
 import { getVerifiedWork, getTotalVerifiedAmount } from '../services/workService';
 import { createChat } from '../services/chatService';
@@ -17,15 +19,17 @@ import { formatAmountIndian } from '../utils/format';
 
 
 // ─── Status pill (Taking new projects / Not taking projects) ───────────────
-function StatusPill({ available }) {
+function StatusPill({ available, isOwn }) {
   return available ? (
     <View style={s.chipAvail}>
       <View style={s.chipDot} />
       <Text style={s.chipAvailText}>Taking new projects</Text>
+      {isOwn && <Text style={s.chipToggleIcon}>⇄</Text>}
     </View>
   ) : (
     <View style={s.chipBusy}>
       <Text style={s.chipBusyText}>Not taking projects</Text>
+      {isOwn && <Text style={[s.chipToggleIcon, s.chipToggleIconMuted]}>⇄</Text>}
     </View>
   );
 }
@@ -268,14 +272,14 @@ export default function ContractorProfileScreen({ navigation, route }) {
   const [myUid, setMyUid] = useState(null);
   const [bookmarked, setBookmarked] = useState(false);
   const [viewer, setViewer] = useState({ visible: false, photos: [], index: 0 });
+  const [hasToggledAvailability, setHasToggledAvailability] = useState(false);
   const { headerAnimatedStyle, headerHeight, onHeaderLayout, onScroll } = useAutoHideHeader();
-
-  useEffect(() => { load(); }, []);
+  const { toastMessage, toastOpacity, showToast } = useToast();
 
   const openViewer = (photos, index = 0) => setViewer({ visible: true, photos, index });
   const closeViewer = () => setViewer(v => ({ ...v, visible: false }));
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const me = await AsyncStorage.getItem('uid');
       const uid = viewUid || me;
@@ -315,7 +319,10 @@ export default function ContractorProfileScreen({ navigation, route }) {
       }
     } catch (_) {}
     finally { setLoading(false); }
-  };
+  }, [viewUid]);
+
+  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const handleCall = () => {
     if (contractor?.available === false) {
@@ -347,6 +354,18 @@ export default function ContractorProfileScreen({ navigation, route }) {
         },
       });
     } catch (_) { Alert.alert('Error', 'Could not open chat.'); }
+  };
+
+  const handleEnquiry = () => {
+    if (!viewUid || viewUid === myUid) { Alert.alert('This is your own profile'); return; }
+    navigation.navigate('Enquiry', {
+      providerId: viewUid,
+      providerName: contractor?.companyName || contractor?.name || 'Contractor',
+      providerRole: contractor?.contractorType || '',
+      providerEmoji: '👷‍♂️',
+      services,
+      profileType: 'contractor',
+    });
   };
 
   const handleBookmark = async () => {
@@ -396,7 +415,10 @@ export default function ContractorProfileScreen({ navigation, route }) {
   };
 
   const handleToggleAvailability = () => {
-    persistOwnProfileChange({ available: !(contractor?.available !== false) });
+    const nextAvailable = !(contractor?.available !== false);
+    persistOwnProfileChange({ available: nextAvailable });
+    setHasToggledAvailability(true);
+    showToast(nextAvailable ? "You're now taking new projects" : "You're now marked busy");
   };
 
   const handleChangeLogo = async () => {
@@ -519,7 +541,10 @@ export default function ContractorProfileScreen({ navigation, route }) {
 
   const amtStr = formatAmountIndian(verifiedAmt);
   const jobsCount = verifiedWork.length;
-  const onTimeRate = contractor?.onTimeRate || '—';
+  // A provider with zero completed jobs can't have a real on-time % or star
+  // rating yet — always show "—"/"New" for those rather than a stray value.
+  const onTimeRate = jobsCount > 0 ? (contractor?.onTimeRate || '—') : '—';
+  const ratingDisplay = jobsCount === 0 ? 'New' : (ratingCount > 0 ? `★ ${ratingAvg}` : '—');
 
   const reviews = ratedWork
     .slice()
@@ -602,13 +627,16 @@ export default function ContractorProfileScreen({ navigation, route }) {
           {/* ── 4. STATUS PILL + LINK ───────────────────────────────────── */}
           <View style={s.availRow}>
             {isOwn ? (
-              <TouchableOpacity onPress={handleToggleAvailability} activeOpacity={0.75}>
-                <StatusPill available={available} />
+              <TouchableOpacity onPress={handleToggleAvailability} activeOpacity={0.6}>
+                <StatusPill available={available} isOwn />
               </TouchableOpacity>
             ) : (
               <StatusPill available={available} />
             )}
           </View>
+          {isOwn && !hasToggledAvailability && (
+            <Text style={s.availHint}>Tap to change</Text>
+          )}
           {website ? (
             <TouchableOpacity onPress={handleOpenLink} activeOpacity={0.7}>
               <Text style={s.linkText} numberOfLines={1}>🔗 {website}</Text>
@@ -642,7 +670,7 @@ export default function ContractorProfileScreen({ navigation, route }) {
             </View>
             <View style={s.verStatSep} />
             <View style={s.verStat}>
-              <Text style={s.verStatVal}>{ratingCount > 0 ? `★ ${ratingAvg}` : '—'}</Text>
+              <Text style={s.verStatVal}>{ratingDisplay}</Text>
               <Text style={s.verStatLbl}>Rating</Text>
             </View>
           </View>
@@ -650,9 +678,18 @@ export default function ContractorProfileScreen({ navigation, route }) {
           {/* ── 6. ACTION BUTTONS ───────────────────────────────────────── */}
           <View style={s.actionRow}>
             {isOwn ? (
-              <TouchableOpacity style={s.editProfileBtn} onPress={handleEditProfile} activeOpacity={0.85}>
-                <Text style={s.editProfileBtnText}>✏️  Edit Profile</Text>
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity style={s.editProfileBtn} onPress={handleEditProfile} activeOpacity={0.85}>
+                  <Text style={s.editProfileBtnText}>✏️  Edit Profile</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={s.newWorkRecordBtn}
+                  onPress={() => navigation.navigate('CreateWorkRecord')}
+                  activeOpacity={0.85}
+                >
+                  <Text style={s.newWorkRecordBtnText}>🧾  New Work Record</Text>
+                </TouchableOpacity>
+              </>
             ) : (
               <>
                 <TouchableOpacity
@@ -661,12 +698,15 @@ export default function ContractorProfileScreen({ navigation, route }) {
                   disabled={!available}
                   activeOpacity={0.85}
                 >
-                  <Text style={[s.actionCallText, !available && s.actionCallTextLocked]}>
-                    {available ? '📞  Call' : '🔒  Call'}
+                  <Text style={[s.actionCallText, !available && s.actionCallTextLocked]} numberOfLines={1}>
+                    {available ? '📞 Call' : '🔒 Call'}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.actionMsgBtn} onPress={handleMessage} activeOpacity={0.85}>
-                  <Text style={s.actionMsgText}>💬  Chat</Text>
+                  <Text style={s.actionMsgText} numberOfLines={1}>💬 Chat</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.actionEnquiryBtn} onPress={handleEnquiry} activeOpacity={0.85}>
+                  <Text style={s.actionEnquiryText} numberOfLines={1}>📋 Enquiry</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.actionBookmarkBtn} onPress={handleBookmark} activeOpacity={0.85}>
                   <Text style={s.bookmarkIcon}>{bookmarked ? '🔖' : '☆'}</Text>
@@ -800,6 +840,12 @@ export default function ContractorProfileScreen({ navigation, route }) {
         initialIndex={viewer.index}
         onClose={closeViewer}
       />
+
+      {toastMessage ? (
+        <Animated.View style={[s.toast, { opacity: toastOpacity }]} pointerEvents="none">
+          <Text style={s.toastText}>{toastMessage}</Text>
+        </Animated.View>
+      ) : null}
     </View>
   );
 }
@@ -897,6 +943,9 @@ const s = injectFonts({
     paddingHorizontal: 14, paddingVertical: 7,
   },
   chipBusyText: { fontSize: 13, fontWeight: '600', color: LIGHT },
+  chipToggleIcon: { fontSize: 12, fontWeight: '700', color: GREEN, marginLeft: 2 },
+  chipToggleIconMuted: { color: LIGHT },
+  availHint: { fontSize: 10, color: FAINT, fontWeight: '500', marginTop: 4 },
   linkText: { fontSize: 13, fontWeight: '600', color: LINK_BLUE, marginTop: 10 },
 
   // ── 5. VERIFIED WORK
@@ -925,12 +974,12 @@ const s = injectFonts({
   aboutText: { fontSize: 14, color: MID, lineHeight: 22 },
 
   // ── 6. ACTIONS (inline)
-  actionRow: { flexDirection: 'row', gap: 8, marginTop: 16 },
+  actionRow: { flexDirection: 'row', gap: 6, marginTop: 16 },
   actionCallBtn: {
-    flex: 1.2, height: 46, borderRadius: 12,
+    flex: 1.3, height: 46, borderRadius: 12,
     backgroundColor: DARK, alignItems: 'center', justifyContent: 'center',
   },
-  actionCallText: { color: '#FFFFFF', fontWeight: '600', fontSize: 14 },
+  actionCallText: { color: '#FFFFFF', fontWeight: '600', fontSize: 12 },
   actionCallBtnLocked: { backgroundColor: FILL },
   actionCallTextLocked: { color: LIGHT },
   actionMsgBtn: {
@@ -938,9 +987,15 @@ const s = injectFonts({
     borderWidth: 1.5, borderColor: DARK,
     alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
   },
-  actionMsgText: { color: DARK, fontWeight: '600', fontSize: 13 },
+  actionMsgText: { color: DARK, fontWeight: '600', fontSize: 11 },
+  actionEnquiryBtn: {
+    flex: 1.2, height: 46, borderRadius: 12,
+    borderWidth: 1.5, borderColor: DARK,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
+  },
+  actionEnquiryText: { color: DARK, fontWeight: '600', fontSize: 11 },
   actionBookmarkBtn: {
-    width: 46, height: 46, borderRadius: 12,
+    width: 40, height: 46, borderRadius: 12,
     borderWidth: 1.5, borderColor: BORDER,
     alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
   },
@@ -950,6 +1005,11 @@ const s = injectFonts({
     alignItems: 'center', justifyContent: 'center',
   },
   editProfileBtnText: { color: DARK, fontWeight: '600', fontSize: 15 },
+  newWorkRecordBtn: {
+    flex: 1, height: 46, borderRadius: 12,
+    backgroundColor: DARK, alignItems: 'center', justifyContent: 'center',
+  },
+  newWorkRecordBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
 
   // ── 8. SERVICES chips
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -970,5 +1030,14 @@ const s = injectFonts({
   reviewStarActive: { color: STAR },
   reviewComment: { fontSize: 13, color: MID, lineHeight: 20, fontStyle: 'italic' },
 
-  bookmarkIcon: { fontSize: 20 },
+  bookmarkIcon: { fontSize: 18 },
+
+  // ── TOAST (brief confirmation, e.g. availability toggled)
+  toast: {
+    position: 'absolute', left: 24, right: 24, bottom: 40,
+    backgroundColor: DARK, borderRadius: 12,
+    paddingVertical: 12, paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  toastText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
 });

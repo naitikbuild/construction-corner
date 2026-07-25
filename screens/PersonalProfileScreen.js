@@ -14,6 +14,7 @@ import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
 import { auth } from '../config/firebase';
 import { getProfile } from '../services/userService';
 import { getWorkByCustomer } from '../services/workService';
+import { formatAmountIndian } from '../utils/format';
 
 const AnimatedSafeAreaView = Animated.createAnimatedComponent(SafeAreaView);
 
@@ -40,7 +41,7 @@ function BookingCard({ item }) {
         {item.date ? <Text style={styles.bookingDate}>{item.date}</Text> : null}
       </View>
       <View style={styles.bookingRight}>
-        <Text style={styles.bookingAmount}>₹{Number(item.amount || 0).toLocaleString('en-IN')}</Text>
+        <Text style={styles.bookingAmount}>{formatAmountIndian(item.amount)}</Text>
         <View style={[styles.statusPill, verified ? styles.statusVerified : styles.statusPending]}>
           <Text style={[styles.statusText, { color: verified ? GREEN : TEXT_MID }]}>
             {verified ? 'Verified' : 'Pending'}

@@ -13,6 +13,7 @@ const ORANGE = '#FF6B2B';
 const NAVY = '#1A1A2E';
 import { getProfile } from '../services/userService';
 import { getPendingWork, getTotalVerifiedAmount } from '../services/workService';
+import { formatAmountIndian } from '../utils/format';
 
 const ACTIVITY = [
   { icon: '📋', color: '#E0F5FE', title: 'Job Posted', sub: 'Site Engineer – Bopal Project', time: '2h ago' },
@@ -184,7 +185,7 @@ export default function MyDashboardScreen({ navigation }) {
         {/* Stats */}
         <View style={styles.statsRow}>
           {[
-            { icon: '✅', label: 'Verified ₹', value: verifiedAmt > 0 ? `₹${Math.round(verifiedAmt / 1000)}K` : '₹0', color: '#2ECC71', bg: '#F0FFF4' },
+            { icon: '✅', label: 'Verified ₹', value: formatAmountIndian(verifiedAmt), color: '#2ECC71', bg: '#F0FFF4' },
             { icon: '⭐', label: 'CC Score', value: String(ccScore), color: ORANGE, bg: '#FFF3E0' },
             { icon: '👁️', label: 'Profile Views', value: profileViews > 0 ? String(profileViews) : '0', color: NAVY, bg: '#F5F5F0' },
             { icon: '💬', label: 'Messages', value: '—', color: '#FF8C00', bg: '#FFF7ED' },

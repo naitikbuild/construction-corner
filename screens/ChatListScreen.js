@@ -1,365 +1,417 @@
-import {
-  View, Text, TouchableOpacity, StyleSheet,
-  FlatList, TextInput, StatusBar, ActivityIndicator,
-} from 'react-native';
 import { useState, useMemo, useEffect, useRef } from 'react';
+import {
+  View, Text, TouchableOpacity, FlatList, TextInput, StatusBar,
+  ActivityIndicator, Image,
+} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
 import { db } from '../config/firebase';
-import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { injectFonts } from '../theme/typography';
+import { getProfile } from '../services/userService';
+import { markChatRead } from '../services/chatService';
+import { DEMO_MODE } from '../config/demoMode';
+import { DEMO_CHATS } from '../demoData';
 
-const ORANGE = '#FF6B2B';
-const ORANGE_LIGHT = '#FFF3E0';
+const GREEN       = '#22A559';
+const DARK          = '#262626';
+const BG            = '#FAF9F5';
+const FILL          = '#F2F2F2';
+const BORDER        = '#E5E5E5';
+const MID            = '#737373';
+const LIGHT          = '#8E8E8E';
+const LINK_BLUE      = '#1877F2';
 
-// ─── Sample Data ─────────────────────────────────────────────────────────────
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const CONVERSATIONS = [
-  {
-    id: '1',
-    name: 'Rahul Mehta',
-    role: 'Civil Contractor',
-    emoji: '👷',
-    avatarBg: '#EFF6FF',
-    lastMessage: 'Site engineer ke baare mein baat karni thi, kya aap kal available hain?',
-    time: '2m ago',
-    unread: 3,
-    online: true,
-  },
-  {
-    id: '2',
-    name: 'Priya Agarwal',
-    role: 'Architect',
-    emoji: '🏛️',
-    avatarBg: '#FDF2F8',
-    lastMessage: 'Drawings ready ho gayi hain, please review karein aur feedback dein',
-    time: '1h ago',
-    unread: 1,
-    online: true,
-  },
-  {
-    id: '3',
-    name: 'Gujarat Cement Traders',
-    role: 'Cement Supplier',
-    emoji: '🏭',
-    avatarBg: '#FFF7ED',
-    lastMessage: "Aaj ki rate list bhejte hain. OPC 53 grade - ₹340/bag, delivery free above 100 bags",
-    time: '3h ago',
-    unread: 0,
-    online: false,
-  },
-  {
-    id: '4',
-    name: 'Suresh Patel',
-    role: 'Builder & Developer',
-    emoji: '🏢',
-    avatarBg: '#F0FDF4',
-    lastMessage: 'Tender document share karo please, review karke batate hain',
-    time: 'Yesterday',
-    unread: 0,
-    online: false,
-  },
-  {
-    id: '5',
-    name: 'Raj Steel Suppliers',
-    role: 'Steel & TMT Supplier',
-    emoji: '⚙️',
-    avatarBg: '#F8FAFC',
-    lastMessage: 'Order confirm kar do jaldi, stock limited hai — Fe 500D available hai',
-    time: '2d ago',
-    unread: 2,
-    online: false,
-  },
-  {
-    id: '6',
-    name: 'Ankit Sharma',
-    role: 'Interior Designer',
-    emoji: '🛋️',
-    avatarBg: '#FDF4FF',
-    lastMessage: '3D render ready hai, WhatsApp pe bhejta hoon',
-    time: '3d ago',
-    unread: 0,
-    online: false,
-  },
-];
+// WhatsApp-style rules: time-of-day today, "Yesterday", weekday name within
+// the last week, otherwise a short date.
+function formatChatTime(date) {
+  if (!date) return '';
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((startOfToday - startOfDate) / 86400000);
 
-// ─── Conversation Item ────────────────────────────────────────────────────────
+  if (diffDays <= 0) {
+    let h = date.getHours();
+    const m = String(date.getMinutes()).padStart(2, '0');
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return `${h}:${m} ${ampm}`;
+  }
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return WEEKDAYS[date.getDay()];
+  return `${date.getDate()} ${MONTHS[date.getMonth()]}`;
+}
 
-function ConversationItem({ item, onPress }) {
+// Maps a DEMO_CHATS fixture to the exact same row shape real Firestore chats
+// are mapped to below — entirely client-side, never touches Firestore.
+function demoChatToRow(chat) {
+  const last = chat.messages[chat.messages.length - 1] || null;
+  const sentByMe = last?.sender === 'me';
+  const lastMessage = last?.type === 'work_record' ? '📄 Work record shared' : (last?.text || '');
+  const read = sentByMe && chat.lastReadByOther && last?.timestamp
+    ? chat.lastReadByOther >= last.timestamp
+    : false;
+  return {
+    id: chat.id,
+    uid: chat.participant.uid,
+    name: chat.participant.name,
+    role: chat.participant.category || '',
+    emoji: '👤',
+    avatarBg: FILL,
+    photoUri: chat.participant.photoUri || null,
+    verified: !!chat.participant.verified,
+    available: !!chat.participant.available,
+    online: !!chat.participant.available,
+    lastMessage,
+    sentByMe,
+    read,
+    unread: chat.unreadCount || 0,
+    timeLabel: formatChatTime(last?.timestamp || null),
+    sortTs: last?.timestamp ? last.timestamp.getTime() : 0,
+    isDemo: true,
+  };
+}
+
+// ─── Conversation row ────────────────────────────────────────────────────────
+function ConversationRow({ item, onPress }) {
+  const hasUnread = item.unread > 0;
   return (
-    <TouchableOpacity style={styles.item} onPress={onPress} activeOpacity={0.7}>
-      {/* Avatar */}
-      <View style={styles.avatarWrap}>
-        <View style={[styles.avatar, { backgroundColor: item.avatarBg }]}>
-          <Text style={styles.avatarEmoji}>{item.emoji}</Text>
-        </View>
-        {item.online && <View style={styles.onlineDot} />}
+    <TouchableOpacity style={s.row} onPress={onPress} activeOpacity={0.7}>
+      <View style={s.avatarWrap}>
+        {item.photoUri ? (
+          <Image source={{ uri: item.photoUri }} style={s.avatarImg} />
+        ) : (
+          <View style={s.avatarPlaceholder}>
+            <Text style={s.avatarPlaceholderIcon}>👤</Text>
+          </View>
+        )}
+        {item.available && <View style={s.onlineDot} />}
       </View>
 
-      {/* Content */}
-      <View style={styles.itemContent}>
-        <View style={styles.itemTopRow}>
-          <Text style={styles.itemName} numberOfLines={2}>{item.name}</Text>
-          <Text style={[styles.itemTime, item.unread > 0 && styles.itemTimeUnread]}>
-            {item.time}
-          </Text>
+      <View style={s.rowInfo}>
+        <View style={s.nameRow}>
+          <Text style={s.name} numberOfLines={1}>{item.name}</Text>
+          {item.verified ? (
+            <View style={s.verifiedBadge}><Text style={s.verifiedBadgeText}>✓</Text></View>
+          ) : null}
         </View>
-        <View style={styles.itemBottomRow}>
-          <Text
-            style={[styles.itemPreview, item.unread > 0 && styles.itemPreviewBold]}
-            numberOfLines={1}
-          >
-            {item.lastMessage}
-          </Text>
-          {item.unread > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{item.unread}</Text>
-            </View>
-          )}
-        </View>
-        <Text style={styles.itemRole}>{item.role}</Text>
+        <Text style={[s.preview, hasUnread && s.previewUnread]} numberOfLines={1}>
+          {item.sentByMe ? 'You: ' : ''}{item.lastMessage}
+        </Text>
+      </View>
+
+      <View style={s.rightCol}>
+        <Text style={[s.time, hasUnread && s.timeUnread]} numberOfLines={1}>{item.timeLabel}</Text>
+        {hasUnread ? (
+          <View style={s.unreadBadge}>
+            <Text style={s.unreadBadgeText}>{item.unread}</Text>
+          </View>
+        ) : item.sentByMe ? (
+          <Text style={[s.ticks, item.read && s.ticksRead]}>✓✓</Text>
+        ) : null}
       </View>
     </TouchableOpacity>
   );
 }
 
-// ─── Main Screen ─────────────────────────────────────────────────────────────
-
+// ─── Main screen ────────────────────────────────────────────────────────────
 export default function ChatListScreen({ navigation }) {
   const [search, setSearch] = useState('');
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(true);
-  const uidRef = useRef(null);
+  const myUidRef = useRef(null);
   const unsubRef = useRef(null);
+  const profileCacheRef = useRef({}); // otherUid -> profile, avoids refetching on every snapshot
 
   useEffect(() => {
-    setupRealTimeChats();
-    return () => { if (unsubRef.current) unsubRef.current(); };
-  }, []);
+    let cancelled = false;
 
-  const setupRealTimeChats = async () => {
-    try {
+    (async () => {
       const uid = await AsyncStorage.getItem('uid');
-      if (!uid) { setLoading(false); setConversations(CONVERSATIONS); return; }
-      uidRef.current = uid;
+      if (!uid) { setLoading(false); return; }
+      myUidRef.current = uid;
 
       const q = query(collection(db, 'chats'), where('participants', 'array-contains', uid));
-      unsubRef.current = onSnapshot(q, (snap) => {
-        setLoading(false);
-        if (snap.empty) {
-          setConversations(CONVERSATIONS);
-          return;
+      unsubRef.current = onSnapshot(q, async (snap) => {
+        if (cancelled) return;
+        const docs = snap.docs.map(d => ({ id: d.id, data: d.data() }));
+
+        const otherUids = docs
+          .map(({ data }) => (data.participants || []).find(p => p !== uid))
+          .filter(Boolean);
+        const uncached = [...new Set(otherUids)].filter(u => !profileCacheRef.current[u]);
+        if (uncached.length > 0) {
+          const fetched = await Promise.all(uncached.map(u => getProfile(u).catch(() => null)));
+          uncached.forEach((u, i) => { profileCacheRef.current[u] = fetched[i] || {}; });
         }
-        const mapped = snap.docs.map(d => {
-          const data = d.data();
+        if (cancelled) return;
+
+        const mapped = docs.map(({ id, data }) => {
           const otherUid = (data.participants || []).find(p => p !== uid);
-          const otherName = data.participantNames?.[otherUid] || 'User';
-          const ts = data.lastMessageAt?.toDate?.();
-          let time = '';
-          if (ts) {
-            const diffMins = Math.round((Date.now() - ts.getTime()) / 60000);
-            time = diffMins < 60 ? `${diffMins}m ago`
-              : diffMins < 1440 ? `${Math.round(diffMins / 60)}h ago`
-              : 'Yesterday';
-          }
+          const profile = profileCacheRef.current[otherUid] || {};
+          const ts = data.lastMessageAt?.toDate?.() || null;
+          const sentByMe = !!data.lastMessageSenderId && data.lastMessageSenderId === uid;
+          const lastReadAt = data.lastReadAt?.[otherUid]?.toDate?.() || null;
+          const read = sentByMe && ts && lastReadAt ? lastReadAt >= ts : false;
+
           return {
-            id: d.id,
-            name: otherName,
-            role: 'Construction Professional',
-            emoji: '👷',
-            avatarBg: '#EFF6FF',
-            lastMessage: data.lastMessage || 'Start a conversation',
-            time,
-            unread: 0,
-            online: false,
+            id,
             uid: otherUid,
+            name: profile.name || profile.companyName || data.participantNames?.[otherUid] || 'User',
+            role: profile.category || profile.designation || profile.workerSkill || profile.contractorType || '',
+            emoji: '👤',
+            avatarBg: FILL,
+            photoUri: profile.photoUri || null,
+            verified: !!profile.verified,
+            available: !!profile.available,
+            online: !!profile.available,
+            lastMessage: data.lastMessage || 'Start a conversation',
+            sentByMe,
+            read,
+            unread: sentByMe ? 0 : Number(data.unreadCount?.[uid] || 0),
+            timeLabel: formatChatTime(ts),
+            sortTs: ts ? ts.getTime() : 0,
           };
         });
-        // Sort by most recent
-        mapped.sort((a, b) => (b.time < a.time ? -1 : 1));
-        setConversations(mapped.length > 0 ? mapped : CONVERSATIONS);
-      }, () => {
+
+        const demoRows = DEMO_MODE ? DEMO_CHATS.map(demoChatToRow) : [];
+        const combined = [...mapped, ...demoRows];
+        combined.sort((a, b) => b.sortTs - a.sortTs);
+        setConversations(combined);
         setLoading(false);
-        setConversations(CONVERSATIONS);
+      }, () => {
+        // Even if the real chats query fails, demo content should still
+        // preview correctly.
+        setConversations(DEMO_MODE ? DEMO_CHATS.map(demoChatToRow) : []);
+        setLoading(false);
       });
-    } catch (_) {
-      setLoading(false);
-      setConversations(CONVERSATIONS);
-    }
-  };
+    })();
+
+    return () => {
+      cancelled = true;
+      if (unsubRef.current) unsubRef.current();
+    };
+  }, []);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return conversations;
     const q = search.toLowerCase();
-    return conversations.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.role.toLowerCase().includes(q) ||
-        c.lastMessage.toLowerCase().includes(q)
+    return conversations.filter(c =>
+      c.name.toLowerCase().includes(q) || c.lastMessage.toLowerCase().includes(q)
     );
   }, [search, conversations]);
 
-  const totalUnread = conversations.reduce((sum, c) => sum + (c.unread || 0), 0);
+  const openChat = (item) => {
+    // Demo conversations are client-side only — never write to Firestore
+    // for them, and pass through the fields ChatScreen needs to render them
+    // without any Firestore reads either.
+    if (item.isDemo) {
+      navigation.navigate('Chat', {
+        conversation: {
+          id: item.id,
+          uid: item.uid,
+          name: item.name,
+          role: item.role,
+          emoji: item.emoji,
+          avatarBg: item.avatarBg,
+          online: item.online,
+          isDemo: true,
+          photoUri: item.photoUri,
+          verified: item.verified,
+          available: item.available,
+        },
+      });
+      return;
+    }
+
+    if (item.unread > 0 && myUidRef.current) {
+      markChatRead(item.id, myUidRef.current);
+    }
+    navigation.navigate('Chat', {
+      conversation: {
+        id: item.id,
+        uid: item.uid,
+        name: item.name,
+        role: item.role,
+        emoji: item.emoji,
+        avatarBg: item.avatarBg,
+        online: item.online,
+      },
+    });
+  };
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="white" />
+    <View style={s.screen}>
+      <StatusBar barStyle="dark-content" backgroundColor={BG} />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <View>
-            <Text style={styles.headerTitle}>Messages</Text>
-            {totalUnread > 0 && (
-              <Text style={styles.headerSub}>{totalUnread} unread conversations</Text>
-            )}
-          </View>
-          <TouchableOpacity style={styles.composeBtn}>
-            <Text style={styles.composeBtnText}>✏️</Text>
+      <View style={s.header}>
+        <View style={s.headerTop}>
+          <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
+            <Text style={s.backIcon}>←</Text>
+          </TouchableOpacity>
+          <Text style={s.headerTitle}>Messages</Text>
+          <TouchableOpacity
+            style={s.composeBtn}
+            onPress={() => navigation.navigate('Search')}
+            activeOpacity={0.7}
+          >
+            <Text style={s.composeIcon}>✏️</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Search */}
-        <View style={styles.searchBar}>
-          <Text style={styles.searchIcon}>🔍</Text>
+        <View style={s.searchBar}>
+          <Text style={s.searchIcon}>🔍</Text>
           <TextInput
-            style={styles.searchInput}
-            placeholder="Search conversations..."
-            placeholderTextColor="#A0ADB8"
+            style={s.searchInput}
+            placeholder="Search messages"
+            placeholderTextColor={LIGHT}
+            numberOfLines={1}
             value={search}
             onChangeText={setSearch}
+            returnKeyType="search"
+            autoCorrect={false}
           />
           {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch('')}>
-              <Text style={styles.searchClear}>✕</Text>
+            <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <View style={s.clearBtn}><Text style={s.clearBtnText}>✕</Text></View>
             </TouchableOpacity>
           )}
         </View>
-
-        {/* Filter tabs */}
-        <View style={styles.filterRow}>
-          {['All', 'Unread', 'Contractors', 'Suppliers'].map((f, i) => (
-            <TouchableOpacity
-              key={f}
-              style={[styles.filterTab, i === 0 && styles.filterTabActive]}
-            >
-              <Text style={[styles.filterTabText, i === 0 && styles.filterTabTextActive]}>
-                {f}
-                {f === 'Unread' && totalUnread > 0 ? ` (${totalUnread})` : ''}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
       </View>
 
-      {/* List */}
-      {loading && (
-        <View style={{ alignItems: 'center', paddingTop: 40 }}>
-          <ActivityIndicator size="large" color={ORANGE} />
-          <Text style={{ marginTop: 10, color: '#888', fontSize: 13 }}>Loading chats...</Text>
+      {loading ? (
+        <View style={s.center}>
+          <ActivityIndicator size="large" color={DARK} />
         </View>
+      ) : (
+        <FlatList
+          style={{ flex: 1 }}
+          data={filtered}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => <ConversationRow item={item} onPress={() => openChat(item)} />}
+          ItemSeparatorComponent={() => <View style={s.separator} />}
+          ListEmptyComponent={() => (
+            conversations.length === 0 ? (
+              <View style={s.empty}>
+                <Text style={s.emptyIcon}>💬</Text>
+                <Text style={s.emptyTitle}>No conversations yet</Text>
+                <Text style={s.emptySub}>Browse providers and start a conversation</Text>
+                <TouchableOpacity
+                  style={s.browseBtn}
+                  onPress={() => navigation.navigate('Search')}
+                  activeOpacity={0.85}
+                >
+                  <Text style={s.browseBtnText}>Browse Providers</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={s.empty}>
+                <Text style={s.emptyIcon}>🔍</Text>
+                <Text style={s.emptyTitle}>No matches found</Text>
+                <Text style={s.emptySub}>Try a different name or keyword</Text>
+              </View>
+            )
+          )}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={filtered.length === 0 ? { flexGrow: 1 } : { paddingBottom: 24 }}
+        />
       )}
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <ConversationItem
-            item={item}
-            onPress={() => navigation.navigate('Chat', { conversation: item })}
-          />
-        )}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
-        ListEmptyComponent={() => (
-          <View style={styles.empty}>
-            <Text style={styles.emptyIcon}>💬</Text>
-            <Text style={styles.emptyTitle}>No conversations found</Text>
-            <Text style={styles.emptySub}>Try searching for a name or role</Text>
-          </View>
-        )}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={filtered.length === 0 && styles.emptyContainer}
-      />
     </View>
   );
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
+// ─── Styles ─────────────────────────────────────────────────────────────────
+const s = injectFonts({
+  screen: { flex: 1, backgroundColor: BG },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
-
-  // Header
+  // ── Header
   header: {
     backgroundColor: '#FFFFFF',
-    paddingTop: 52,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EFEFEF',
+    paddingTop: 52, paddingBottom: 12,
+    borderBottomWidth: 1, borderBottomColor: BORDER,
   },
   headerTop: {
-    flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingBottom: 14,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 14, marginBottom: 12,
   },
-  headerTitle: { fontSize: 24, fontWeight: '800', color: '#1A1A1A' },
-  headerSub: { fontSize: 12, fontWeight: '600', color: ORANGE, marginTop: 2 },
+  backBtn: {
+    width: 36, height: 36, borderRadius: 18, backgroundColor: FILL,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  backIcon: { fontSize: 20, lineHeight: 24, fontWeight: '700', color: DARK },
+  headerTitle: { fontSize: 20, fontWeight: '700', color: DARK },
   composeBtn: {
-    width: 40, height: 40, borderRadius: 12, backgroundColor: ORANGE_LIGHT,
-    alignItems: 'center', justifyContent: 'center',
+    width: 36, height: 36, borderRadius: 18, backgroundColor: FILL,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  composeBtnText: { fontSize: 18 },
+  composeIcon: { fontSize: 15, lineHeight: 18 },
 
-  // Search
+  // ── Search
   searchBar: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: '#F5F5F0', borderRadius: 12, marginHorizontal: 16,
-    paddingHorizontal: 14, paddingVertical: 11, marginBottom: 12,
-    borderWidth: 1, borderColor: '#EFEFEF',
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: FILL, borderRadius: 14, marginHorizontal: 14,
+    paddingHorizontal: 13, paddingVertical: 10,
   },
-  searchIcon: { fontSize: 15 },
-  searchInput: { flex: 1, fontSize: 14, color: '#1A1A1A', fontWeight: '500' },
-  searchClear: { fontSize: 13, color: '#888', fontWeight: '700', paddingHorizontal: 4 },
-
-  // Filter tabs
-  filterRow: { flexDirection: 'row', paddingHorizontal: 16, gap: 8, paddingBottom: 0 },
-  filterTab: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#F5F5F0' },
-  filterTabActive: { backgroundColor: ORANGE_LIGHT },
-  filterTabText: { fontSize: 12, fontWeight: '600', color: '#888' },
-  filterTabTextActive: { color: ORANGE, fontWeight: '800' },
-
-  // Items
-  item: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 14, gap: 12, backgroundColor: '#FFFFFF' },
-  avatarWrap: { position: 'relative' },
-  avatar: {
-    width: 54, height: 54, borderRadius: 27,
+  searchIcon: { fontSize: 15, lineHeight: 18 },
+  searchInput: { flex: 1, fontSize: 14, color: DARK, fontWeight: '500', paddingVertical: 0 },
+  clearBtn: {
+    width: 20, height: 20, borderRadius: 10, backgroundColor: BORDER,
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: '#EFEFEF',
   },
-  avatarEmoji: { fontSize: 26 },
+  clearBtnText: { fontSize: 9, fontWeight: '900', color: MID },
+
+  // ── Row
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 13 },
+  separator: { height: 1, backgroundColor: BORDER, marginLeft: 16 },
+
+  avatarWrap: { width: 52, height: 52, flexShrink: 0 },
+  avatarImg: { width: 52, height: 52, borderRadius: 26 },
+  avatarPlaceholder: {
+    width: 52, height: 52, borderRadius: 26, backgroundColor: FILL,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  avatarPlaceholderIcon: { fontSize: 22, opacity: 0.4 },
   onlineDot: {
     position: 'absolute', bottom: 1, right: 1,
     width: 13, height: 13, borderRadius: 7,
-    backgroundColor: '#2ECC71', borderWidth: 2, borderColor: '#FFFFFF',
+    backgroundColor: GREEN, borderWidth: 2, borderColor: '#FFFFFF',
   },
-  itemContent: { flex: 1, justifyContent: 'center' },
-  itemTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 3 },
-  itemName: { fontSize: 15, fontWeight: '800', color: '#1A1A1A', flex: 1, marginRight: 8, lineHeight: 18 },
-  itemTime: { fontSize: 11, fontWeight: '600', color: '#888' },
-  itemTimeUnread: { color: ORANGE, fontWeight: '700' },
-  itemBottomRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  itemPreview: { flex: 1, fontSize: 13, color: '#666666', fontWeight: '400' },
-  itemPreviewBold: { color: '#1A1A1A', fontWeight: '600' },
-  itemRole: { fontSize: 11, fontWeight: '600', color: '#888', marginTop: 3 },
-  badge: {
-    minWidth: 20, height: 20, borderRadius: 10,
-    backgroundColor: ORANGE, alignItems: 'center', justifyContent: 'center',
-    paddingHorizontal: 5,
+
+  rowInfo: { flex: 1, minWidth: 0 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 3 },
+  name: { fontSize: 15, fontWeight: '700', color: DARK, flexShrink: 1 },
+  verifiedBadge: {
+    width: 15, height: 15, borderRadius: 8, backgroundColor: LINK_BLUE,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  badgeText: { fontSize: 11, fontWeight: '800', color: '#FFFFFF' },
+  verifiedBadgeText: { fontSize: 9, color: '#FFFFFF', fontWeight: '900' },
+  preview: { fontSize: 13, color: MID, fontWeight: '400' },
+  previewUnread: { color: DARK, fontWeight: '600' },
 
-  separator: { height: 1, backgroundColor: '#EFEFEF', marginLeft: 82 },
+  rightCol: { alignItems: 'flex-end', gap: 6, flexShrink: 0 },
+  time: { fontSize: 11, color: LIGHT, fontWeight: '500' },
+  timeUnread: { color: GREEN, fontWeight: '700' },
+  unreadBadge: {
+    minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 5,
+    backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center',
+  },
+  unreadBadgeText: { fontSize: 11, fontWeight: '800', color: '#FFFFFF' },
+  ticks: { fontSize: 13, color: LIGHT, fontWeight: '700' },
+  ticksRead: { color: GREEN },
 
-  // Empty
-  emptyContainer: { flex: 1 },
-  empty: { alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: 12 },
-  emptyIcon: { fontSize: 56 },
-  emptyTitle: { fontSize: 18, fontWeight: '800', color: '#1A1A1A' },
-  emptySub: { fontSize: 13, color: '#888' },
+  // ── Empty
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 6 },
+  emptyIcon: { fontSize: 48, marginBottom: 6, opacity: 0.6 },
+  emptyTitle: { fontSize: 16, fontWeight: '700', color: DARK },
+  emptySub: { fontSize: 13, color: LIGHT, fontWeight: '500', textAlign: 'center' },
+  browseBtn: {
+    marginTop: 14, backgroundColor: DARK, borderRadius: 12,
+    paddingHorizontal: 20, paddingVertical: 12,
+  },
+  browseBtnText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
 });

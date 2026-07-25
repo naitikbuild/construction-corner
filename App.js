@@ -21,6 +21,7 @@ import SearchScreen from './screens/SearchScreen';
 import ChatListScreen from './screens/ChatListScreen';
 import ChatScreen from './screens/ChatScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
+import EnquiryScreen from './screens/EnquiryScreen';
 
 // Professionals & Workers
 import ProfessionalCategoryScreen from './screens/ProfessionalCategoryScreen';
@@ -47,6 +48,9 @@ import WorkHistoryScreen from './screens/WorkHistoryScreen';
 import CommissionWalletScreen from './screens/CommissionWalletScreen';
 import LeaveReviewScreen from './screens/LeaveReviewScreen';
 import ReviewsListScreen from './screens/ReviewsListScreen';
+
+// Work Record System (replaces MarkWorkComplete/ConfirmWork — in progress)
+import CreateWorkRecordScreen from './screens/CreateWorkRecordScreen';
 
 // Legal & Info (Play Store required)
 import PrivacyPolicyScreen from './screens/PrivacyPolicyScreen';
@@ -115,6 +119,7 @@ export default function App() {
         <Stack.Screen name="ChatList" component={ChatListScreen} />
         <Stack.Screen name="Chat" component={ChatScreen} />
         <Stack.Screen name="Notifications" component={NotificationsScreen} />
+        <Stack.Screen name="Enquiry" component={EnquiryScreen} />
 
         {/* Professionals & Workers */}
         <Stack.Screen name="ProfessionalCategory" component={ProfessionalCategoryScreen} />
@@ -141,6 +146,9 @@ export default function App() {
         <Stack.Screen name="CommissionWallet" component={CommissionWalletScreen} />
         <Stack.Screen name="LeaveReview" component={LeaveReviewScreen} />
         <Stack.Screen name="ReviewsList" component={ReviewsListScreen} />
+
+        {/* Work Record System */}
+        <Stack.Screen name="CreateWorkRecord" component={CreateWorkRecordScreen} />
 
         {/* Legal & Info */}
         <Stack.Screen name="Privacy" component={PrivacyPolicyScreen} />

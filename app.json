@@ -29,6 +29,18 @@
         {
           "locationWhenInUsePermission": "Construction Corner uses your location to auto-fill your current city, state and pincode on your profile."
         }
+      ],
+      "expo-speech-recognition",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "newArchEnabled": false,
+            "gradleProperties": {
+              "org.gradle.jvmargs": "-Xmx6144m -XX:MaxMetaspaceSize=2048m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8"
+            }
+          }
+        }
       ]
     ],
     "extra": {

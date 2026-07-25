@@ -1,454 +1,518 @@
+import { useState, useRef, useEffect, useMemo } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, FlatList,
-  TextInput, StatusBar, KeyboardAvoidingView, Platform, Modal,
+  View, Text, TouchableOpacity, FlatList, TextInput, StatusBar,
+  KeyboardAvoidingView, Platform, Image, Alert,
 } from 'react-native';
-import { useState, useRef, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { injectFonts } from '../theme/typography';
+import { getProfile } from '../services/userService';
+import {
+  sendMessage, createChat, markChatRead,
+  subscribeToChat, subscribeToRecentMessages, getOlderMessages,
+} from '../services/chatService';
+import { formatAmountIndian } from '../utils/format';
+import { DEMO_MODE } from '../config/demoMode';
+import { DEMO_CHATS } from '../demoData';
 
-import { sendMessage, getChatMessages, createChat } from '../services/chatService';
+const GREEN       = '#22A559';
+const GREEN_LIGHT  = '#E8F5EC';
+const DARK          = '#262626';
+const BG            = '#FAF9F5';
+const FILL          = '#F2F2F2';
+const BORDER        = '#E5E5E5';
+const MID            = '#737373';
+const LIGHT          = '#8E8E8E';
+const LINK_BLUE      = '#1877F2';
 
-const ORANGE = '#FF6B2B';
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-// ─── Sample Messages per conversation ────────────────────────────────────────
-
-const SAMPLE_MESSAGES = {
-  '1': [ // Rahul Mehta — Civil Contractor
-    { id: 'm1', text: 'Hello! Aapka profile dekha, bahut impressive hai', sent: false, time: '10:02 AM' },
-    { id: 'm2', text: 'Thank you! Kaise help kar sakta hoon?', sent: true, time: '10:04 AM' },
-    { id: 'm3', text: 'Site engineer chahiye tha apne project ke liye — Ahmedabad mein G+4 residential', sent: false, time: '10:05 AM' },
-    { id: 'm4', text: 'Zaroor, project ka scope batao — kitne sqft aur timeline kya hai?', sent: true, time: '10:06 AM' },
-    { id: 'm5', text: 'Around 4000 sqft hai, July se start karna hai. Budget ₹45K/month ka hai', sent: false, time: '10:08 AM' },
-    { id: 'm6', text: 'Reasonable hai. Kal site visit ka plan kar sakte hain. Timing?', sent: true, time: '10:10 AM' },
-    { id: 'm7', text: 'Site engineer ke baare mein baat karni thi, kya aap kal available hain?', sent: false, time: '10:12 AM' },
-  ],
-  '2': [ // Priya Agarwal — Architect
-    { id: 'm1', text: 'Hi! Maine aapko ProfessionalList mein dekha, aapke portfolio se impressed hoon', sent: true, time: '9:30 AM' },
-    { id: 'm2', text: 'Thank you! Kaunsa project tha aapka?', sent: false, time: '9:32 AM' },
-    { id: 'm3', text: 'Bopal mein 3BHK ka interior — roughly 1800 sqft', sent: true, time: '9:33 AM' },
-    { id: 'm4', text: 'Perfect! Mera rate ₹1,200/sqft hai for complete design. Site visit free hai', sent: false, time: '9:35 AM' },
-    { id: 'm5', text: 'Sounds good. Kab available hain aap?', sent: true, time: '9:36 AM' },
-    { id: 'm6', text: 'This Saturday 11am? Address share kar dena', sent: false, time: '9:38 AM' },
-    { id: 'm7', text: 'Done! Address bhejta hoon aaj evening mein', sent: true, time: '9:40 AM' },
-    { id: 'm8', text: 'Drawings ready ho gayi hain, please review karein aur feedback dein', sent: false, time: '11:15 AM' },
-  ],
-  '3': [ // Gujarat Cement Traders
-    { id: 'm1', text: 'Hello, cement ka latest rate kya hai?', sent: true, time: '8:00 AM' },
-    { id: 'm2', text: 'Good morning! OPC 53 Grade — ₹340/bag. PPC — ₹320/bag', sent: false, time: '8:05 AM' },
-    { id: 'm3', text: 'Minimum order kitna?', sent: true, time: '8:06 AM' },
-    { id: 'm4', text: '50 bags minimum. 100+ bags pe free delivery. GST separate', sent: false, time: '8:08 AM' },
-    { id: 'm5', text: 'Ok, 200 bags OPC 53 chahiye. Delivery kab milegi?', sent: true, time: '8:10 AM' },
-    { id: 'm6', text: 'Order aaj karo to kal tak delivery. Payment advance ya COD?', sent: false, time: '8:12 AM' },
-    { id: 'm7', text: 'Aaj ki rate list bhejte hain. OPC 53 grade - ₹340/bag, delivery free above 100 bags', sent: false, time: '11:00 AM' },
-  ],
-  '4': [ // Suresh Patel
-    { id: 'm1', text: 'Suresh bhai, construction ke liye quote chahiye tha', sent: true, time: 'Yesterday 3:00 PM' },
-    { id: 'm2', text: 'Bilkul! Project details bhejo — location, area, floors?', sent: false, time: 'Yesterday 3:10 PM' },
-    { id: 'm3', text: 'Gandhinagar, plot 200 sqyd, G+2 residential, budget 80L', sent: true, time: 'Yesterday 3:15 PM' },
-    { id: 'm4', text: 'Comfortable budget hai. Kya turnkey chahiye ya just structure?', sent: false, time: 'Yesterday 3:20 PM' },
-    { id: 'm5', text: 'Turnkey preferred. Kab de sakte ho rough estimate?', sent: true, time: 'Yesterday 3:22 PM' },
-    { id: 'm6', text: 'Tender document share karo please, review karke batate hain', sent: false, time: 'Yesterday 5:45 PM' },
-  ],
-  '5': [ // Raj Steel Suppliers
-    { id: 'm1', text: 'TMT bars ka rate kya chal raha hai?', sent: true, time: '2d ago 10:00 AM' },
-    { id: 'm2', text: 'Fe 500D — ₹58/kg. Fe 550 — ₹62/kg. 10mm se 32mm available', sent: false, time: '2d ago 10:15 AM' },
-    { id: 'm3', text: '5 MT Fe 500D chahiye — 12mm aur 16mm mix', sent: true, time: '2d ago 10:20 AM' },
-    { id: 'm4', text: 'Stock available hai. Kal delivery possible hai Ahmedabad mein', sent: false, time: '2d ago 10:25 AM' },
-    { id: 'm5', text: 'Price negotiable hai kya? 5 MT pe?', sent: true, time: '2d ago 10:30 AM' },
-    { id: 'm6', text: '₹56/kg final kar sakte hain 5MT ke liye. Payment 50% advance', sent: false, time: '2d ago 10:45 AM' },
-    { id: 'm7', text: 'Order confirm kar do jaldi, stock limited hai — Fe 500D available hai', sent: false, time: '2d ago 2:00 PM' },
-  ],
-  '6': [ // Ankit Sharma
-    { id: 'm1', text: 'Hi Ankit! Living room ka 3D render ready hua?', sent: true, time: '3d ago 4:00 PM' },
-    { id: 'm2', text: 'Ji! Kal tak ready ho jaayega. Koi changes hain?', sent: false, time: '3d ago 4:10 PM' },
-    { id: 'm3', text: 'Sofa ka color change karna tha — grey se beige karo', sent: true, time: '3d ago 4:12 PM' },
-    { id: 'm4', text: 'Done! 3D render ready hai, WhatsApp pe bhejta hoon', sent: false, time: '3d ago 6:30 PM' },
-  ],
+const PROFILE_SCREEN = {
+  worker: 'WorkerProfile',
+  contractor: 'ContractorProfile',
+  professional: 'ProfessionalProfile',
+  supplier: 'SupplierProfile',
+  business: 'BusinessProfile',
 };
 
-// ─── Message Bubble ───────────────────────────────────────────────────────────
+function formatBubbleTime(date) {
+  if (!date) return '';
+  let h = date.getHours();
+  const m = String(date.getMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${m} ${ampm}`;
+}
 
-function MessageBubble({ message }) {
-  const isSent = message.sent;
+function dayLabel(date) {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((startOfToday - startOfDate) / 86400000);
+  if (diffDays === 0) return 'TODAY';
+  if (diffDays === 1) return 'YESTERDAY';
+  const year = date.getFullYear() !== now.getFullYear() ? ` ${date.getFullYear()}` : '';
+  return `${date.getDate()} ${MONTHS[date.getMonth()]}${year}`.toUpperCase();
+}
+
+// Interleaves centred day-separator pseudo-rows between messages from
+// different calendar days.
+function buildListData(messages) {
+  const out = [];
+  let lastDayKey = null;
+  messages.forEach((m, i) => {
+    const d = m.timestamp;
+    const dayKey = d ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` : 'unknown';
+    if (dayKey !== lastDayKey) {
+      out.push({ __type: 'separator', id: `sep-${dayKey}-${i}`, label: d ? dayLabel(d) : '' });
+      lastDayKey = dayKey;
+    }
+    out.push(m);
+  });
+  return out;
+}
+
+// ─── Date separator ─────────────────────────────────────────────────────────
+function DateSeparator({ label }) {
+  if (!label) return null;
   return (
-    <View style={[styles.bubbleRow, isSent ? styles.bubbleRowRight : styles.bubbleRowLeft]}>
-      <View style={[styles.bubble, isSent ? styles.bubbleSent : styles.bubbleReceived]}>
-        <Text style={[styles.bubbleText, isSent ? styles.bubbleTextSent : styles.bubbleTextReceived]}>
-          {message.text}
-        </Text>
-        <Text style={[styles.bubbleTime, isSent ? styles.bubbleTimeSent : styles.bubbleTimeReceived]}>
-          {message.time}{isSent ? '  ✓✓' : ''}
-        </Text>
+    <View style={cs.dateSepWrap}>
+      <View style={cs.dateSepPill}><Text style={cs.dateSepText}>{label}</Text></View>
+    </View>
+  );
+}
+
+// ─── Text message bubble ────────────────────────────────────────────────────
+function MessageBubble({ item, isSent, isRead }) {
+  return (
+    <View style={[cs.bubbleRow, isSent ? cs.bubbleRowRight : cs.bubbleRowLeft]}>
+      <View style={[cs.bubble, isSent ? cs.bubbleSent : cs.bubbleReceived]}>
+        <Text style={cs.bubbleText}>{item.text}</Text>
+        <View style={cs.bubbleMetaRow}>
+          <Text style={cs.bubbleTime}>{formatBubbleTime(item.timestamp)}</Text>
+          {isSent && <Text style={[cs.bubbleTicks, isRead && cs.bubbleTicksRead]}>✓✓</Text>}
+        </View>
       </View>
     </View>
   );
 }
 
-// ─── Main Screen ─────────────────────────────────────────────────────────────
+// ─── Work record card (special message type) ───────────────────────────────
+function WorkRecordCard({ item, isSent, onPress }) {
+  return (
+    <View style={[cs.bubbleRow, isSent ? cs.bubbleRowRight : cs.bubbleRowLeft]}>
+      <View style={cs.wrCard}>
+        <View style={cs.wrHeaderStrip}>
+          <Text style={cs.wrHeaderText}>📄 WORK RECORD · SHARED</Text>
+        </View>
+        <View style={cs.wrBody}>
+          <Text style={cs.wrProjectName} numberOfLines={2}>{item.projectName || 'Untitled project'}</Text>
+          {item.workArea ? <Text style={cs.wrMeta}>{item.workArea}</Text> : null}
+          {item.contractValue ? (
+            <Text style={cs.wrValue}>{formatAmountIndian(item.contractValue)} contract value</Text>
+          ) : null}
+          <TouchableOpacity style={cs.wrBtn} onPress={onPress} activeOpacity={0.85}>
+            <Text style={cs.wrBtnText}>View & confirm details</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}
 
+// ─── Main screen ────────────────────────────────────────────────────────────
 export default function ChatScreen({ navigation, route }) {
-  const conversation = route?.params?.conversation || {
-    id: '1',
-    name: 'Rahul Mehta',
-    role: 'Civil Contractor',
-    emoji: '👷',
-    avatarBg: '#EFF6FF',
-    online: true,
-  };
+  const conversation = route?.params?.conversation || {};
 
+  const [otherProfile, setOtherProfile] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [chatMeta, setChatMeta] = useState(null);
   const [inputText, setInputText] = useState('');
-  const [showMenu, setShowMenu] = useState(false);
   const [myUid, setMyUid] = useState(null);
   const [chatId, setChatId] = useState(null);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [demoLastReadByOther, setDemoLastReadByOther] = useState(null);
+
   const listRef = useRef(null);
-  const unsubRef = useRef(null);
+  const unsubMessagesRef = useRef(null);
+  const unsubChatRef = useRef(null);
+  const oldestCursorRef = useRef(null);
+  const hasMoreOlderRef = useRef(false);
+  const chatIdRef = useRef(null);
+  const firstLoadRef = useRef(true);
+  const isNearBottomRef = useRef(true);
+  const loadingOlderRef = useRef(false);
 
   useEffect(() => {
-    initChat();
-    return () => { if (unsubRef.current) unsubRef.current(); };
-  }, []);
+    let cancelled = false;
 
-  const initChat = async () => {
-    try {
+    (async () => {
       const uid = await AsyncStorage.getItem('uid');
-      if (!uid) return;
+      if (!uid) { setInitialLoading(false); return; }
       setMyUid(uid);
 
-      if (conversation.uid) {
-        const myName = await AsyncStorage.getItem('userName') || 'Me';
-        const id = await createChat(
-          { uid, name: myName },
-          { uid: conversation.uid, name: conversation.name }
-        );
-        setChatId(id);
-        const unsub = getChatMessages(id, (msgs) => {
-          const formatted = msgs.map(m => ({
-            id: m.id,
-            text: m.text,
-            sent: m.sender === uid,
-            time: m.timestamp
-              ? new Date(m.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-              : '',
+      if (!conversation.uid) { setInitialLoading(false); return; }
+
+      // Demo conversations are entirely client-side fixtures — never call
+      // createChat/sendMessage/Firestore listeners for them.
+      if (conversation.isDemo) {
+        const demoChat = DEMO_MODE ? DEMO_CHATS.find(c => c.id === conversation.id) : null;
+        if (demoChat) {
+          const hydrated = demoChat.messages.map(m => ({
+            ...m,
+            sender: m.sender === 'me' ? uid : demoChat.participant.uid,
           }));
-          setMessages(formatted);
-          setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 100);
+          setMessages(hydrated);
+          setDemoLastReadByOther(demoChat.lastReadByOther || null);
+        }
+        setOtherProfile({
+          photoUri: conversation.photoUri || null,
+          verified: !!conversation.verified,
+          available: !!conversation.available,
+          profileType: null,
         });
-        unsubRef.current = unsub;
+        setInitialLoading(false);
+        setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 60);
+        return;
       }
-    } catch (_) {}
+
+      getProfile(conversation.uid)
+        .then(p => { if (!cancelled) setOtherProfile(p); })
+        .catch(() => {});
+
+      const myName = (await AsyncStorage.getItem('userName')) || 'Me';
+      const id = await createChat(
+        { uid, name: myName },
+        { uid: conversation.uid, name: conversation.name || 'User' }
+      );
+      if (cancelled) return;
+      setChatId(id);
+      chatIdRef.current = id;
+      markChatRead(id, uid);
+
+      unsubChatRef.current = subscribeToChat(id, (chat) => { if (!cancelled) setChatMeta(chat); });
+
+      unsubMessagesRef.current = subscribeToRecentMessages(
+        id,
+        (recent) => {
+          if (cancelled) return;
+          setMessages(prev => {
+            const freshIds = new Set(recent.map(m => m.id));
+            const oldestFreshTs = recent[0]?.timestamp;
+            const keptOlder = prev.filter(m =>
+              !freshIds.has(m.id) && m.timestamp && oldestFreshTs && m.timestamp < oldestFreshTs
+            );
+            return [...keptOlder, ...recent];
+          });
+          setInitialLoading(false);
+          const stick = firstLoadRef.current || isNearBottomRef.current;
+          const animated = !firstLoadRef.current;
+          firstLoadRef.current = false;
+          if (stick) {
+            setTimeout(() => listRef.current?.scrollToEnd({ animated }), 60);
+          }
+          markChatRead(id, uid);
+        },
+        (cursor, hasMore) => {
+          oldestCursorRef.current = cursor;
+          hasMoreOlderRef.current = hasMore;
+        }
+      );
+    })();
+
+    return () => {
+      cancelled = true;
+      if (unsubMessagesRef.current) unsubMessagesRef.current();
+      if (unsubChatRef.current) unsubChatRef.current();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const loadOlder = async () => {
+    if (loadingOlderRef.current || !hasMoreOlderRef.current || !chatIdRef.current || !oldestCursorRef.current) return;
+    loadingOlderRef.current = true;
+    try {
+      const { messages: older, cursor, hasMore } = await getOlderMessages(chatIdRef.current, oldestCursorRef.current);
+      if (older.length > 0) {
+        setMessages(prev => [...older, ...prev]);
+        oldestCursorRef.current = cursor;
+      }
+      hasMoreOlderRef.current = hasMore;
+    } catch (_) {
+      // stay silent — pagination failing shouldn't disrupt the conversation
+    } finally {
+      loadingOlderRef.current = false;
+    }
+  };
+
+  const handleScroll = (e) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+    isNearBottomRef.current = distanceFromBottom < 120;
   };
 
   const handleSend = async () => {
     const text = inputText.trim();
-    if (!text) return;
+    if (!text || !myUid) return;
     setInputText('');
-    const optimistic = {
-      id: `opt_${Date.now()}`,
-      text,
-      sent: true,
-      time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-    };
-    // Optimistic update for instant feedback
-    if (!chatId) {
-      setMessages(prev => [...prev, optimistic]);
+    isNearBottomRef.current = true;
+
+    // Demo conversations only ever update local state — never Firestore.
+    if (conversation.isDemo) {
+      setMessages(prev => [...prev, { id: `demo_local_${Date.now()}`, sender: myUid, text, timestamp: new Date() }]);
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
+      return;
     }
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
-    if (chatId && myUid) {
-      try {
-        await sendMessage(chatId, text, myUid);
-      } catch (_) {
-        // Message shown optimistically; fail silently
-      }
+
+    if (!chatId) return;
+    try {
+      await sendMessage(chatId, text, myUid, conversation.uid);
+    } catch (_) {
+      // Firestore's own offline-write echo already reflects it locally
     }
   };
 
+  const openProfile = () => {
+    if (conversation.isDemo) return; // no real profile screen backs a demo contact
+    const pt = (otherProfile?.profileType || '').toLowerCase();
+    const screen = PROFILE_SCREEN[pt];
+    if (screen && conversation.uid) navigation.navigate(screen, { uid: conversation.uid });
+  };
+
+  const openWorkRecord = (recordId) => {
+    if (recordId) navigation.navigate('CreateWorkRecord', { recordId });
+  };
+
+  const attachmentsComingSoon = () => Alert.alert('Coming soon', 'Attachments will be available in a future update.');
+
+  const otherReadAt = conversation.isDemo
+    ? demoLastReadByOther
+    : (chatMeta?.lastReadAt?.[conversation.uid]?.toDate?.() || null);
+  const available = otherProfile ? otherProfile.available === true : !!conversation.online;
+  const photoUri = otherProfile?.photoUri || conversation.photoUri || null;
+  const verified = !!otherProfile?.verified;
+
+  const listData = useMemo(() => buildListData(messages), [messages]);
+
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={ORANGE} />
+    <View style={cs.screen}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Text style={styles.backIcon}>‹</Text>
+      {/* ── Header ── */}
+      <View style={cs.header}>
+        <TouchableOpacity style={cs.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
+          <Text style={cs.backIcon}>←</Text>
         </TouchableOpacity>
-
-        <View style={[styles.headerAvatar, { backgroundColor: conversation.avatarBg }]}>
-          <Text style={styles.headerAvatarEmoji}>{conversation.emoji}</Text>
-          {conversation.online && <View style={styles.headerOnlineDot} />}
-        </View>
-
-        <View style={styles.headerInfo}>
-          <Text style={styles.headerName} numberOfLines={1}>{conversation.name}</Text>
-          <Text style={styles.headerStatus}>
-            {conversation.online ? '🟢 Online now' : '⚫ Offline'}
-            {' · '}{conversation.role}
-          </Text>
-        </View>
-
-        <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.headerActionBtn}>
-            <Text style={styles.headerActionIcon}>📞</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerActionBtn} onPress={() => setShowMenu(true)}>
-            <Text style={styles.headerActionIcon}>⋮</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity style={cs.headerInfoRow} onPress={openProfile} activeOpacity={0.7}>
+          <View style={cs.headerAvatarWrap}>
+            {photoUri ? (
+              <Image source={{ uri: photoUri }} style={cs.headerAvatarImg} />
+            ) : (
+              <View style={cs.headerAvatarPlaceholder}>
+                <Text style={cs.headerAvatarPlaceholderIcon}>👤</Text>
+              </View>
+            )}
+          </View>
+          <View style={cs.headerInfo}>
+            <View style={cs.headerNameRow}>
+              <Text style={cs.headerName} numberOfLines={1}>{conversation.name || 'User'}</Text>
+              {verified ? (
+                <View style={cs.verifiedBadge}><Text style={cs.verifiedBadgeText}>✓</Text></View>
+              ) : null}
+            </View>
+            {available ? (
+              <View style={cs.statusRow}>
+                <View style={cs.statusDot} />
+                <Text style={cs.statusAvailable}>Available now</Text>
+              </View>
+            ) : (
+              <Text style={cs.statusBusy}>Busy</Text>
+            )}
+          </View>
+        </TouchableOpacity>
       </View>
 
-      {/* Chat date divider */}
-      <View style={styles.dateDivider}>
-        <View style={styles.dateDividerLine} />
-        <Text style={styles.dateDividerText}>Today</Text>
-        <View style={styles.dateDividerLine} />
-      </View>
-
-      {/* Messages */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={0}
       >
-        <FlatList
-          ref={listRef}
-          data={messages}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <MessageBubble message={item} />}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.messageList}
-          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
-          ListEmptyComponent={
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 }}>
-              <Text style={{ fontSize: 40, marginBottom: 12 }}>💬</Text>
-              <Text style={{ fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 6 }}>Start the conversation</Text>
-              <Text style={{ fontSize: 13, color: '#888', textAlign: 'center', paddingHorizontal: 32 }}>
-                Say hello to {conversation.name}!
-              </Text>
-            </View>
-          }
-        />
-
-        {/* Mark Work Complete Banner */}
-        <TouchableOpacity
-          style={styles.markWorkBanner}
-          onPress={() => navigation.navigate('MarkWorkComplete', { workerName: conversation.name, workerEmoji: conversation.emoji, workerRole: conversation.role, workerUid: conversation.uid })}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.markWorkIcon}>✅</Text>
-          <View style={styles.markWorkInfo}>
-            <Text style={styles.markWorkTitle}>Work completed with {conversation.name}?</Text>
-            <Text style={styles.markWorkSub}>Mark it to build your verified profile</Text>
-          </View>
-          <Text style={styles.markWorkArrow}>›</Text>
-        </TouchableOpacity>
-
-        {/* Typing Indicator (decorative) */}
-        {conversation.online && (
-          <View style={styles.typingWrap}>
-            <View style={[styles.typingAvatar, { backgroundColor: conversation.avatarBg }]}>
-              <Text style={{ fontSize: 12 }}>{conversation.emoji}</Text>
-            </View>
-            <View style={styles.typingBubble}>
-              <Text style={styles.typingDots}>● ● ●</Text>
-            </View>
-          </View>
+        {initialLoading ? (
+          <View style={cs.center} />
+        ) : (
+          <FlatList
+            ref={listRef}
+            style={{ flex: 1 }}
+            data={listData}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => {
+              if (item.__type === 'separator') return <DateSeparator label={item.label} />;
+              const isSent = !!myUid && item.sender === myUid;
+              const isRead = isSent && !!otherReadAt && !!item.timestamp && otherReadAt >= item.timestamp;
+              if (item.type === 'work_record') {
+                return <WorkRecordCard item={item} isSent={isSent} onPress={() => openWorkRecord(item.workRecordId)} />;
+              }
+              return <MessageBubble item={item} isSent={isSent} isRead={isRead} />;
+            }}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={cs.messageList}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            onStartReached={loadOlder}
+            onStartReachedThreshold={0.2}
+            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+            ListEmptyComponent={
+              <View style={cs.emptyWrap}>
+                <Text style={cs.emptyIcon}>💬</Text>
+                <Text style={cs.emptyTitle}>Start the conversation</Text>
+                <Text style={cs.emptySub}>Say hello to {conversation.name || 'them'}!</Text>
+              </View>
+            }
+          />
         )}
 
-        {/* Input Bar */}
-        <View style={styles.inputBar}>
-          <TouchableOpacity style={styles.attachBtn}>
-            <Text style={styles.attachIcon}>📎</Text>
+        {/* ── Input bar ── */}
+        <View style={cs.inputBar}>
+          <TouchableOpacity style={cs.plusBtn} onPress={attachmentsComingSoon} activeOpacity={0.7}>
+            <Text style={cs.plusIcon}>+</Text>
           </TouchableOpacity>
-          <TextInput
-            style={styles.textInput}
-            placeholder="Type a message..."
-            placeholderTextColor="#A0ADB8"
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
-            maxLength={500}
-            onSubmitEditing={handleSend}
-          />
+          <View style={cs.inputWrap}>
+            <TextInput
+              style={cs.textInput}
+              placeholder="Message..."
+              placeholderTextColor={LIGHT}
+              value={inputText}
+              onChangeText={setInputText}
+              multiline
+              maxLength={1000}
+            />
+            <TouchableOpacity style={cs.paperclipBtn} onPress={attachmentsComingSoon} activeOpacity={0.7}>
+              <Text style={cs.paperclipIcon}>📎</Text>
+            </TouchableOpacity>
+          </View>
           <TouchableOpacity
-            style={[styles.sendBtn, !inputText.trim() && styles.sendBtnDisabled]}
+            style={[cs.sendBtn, !inputText.trim() && cs.sendBtnDisabled]}
             onPress={handleSend}
             disabled={!inputText.trim()}
+            activeOpacity={0.85}
           >
-            <Text style={styles.sendIcon}>➤</Text>
+            <Text style={cs.sendIcon}>➤</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
-      {/* ─── 3-dot Menu Modal ─────────────────────────────────────────────── */}
-      <Modal
-        visible={showMenu}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowMenu(false)}
-      >
-        <TouchableOpacity
-          style={styles.menuOverlay}
-          activeOpacity={1}
-          onPress={() => setShowMenu(false)}
-        >
-          <View style={styles.menuDropdown}>
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => {
-                setShowMenu(false);
-                navigation.navigate('MarkWorkComplete', { workerName: conversation.name, workerEmoji: conversation.emoji, workerRole: conversation.role, workerUid: conversation.uid });
-              }}
-            >
-              <Text style={styles.menuItemIcon}>✅</Text>
-              <Text style={styles.menuItemText}>Mark Work Complete</Text>
-            </TouchableOpacity>
-            <View style={styles.menuSep} />
-            <TouchableOpacity style={styles.menuItem} onPress={() => setShowMenu(false)}>
-              <Text style={styles.menuItemIcon}>🔕</Text>
-              <Text style={styles.menuItemText}>Mute Notifications</Text>
-            </TouchableOpacity>
-            <View style={styles.menuSep} />
-            <TouchableOpacity style={styles.menuItem} onPress={() => setShowMenu(false)}>
-              <Text style={styles.menuItemIcon}>🚫</Text>
-              <Text style={[styles.menuItemText, { color: '#E11D48' }]}>Block</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
     </View>
   );
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
+// ─── Styles ─────────────────────────────────────────────────────────────────
+const cs = injectFonts({
+  screen: { flex: 1, backgroundColor: BG },
+  center: { flex: 1 },
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F0' },
-
-  // Header
+  // ── Header
   header: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: ORANGE,
-    paddingTop: 52, paddingBottom: 14,
-    paddingHorizontal: 14,
+    backgroundColor: '#FFFFFF',
+    paddingTop: 52, paddingBottom: 12, paddingHorizontal: 14,
+    borderBottomWidth: 1, borderBottomColor: BORDER,
   },
   backBtn: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    width: 36, height: 36, borderRadius: 18, backgroundColor: FILL,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  backIcon: { fontSize: 20, lineHeight: 24, fontWeight: '700', color: DARK },
+  headerInfoRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerAvatarWrap: { width: 40, height: 40, flexShrink: 0 },
+  headerAvatarImg: { width: 40, height: 40, borderRadius: 20 },
+  headerAvatarPlaceholder: {
+    width: 40, height: 40, borderRadius: 20, backgroundColor: FILL,
     alignItems: 'center', justifyContent: 'center',
   },
-  backIcon: { fontSize: 26, color: 'white', lineHeight: 30 },
-  headerAvatar: {
-    width: 42, height: 42, borderRadius: 21,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: 'rgba(255,255,255,0.4)',
+  headerAvatarPlaceholderIcon: { fontSize: 18, opacity: 0.4 },
+  headerInfo: { flex: 1, minWidth: 0 },
+  headerNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  headerName: { fontSize: 15, fontWeight: '700', color: DARK, flexShrink: 1 },
+  verifiedBadge: {
+    width: 14, height: 14, borderRadius: 7, backgroundColor: LINK_BLUE,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  headerAvatarEmoji: { fontSize: 20 },
-  headerOnlineDot: {
-    position: 'absolute', bottom: 0, right: 0,
-    width: 12, height: 12, borderRadius: 6,
-    backgroundColor: '#2ECC71', borderWidth: 2, borderColor: ORANGE,
-  },
-  headerInfo: { flex: 1 },
-  headerName: { fontSize: 16, fontWeight: '800', color: 'white', marginBottom: 2 },
-  headerStatus: { fontSize: 11, color: 'rgba(255,255,255,0.75)', fontWeight: '500' },
-  headerActions: { flexDirection: 'row', gap: 6 },
-  headerActionBtn: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  headerActionIcon: { fontSize: 18, color: 'white' },
+  verifiedBadgeText: { fontSize: 8, color: '#FFFFFF', fontWeight: '900' },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
+  statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: GREEN },
+  statusAvailable: { fontSize: 11, color: GREEN, fontWeight: '600' },
+  statusBusy: { fontSize: 11, color: LIGHT, fontWeight: '600', marginTop: 2 },
 
-  // Date divider
-  dateDivider: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingHorizontal: 20, paddingVertical: 12,
-  },
-  dateDividerLine: { flex: 1, height: 1, backgroundColor: '#EFEFEF' },
-  dateDividerText: { fontSize: 11, fontWeight: '700', color: '#888' },
+  // ── Date separator
+  dateSepWrap: { alignItems: 'center', marginVertical: 12 },
+  dateSepPill: { backgroundColor: FILL, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 5 },
+  dateSepText: { fontSize: 10, fontWeight: '700', color: MID, letterSpacing: 0.6 },
 
-  // Messages
-  messageList: { paddingHorizontal: 14, paddingBottom: 8, flexGrow: 1, justifyContent: 'flex-end' },
-  bubbleRow: { marginBottom: 6 },
-  bubbleRowLeft: { alignItems: 'flex-start' },
-  bubbleRowRight: { alignItems: 'flex-end' },
+  // ── Messages
+  messageList: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10, flexGrow: 1, justifyContent: 'flex-end' },
+  bubbleRow: { marginBottom: 8, flexDirection: 'row' },
+  bubbleRowLeft: { justifyContent: 'flex-start' },
+  bubbleRowRight: { justifyContent: 'flex-end' },
   bubble: {
-    maxWidth: '78%', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 9,
-    shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, elevation: 1,
+    maxWidth: '75%', borderRadius: 16, paddingHorizontal: 13, paddingVertical: 9,
   },
-  bubbleSent: { backgroundColor: ORANGE, borderBottomRightRadius: 4 },
-  bubbleReceived: { backgroundColor: '#FFFFFF', borderBottomLeftRadius: 4 },
-  bubbleText: { fontSize: 14, lineHeight: 20 },
-  bubbleTextSent: { color: 'white' },
-  bubbleTextReceived: { color: '#1A1A1A' },
-  bubbleTime: { fontSize: 10, fontWeight: '600', marginTop: 3 },
-  bubbleTimeSent: { color: 'rgba(255,255,255,0.6)', textAlign: 'right' },
-  bubbleTimeReceived: { color: '#888' },
+  bubbleSent: { backgroundColor: GREEN_LIGHT, borderBottomRightRadius: 4 },
+  bubbleReceived: { backgroundColor: '#FFFFFF', borderBottomLeftRadius: 4, borderWidth: 1, borderColor: BORDER },
+  bubbleText: { fontSize: 14, lineHeight: 20, color: DARK },
+  bubbleMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 3 },
+  bubbleTime: { fontSize: 10, fontWeight: '500', color: LIGHT },
+  bubbleTicks: { fontSize: 11, fontWeight: '700', color: LIGHT },
+  bubbleTicksRead: { color: GREEN },
 
-  // Typing indicator
-  typingWrap: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingHorizontal: 14, paddingBottom: 6,
+  // ── Work record card
+  wrCard: {
+    maxWidth: '80%', borderRadius: 14, overflow: 'hidden',
+    backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: BORDER,
   },
-  typingAvatar: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  typingBubble: {
-    backgroundColor: '#FFFFFF', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 8,
-    shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, elevation: 1,
+  wrHeaderStrip: { backgroundColor: FILL, paddingHorizontal: 12, paddingVertical: 6 },
+  wrHeaderText: { fontSize: 10, fontWeight: '700', color: MID, letterSpacing: 0.6 },
+  wrBody: { padding: 12 },
+  wrProjectName: { fontSize: 14, fontWeight: '700', color: DARK, marginBottom: 4 },
+  wrMeta: { fontSize: 12, color: MID, fontWeight: '500', marginBottom: 2 },
+  wrValue: { fontSize: 13, color: GREEN, fontWeight: '700', marginBottom: 10 },
+  wrBtn: {
+    height: 40, borderRadius: 10, borderWidth: 1.5, borderColor: DARK,
+    alignItems: 'center', justifyContent: 'center', marginTop: 2,
   },
-  typingDots: { fontSize: 8, color: '#888', letterSpacing: 3 },
+  wrBtnText: { fontSize: 12, fontWeight: '700', color: DARK },
 
-  // Mark work complete banner
-  markWorkBanner: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    marginHorizontal: 14, marginBottom: 8, padding: 12,
-    backgroundColor: '#F0FFF4', borderRadius: 12,
-    borderWidth: 1.5, borderColor: '#2ECC71',
-  },
-  markWorkIcon: { fontSize: 22 },
-  markWorkInfo: { flex: 1 },
-  markWorkTitle: { fontSize: 13, fontWeight: '800', color: '#1A1A2E' },
-  markWorkSub: { fontSize: 11, color: '#2ECC71', marginTop: 1 },
-  markWorkArrow: { fontSize: 22, color: '#1A1A2E', fontWeight: '900' },
+  // ── Empty state
+  emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
+  emptyIcon: { fontSize: 40, marginBottom: 10, opacity: 0.6 },
+  emptyTitle: { fontSize: 15, fontWeight: '700', color: DARK, marginBottom: 4 },
+  emptySub: { fontSize: 13, color: LIGHT, textAlign: 'center', paddingHorizontal: 32 },
 
-  // Input bar
+  // ── Input bar
   inputBar: {
     flexDirection: 'row', alignItems: 'flex-end', gap: 8,
-    backgroundColor: '#FFFFFF', paddingHorizontal: 12, paddingVertical: 10,
+    backgroundColor: '#FFFFFF', paddingHorizontal: 12, paddingTop: 10,
     paddingBottom: Platform.OS === 'ios' ? 28 : 14,
-    borderTopWidth: 1, borderTopColor: '#EFEFEF',
+    borderTopWidth: 1, borderTopColor: BORDER,
   },
-  attachBtn: {
-    width: 40, height: 40, borderRadius: 12, backgroundColor: '#F5F5F0',
-    alignItems: 'center', justifyContent: 'center',
+  plusBtn: {
+    width: 38, height: 38, borderRadius: 19, backgroundColor: FILL,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  attachIcon: { fontSize: 18 },
+  plusIcon: { fontSize: 20, lineHeight: 24, fontWeight: '600', color: DARK },
+  inputWrap: {
+    flex: 1, flexDirection: 'row', alignItems: 'flex-end',
+    minHeight: 40, maxHeight: 120,
+    backgroundColor: FILL, borderRadius: 20,
+    paddingHorizontal: 14, paddingVertical: 6,
+  },
   textInput: {
-    flex: 1, minHeight: 40, maxHeight: 110,
-    backgroundColor: '#F5F5F0', borderRadius: 20,
-    paddingHorizontal: 16, paddingVertical: 10,
-    fontSize: 14, color: '#1A1A1A', fontWeight: '500',
-    borderWidth: 1, borderColor: '#EFEFEF',
+    flex: 1, fontSize: 14, color: DARK, fontWeight: '500',
+    paddingVertical: 4, maxHeight: 100,
   },
+  paperclipBtn: { paddingHorizontal: 4, paddingVertical: 6 },
+  paperclipIcon: { fontSize: 16 },
   sendBtn: {
-    width: 42, height: 42, borderRadius: 21, backgroundColor: ORANGE,
-    alignItems: 'center', justifyContent: 'center',
+    width: 40, height: 40, borderRadius: 20, backgroundColor: DARK,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  sendBtnDisabled: { backgroundColor: '#FFCBA8' },
-  sendIcon: { fontSize: 16, color: 'white' },
-
-  // 3-dot menu
-  menuOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.3)',
-  },
-  menuDropdown: {
-    position: 'absolute', top: 96, right: 14,
-    backgroundColor: '#FFFFFF', borderRadius: 14, minWidth: 220,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.18, shadowRadius: 16, elevation: 12,
-    overflow: 'hidden',
-  },
-  menuItem: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingHorizontal: 16, paddingVertical: 14,
-  },
-  menuItemIcon: { fontSize: 18 },
-  menuItemText: { fontSize: 14, fontWeight: '700', color: '#1A1A1A' },
-  menuSep: { height: 1, backgroundColor: '#EFEFEF', marginHorizontal: 14 },
+  sendBtnDisabled: { opacity: 0.4 },
+  sendIcon: { fontSize: 15, color: '#FFFFFF' },
 });

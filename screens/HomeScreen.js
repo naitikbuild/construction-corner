@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, StatusBar, useWindowDimensions, Alert
+  View, Text, ScrollView, TouchableOpacity, Image,
+  StyleSheet, StatusBar, useWindowDimensions, Animated, Alert,
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -9,14 +9,92 @@ import BottomNav from '../components/BottomNav';
 import { auth } from '../config/firebase';
 import { signOut } from 'firebase/auth';
 import { getProfile } from '../services/userService';
+import { startVoiceSearch } from '../services/voiceSearchService';
 import {
-  SOLO_WORKER_CATEGORIES,
+  SKILLED_WORKER_CATEGORIES,
+  UNSKILLED_WORKER_CATEGORIES,
   CONTRACTOR_CATEGORIES,
   PROFESSIONAL_CATEGORIES,
+  CATEGORY_ICONS,
 } from '../constants/categories';
 
-// Single remaining banner — Nation Building.
-const banner = { bg: '#0A3D1A', title: "Let's Be a Part of\nIndia's Revolution", tag: '🇮🇳 Nation Building', emoji: '🇮🇳' };
+const GREETING_THRESHOLD = 10;
+const GREETING_ANIM_MS = 220;
+
+// Collapses the greeting row's own HEIGHT (not a translateY on an absolutely
+// positioned overlay) so the search bar — a normal sibling right below it —
+// naturally slides up to fill the space as it shrinks, with zero gap and no
+// manual scroll-content offset math. Same hide/show scroll heuristics as
+// hooks/useAutoHideHeader (10px threshold, direction-accumulator, forced
+// visible at the top) but sized to the greeting row's own measured height.
+function useCollapsingGreeting() {
+  const heightAnim = useRef(new Animated.Value(0)).current;
+  const opacityAnim = useRef(new Animated.Value(1)).current;
+  const [measured, setMeasured] = useState(false);
+
+  const fullHeight = useRef(0);
+  const hidden = useRef(false);
+  const lastY = useRef(0);
+  const accumulated = useRef(0);
+
+  const onGreetingLayout = (e) => {
+    const h = Math.round(e.nativeEvent.layout.height);
+    if (h > 0 && h !== fullHeight.current) {
+      fullHeight.current = h;
+      if (!hidden.current) heightAnim.setValue(h);
+      setMeasured(true);
+    }
+  };
+
+  const showGreeting = () => {
+    if (!hidden.current) return;
+    hidden.current = false;
+    Animated.parallel([
+      Animated.timing(heightAnim, { toValue: fullHeight.current, duration: GREETING_ANIM_MS, useNativeDriver: false }),
+      Animated.timing(opacityAnim, { toValue: 1, duration: GREETING_ANIM_MS, useNativeDriver: false }),
+    ]).start();
+  };
+
+  const hideGreeting = () => {
+    if (hidden.current) return;
+    hidden.current = true;
+    Animated.parallel([
+      Animated.timing(heightAnim, { toValue: 0, duration: GREETING_ANIM_MS, useNativeDriver: false }),
+      Animated.timing(opacityAnim, { toValue: 0, duration: GREETING_ANIM_MS, useNativeDriver: false }),
+    ]).start();
+  };
+
+  const onScroll = (e) => {
+    const y = e.nativeEvent.contentOffset.y;
+    const delta = y - lastY.current;
+    lastY.current = y;
+
+    if (y <= 0) {
+      accumulated.current = 0;
+      showGreeting();
+      return;
+    }
+
+    if ((delta > 0 && accumulated.current < 0) || (delta < 0 && accumulated.current > 0)) {
+      accumulated.current = 0;
+    }
+    accumulated.current += delta;
+
+    if (accumulated.current > GREETING_THRESHOLD) {
+      hideGreeting();
+      accumulated.current = 0;
+    } else if (accumulated.current < -GREETING_THRESHOLD) {
+      showGreeting();
+      accumulated.current = 0;
+    }
+  };
+
+  return {
+    greetingStyle: measured ? { height: heightAnim, opacity: opacityAnim } : { opacity: opacityAnim },
+    onGreetingLayout,
+    onScroll,
+  };
+}
 
 const PROFILE_SCREEN_MAP = {
   worker: 'WorkerProfile',
@@ -58,6 +136,15 @@ function iconForCategory(category, fallback) {
   if (c.includes('fabricat')) return '🔩';
   if (c.includes('borewell')) return '🕳️';
   if (c.includes('earthwork') || c.includes('excavation')) return '⛏️';
+  if (c.includes('piling')) return '⚒️';
+  if (c.includes('rcc')) return '🏗️';
+  if (c.includes('solar')) return '☀️';
+  if (c.includes('elevator') || c.includes('lift')) return '🛗';
+  if (c.includes('stp') || c.includes('wtp')) return '🚰';
+  if (c.includes('soil')) return '🧪';
+  if (c.includes('signage') || c.includes('branding')) return '🪧';
+  if (c.includes('cctv') || c.includes('security system')) return '📹';
+  if (c.includes('pest')) return '🐜';
   if (c.includes('labour')) return '👷';
   if (c.includes('turnkey')) return '🔑';
   if (c.includes('3d')) return '🖥️';
@@ -66,7 +153,7 @@ function iconForCategory(category, fallback) {
   if (c.includes('centering') || c.includes('shuttering')) return '🏗️';
   if (c.includes('plaster')) return '🧱';
   if (c.includes('floor') || c.includes('tile')) return '🪨';
-  if (c.includes('bar bender')) return '🔩';
+  if (c.includes('bar bend')) return '🔩';
   if (c.includes('pop') || c.includes('false ceiling')) return '🧱';
   if (c.includes('project engineer') || c.includes('planning engineer')) return '📋';
   if (c.includes('construction manager')) return '💼';
@@ -75,7 +162,9 @@ function iconForCategory(category, fallback) {
 }
 
 // Shared "2-row grid + See More/See Less" browse section, driven entirely by a category list.
-function ProviderSection({ title, subtitle, categories, profileType, iconFallback, expanded, onToggleExpand, navigation, width }) {
+// `tabs` (optional) renders a Skilled/Unskilled-style switcher above the grid — each tab
+// carries its own category list, so the grid always reflects whichever tab is active.
+function ProviderSection({ title, subtitle, categories, tabs, activeTab, onTabChange, profileType, iconFallback, expanded, onToggleExpand, navigation, width }) {
   const visible = expanded ? categories : categories.slice(0, 8);
   return (
     <>
@@ -83,6 +172,24 @@ function ProviderSection({ title, subtitle, categories, profileType, iconFallbac
         <Text style={styles.secTitle}>{title}</Text>
       </View>
       {subtitle ? <Text style={styles.secSubtitle}>{subtitle}</Text> : null}
+      {tabs && (
+        <View style={styles.sectionPad}>
+          <View style={styles.workerTabRow}>
+            {tabs.map(tab => (
+              <TouchableOpacity
+                key={tab.key}
+                style={[styles.workerTabBtn, activeTab === tab.key && styles.workerTabBtnActive]}
+                onPress={() => onTabChange(tab.key)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.workerTabBtnText, activeTab === tab.key && styles.workerTabBtnTextActive]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      )}
       <View style={styles.sectionPad}>
         <View style={styles.iconsGrid}>
           {visible.map((category) => (
@@ -92,7 +199,11 @@ function ProviderSection({ title, subtitle, categories, profileType, iconFallbac
               onPress={() => navigation.navigate('CategoryList', { category, profileType })}
             >
               <View style={styles.iconBox}>
-                <Text style={styles.iconEmoji}>{iconForCategory(category, iconFallback)}</Text>
+                {CATEGORY_ICONS[category] ? (
+                  <Image source={CATEGORY_ICONS[category]} style={styles.iconImage} resizeMode="cover" />
+                ) : (
+                  <Text style={styles.iconEmoji}>{iconForCategory(category, iconFallback)}</Text>
+                )}
               </View>
               <Text style={styles.iconName} numberOfLines={2}>{category}</Text>
             </TouchableOpacity>
@@ -112,21 +223,76 @@ function ProviderSection({ title, subtitle, categories, profileType, iconFallbac
 
 export default function HomeScreen({ navigation }) {
   const { width } = useWindowDimensions();
-  const [userName, setUserName] = useState('');
-  const [userLocation, setUserLocation] = useState('');
+  const { greetingStyle, onGreetingLayout, onScroll } = useCollapsingGreeting();
 
   const [workersExpanded, setWorkersExpanded] = useState(false);
   const [contractorsExpanded, setContractorsExpanded] = useState(false);
   const [professionalsExpanded, setProfessionalsExpanded] = useState(false);
+  const [workerTypeTab, setWorkerTypeTab] = useState('skilled');
+
+  const [listening, setListening] = useState(false);
+  const micPulse = useRef(new Animated.Value(1)).current;
+  const stopListeningRef = useRef(null);
 
   useEffect(() => {
     loadUserInfo();
   }, []);
 
+  // Stop any in-flight recognition session if the screen unmounts mid-listen.
+  useEffect(() => {
+    return () => { stopListeningRef.current?.(); };
+  }, []);
+
+  // Pulse the mic while actively listening; snap back to rest otherwise.
+  useEffect(() => {
+    if (!listening) {
+      micPulse.stopAnimation();
+      micPulse.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(micPulse, { toValue: 1.25, duration: 500, useNativeDriver: true }),
+        Animated.timing(micPulse, { toValue: 1, duration: 500, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [listening]);
+
+  const handleMicPress = async () => {
+    if (listening) return;
+    setListening(true);
+    const stop = await startVoiceSearch({
+      onResult: (transcript) => {
+        if (transcript) navigation.navigate('Search', { query: transcript });
+      },
+      onEnd: () => setListening(false),
+      onError: (code) => {
+        setListening(false);
+        if (code === 'denied') {
+          Alert.alert(
+            'Microphone Permission Needed',
+            'Please allow microphone access to use voice search. You can still type your search normally.'
+          );
+        } else if (code === 'unsupported') {
+          Alert.alert(
+            'Voice Search Unavailable',
+            'Voice search needs a development build of the app to work — it isn\'t available in this preview (Expo Go). You can still type your search normally.'
+          );
+        } else if (code !== 'no-speech' && code !== 'aborted') {
+          Alert.alert('Voice Search Error', "Didn't catch that — please try again or type your search.");
+        }
+      },
+    });
+    stopListeningRef.current = stop;
+  };
+
+  // Refreshes the shared 'userName' AsyncStorage cache that other screens
+  // (chat, enquiry prefill, etc.) read from — no longer rendered here since
+  // the greeting/location row was removed.
   const loadUserInfo = async () => {
     try {
-      const cached = await AsyncStorage.getItem('userName');
-      if (cached) setUserName(cached);
       const uid = await AsyncStorage.getItem('uid');
       if (!uid) return;
       let profile = null;
@@ -136,11 +302,8 @@ export default function HomeScreen({ navigation }) {
         const local = await AsyncStorage.getItem('localProfile');
         if (local) profile = JSON.parse(local);
       }
-      if (profile) {
-        const name = profile.name || profile.companyName || '';
-        if (name) { setUserName(name); AsyncStorage.setItem('userName', name); }
-        if (profile.city) setUserLocation(`${profile.city}${profile.state ? `, ${profile.state}` : ''}`);
-      }
+      const name = profile?.name || profile?.companyName || '';
+      if (name) await AsyncStorage.setItem('userName', name);
     } catch (_) {}
   };
 
@@ -178,79 +341,60 @@ export default function HomeScreen({ navigation }) {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* HEADER */}
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <View style={styles.brandRow}>
-            <View style={styles.brandLogo}>
-              <Text style={{ fontSize: 18 }}>🏗️</Text>
+      {/* HEADER — greeting row collapses (height+opacity) on scroll down; the
+          search bar is a normal sibling right below it, so it slides up to
+          sit flush at the top with no gap as the greeting shrinks away. */}
+      <View style={styles.headerContainer}>
+        <Animated.View style={[styles.greetingCollapse, greetingStyle]}>
+          <View style={styles.headerTop} onLayout={onGreetingLayout}>
+            <View style={styles.brandRow}>
+              <View style={styles.brandLogo}>
+                <Text style={{ fontSize: 18 }}>🏗️</Text>
+              </View>
+              <Text style={styles.brandName}>
+                Construction <Text style={{ color: '#FC8019' }}>Corner</Text>
+              </Text>
             </View>
-            <Text style={styles.brandName}>
-              Construction <Text style={{ color: '#FC8019' }}>Corner</Text>
-            </Text>
+            <View style={styles.headerIcons}>
+              <TouchableOpacity style={styles.resetHeaderBtn} onPress={handleResetApp}>
+                <Text style={styles.resetHeaderBtnText}>↺ Reset</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.navigate('Notifications')}>
+                <Text style={{ fontSize: 18 }}>🔔</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.navigate('ChatList')}>
+                <Text style={{ fontSize: 18 }}>💬</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-          <View style={styles.headerIcons}>
-            <TouchableOpacity style={styles.resetHeaderBtn} onPress={handleResetApp}>
-              <Text style={styles.resetHeaderBtnText}>↺ Reset</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.navigate('Notifications')}>
-              <Text style={{ fontSize: 18 }}>🔔</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.navigate('ChatList')}>
-              <Text style={{ fontSize: 18 }}>💬</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        </Animated.View>
 
-        {/* LOCATION BAR */}
-        <View style={styles.locationBar}>
-          <Text style={styles.locationText}>
-            📍 {userLocation || 'Ahmedabad, Gujarat'}  ▾
-            {userName ? `  ·  👋 ${userName.split(' ')[0]}` : ''}
-          </Text>
-          <TouchableOpacity onPress={() => Alert.alert('Change Location', 'Coming soon!')}>
-            <Text style={styles.locationChange}>Change</Text>
+        <View style={styles.searchWrap}>
+          <TouchableOpacity style={styles.searchBar} onPress={() => navigation.navigate('Search')} activeOpacity={0.8}>
+            <Text style={{ fontSize: 16, marginRight: 8 }}>🔍</Text>
+            <Text style={styles.searchPlaceholder}>
+              {listening ? 'Listening...' : 'Search professionals, materials...'}
+            </Text>
+            <TouchableOpacity
+              style={[styles.micBtn, listening && styles.micBtnActive]}
+              onPress={handleMicPress}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.75}
+            >
+              <Animated.Text style={[{ fontSize: 14 }, { transform: [{ scale: micPulse }] }]}>
+                🎤
+              </Animated.Text>
+            </TouchableOpacity>
           </TouchableOpacity>
         </View>
-
-        {/* SEARCH */}
-        <TouchableOpacity style={styles.searchBar} onPress={() => navigation.navigate('Search')} activeOpacity={0.8}>
-          <Text style={{ fontSize: 16, marginRight: 8 }}>🔍</Text>
-          <Text style={styles.searchPlaceholder}>Search professionals, materials...</Text>
-          <View style={styles.filterBtn}>
-            <Text style={{ fontSize: 14 }}>⚙️</Text>
-          </View>
-        </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-
-        {/* BANNER — Nation Building only */}
-        <View style={styles.sectionPad}>
-          <View style={[styles.bannerSlide, { backgroundColor: banner.bg }]}>
-            <View style={styles.bannerContent}>
-              <View>
-                <Text style={styles.bannerTag}>{banner.tag}</Text>
-                <Text style={styles.bannerTitle}>{banner.title}</Text>
-                <Text style={styles.bannerCta}>View Details →</Text>
-              </View>
-              <Text style={styles.bannerEmoji}>{banner.emoji}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* SOLO WORKERS */}
-        <ProviderSection
-          title="Solo Workers"
-          subtitle="Independent skilled workers for hire"
-          categories={SOLO_WORKER_CATEGORIES}
-          profileType="worker"
-          iconFallback="👷"
-          expanded={workersExpanded}
-          onToggleExpand={() => setWorkersExpanded(e => !e)}
-          navigation={navigation}
-          width={width}
-        />
+      <ScrollView
+        style={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+      >
 
         {/* CONTRACTORS */}
         <ProviderSection
@@ -278,6 +422,22 @@ export default function HomeScreen({ navigation }) {
           width={width}
         />
 
+        {/* SOLO WORKERS */}
+        <ProviderSection
+          title="Solo Workers"
+          subtitle="Independent skilled and unskilled workers for hire"
+          categories={workerTypeTab === 'unskilled' ? UNSKILLED_WORKER_CATEGORIES : SKILLED_WORKER_CATEGORIES}
+          tabs={[{ key: 'skilled', label: 'Skilled' }, { key: 'unskilled', label: 'Unskilled' }]}
+          activeTab={workerTypeTab}
+          onTabChange={(key) => { setWorkerTypeTab(key); setWorkersExpanded(false); }}
+          profileType="worker"
+          iconFallback="👷"
+          expanded={workersExpanded}
+          onToggleExpand={() => setWorkersExpanded(e => !e)}
+          navigation={navigation}
+          width={width}
+        />
+
         <View style={{ height: 20 }} />
       </ScrollView>
 
@@ -290,24 +450,23 @@ const styles = injectFonts({
   container: { flex: 1, backgroundColor: '#FFFFFF' },
   scroll: { flex: 1, backgroundColor: '#FAF9F5' },
 
-  // Header
-  header: {
+  // Header container — constant top clearance (status bar) that never moves;
+  // the greeting row collapses inside it, so the search bar below always sits
+  // flush under this padding whether the greeting is shown or hidden.
+  headerContainer: {
     backgroundColor: '#FFFFFF',
     paddingTop: 48,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E5',
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 2,
+  },
+  // overflow:hidden clips the greeting content as its animated height shrinks.
+  greetingCollapse: {
+    overflow: 'hidden',
   },
   headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 14,
-    marginBottom: 10,
+    paddingBottom: 10,
   },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   brandLogo: {
@@ -328,7 +487,21 @@ const styles = injectFonts({
   },
   resetHeaderBtnText: { fontSize: 11, fontWeight: '800', color: '#FFFFFF' },
 
-  // Search
+  // Search — always visible, pinned below the animated greeting header.
+  // No `elevation` here: on Android, elevation promotes a view to its own
+  // compositing layer with independent Z-stacking, which can paint it above
+  // the greeting row regardless of actual layout position — exactly what
+  // was making the greeting look "half hidden behind the search bar" while
+  // expanding. The border is enough separation without it.
+  searchWrap: {
+    backgroundColor: '#FFFFFF',
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E5',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+  },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -341,11 +514,12 @@ const styles = injectFonts({
     borderColor: '#EFEFEF',
   },
   searchPlaceholder: { flex: 1, fontSize: 14, color: '#888888' },
-  filterBtn: {
+  micBtn: {
     width: 28, height: 28, borderRadius: 8,
     backgroundColor: '#EFEFEF',
     alignItems: 'center', justifyContent: 'center',
   },
+  micBtnActive: { backgroundColor: '#22A559' },
 
   // Section layout
   sectionPad: { paddingHorizontal: 14, paddingBottom: 4 },
@@ -359,6 +533,17 @@ const styles = injectFonts({
   },
   secTitle: { fontSize: 18, fontWeight: '800', color: '#1A1A1A' },
   secSubtitle: { fontSize: 12, color: '#888888', paddingHorizontal: 14, marginBottom: 10 },
+
+  // Skilled / Unskilled tab switcher (Solo Workers section)
+  workerTabRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  workerTabBtn: {
+    flex: 1, height: 38, borderRadius: 10,
+    borderWidth: 1.5, borderColor: '#E5E5E5', backgroundColor: '#FFFFFF',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  workerTabBtnActive: { backgroundColor: '#262626', borderColor: '#262626' },
+  workerTabBtnText: { fontSize: 13, fontWeight: '600', color: '#737373' },
+  workerTabBtnTextActive: { color: '#FFFFFF' },
 
   // Icon grid
   iconsGrid: {
@@ -378,8 +563,10 @@ const styles = injectFonts({
     marginBottom: 5,
     borderWidth: 0.5,
     borderColor: '#EFEFEF',
+    overflow: 'hidden',
   },
   iconEmoji: { fontSize: 28 },
+  iconImage: { width: '100%', height: '100%', borderRadius: 14 },
   iconName: { fontSize: 9, fontWeight: '700', color: '#1A1A1A', textAlign: 'center', lineHeight: 13 },
 
   seeMoreBtn: {
@@ -393,33 +580,4 @@ const styles = injectFonts({
     backgroundColor: '#FFFFFF',
   },
   seeMoreText: { fontSize: 13, fontWeight: '600', color: '#1A1A1A' },
-
-  // Banner
-  bannerSlide: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    height: 130,
-  },
-  bannerContent: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 18,
-  },
-  bannerTag: { fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: '600', marginBottom: 4 },
-  bannerTitle: { fontSize: 18, fontWeight: '900', color: '#FFFFFF', lineHeight: 24, marginBottom: 8 },
-  bannerCta: { fontSize: 13, color: '#FFFFFF', fontWeight: '700' },
-  bannerEmoji: { fontSize: 52 },
-
-  // Location bar
-  locationBar: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: '#F5F5F0',
-    paddingHorizontal: 14, paddingVertical: 8,
-    marginBottom: 10,
-  },
-  locationText: { fontSize: 13, fontWeight: '700', color: '#1A1A1A' },
-  locationChange: { fontSize: 13, fontWeight: '700', color: '#2ECC71' },
-
 });

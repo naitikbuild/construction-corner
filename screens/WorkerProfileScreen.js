@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, Alert, ActivityIndicator, Linking,
@@ -7,24 +7,28 @@ import {
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import { useFocusEffect } from '@react-navigation/native';
 import PhotoViewer from '../components/PhotoViewer';
 import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
+import { useToast } from '../hooks/useToast';
 import { getProfile, recordProfileView, updateProfile } from '../services/userService';
 import { getTotalVerifiedAmount, getVerifiedWork } from '../services/workService';
 import { createChat } from '../services/chatService';
 import { toggleBookmark, isBookmarked } from '../services/bookmarkService';
 import { auth } from '../config/firebase';
-import { formatAmountK, formatAmountIndian } from '../utils/format';
+import { formatAmountIndian } from '../utils/format';
 
-function AvailabilityChip({ available }) {
+function AvailabilityChip({ available, isOwn }) {
   return available ? (
     <View style={s.chipAvail}>
       <View style={s.chipDot} />
       <Text style={s.chipAvailText}>Available now</Text>
+      {isOwn && <Text style={s.chipToggleIcon}>⇄</Text>}
     </View>
   ) : (
     <View style={s.chipUnavail}>
-      <Text style={s.chipUnavailText}>Unavailable</Text>
+      <Text style={s.chipUnavailText}>Not available</Text>
+      {isOwn && <Text style={[s.chipToggleIcon, s.chipToggleIconMuted]}>⇄</Text>}
     </View>
   );
 }
@@ -196,14 +200,14 @@ export default function WorkerProfileScreen({ navigation, route }) {
   const [myUid, setMyUid] = useState(null);
   const [bookmarked, setBookmarked] = useState(false);
   const [viewer, setViewer] = useState({ visible: false, photos: [], index: 0 });
+  const [hasToggledAvailability, setHasToggledAvailability] = useState(false);
   const { headerAnimatedStyle, headerHeight, onHeaderLayout, onScroll } = useAutoHideHeader();
-
-  useEffect(() => { load(); }, []);
+  const { toastMessage, toastOpacity, showToast } = useToast();
 
   const openViewer = (photos, index = 0) => setViewer({ visible: true, photos, index });
   const closeViewer = () => setViewer(v => ({ ...v, visible: false }));
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const me = await AsyncStorage.getItem('uid');
       const uid = viewUid || me;
@@ -243,7 +247,10 @@ export default function WorkerProfileScreen({ navigation, route }) {
       }
     } catch (_) {}
     finally { setLoading(false); }
-  };
+  }, [viewUid]);
+
+  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const handleOpenLink = () => {
     const url = worker?.link;
@@ -282,6 +289,18 @@ export default function WorkerProfileScreen({ navigation, route }) {
         },
       });
     } catch (_) { Alert.alert('Error', 'Could not open chat.'); }
+  };
+
+  const handleEnquiry = () => {
+    if (!viewUid || viewUid === myUid) { Alert.alert('This is your own profile'); return; }
+    navigation.navigate('Enquiry', {
+      providerId: viewUid,
+      providerName: worker?.name || 'Worker',
+      providerRole: primarySkill !== 'Add your skill' ? primarySkill : '',
+      providerEmoji: '👤',
+      services: skills,
+      profileType: 'worker',
+    });
   };
 
   const handleBookmark = async () => {
@@ -324,7 +343,10 @@ export default function WorkerProfileScreen({ navigation, route }) {
   };
 
   const handleToggleAvailability = () => {
-    persistOwnProfileChange({ available: !(worker?.available !== false) });
+    const nextAvailable = !(worker?.available !== false);
+    persistOwnProfileChange({ available: nextAvailable });
+    setHasToggledAvailability(true);
+    showToast(nextAvailable ? "You're now available" : "You're now marked busy");
   };
 
   const pickImage = async () => {
@@ -393,8 +415,10 @@ export default function WorkerProfileScreen({ navigation, route }) {
                        ? worker.workerSkills
                        : worker?.workerSkill ? [worker.workerSkill] : [];
   const primarySkill = worker?.primarySkill || skills[0] || 'Add your skill';
+  const workerTypeLabel = worker?.workerType === 'unskilled' ? 'Unskilled' : (worker?.workerType === 'skilled' ? 'Skilled' : '');
   const skillTags  = worker?.skillTags?.length > 0 ? worker.skillTags : skills.slice(1);
   const experience = worker?.workerExperience || worker?.experience || null;
+  const heroTypeTradeParts = [workerTypeLabel, primarySkill, experience ? `${experience} yrs exp` : null].filter(Boolean);
   const area       = worker?.area   || '';
   const city       = worker?.city   || '';
   const pincode    = worker?.pincode || '';
@@ -411,6 +435,10 @@ export default function WorkerProfileScreen({ navigation, route }) {
     ? (ratedWork.reduce((sum, w) => sum + w.rating, 0) / ratedWork.length).toFixed(1)
     : null;
   const jobsCount  = verifiedWork.length;
+  // A provider with zero completed jobs can't have a real on-time % or star
+  // rating yet — always show "—"/"New" for those rather than a stray value.
+  const onTimeDisplay = jobsCount > 0 ? (worker?.onTimeRate || '—') : '—';
+  const ratingDisplay = jobsCount === 0 ? 'New' : (hasRating ? `★ ${rating}` : '—');
   const reviews    = ratedWork.slice().sort((a, b) => {
     const at = a.verifiedAt?.toMillis?.() ?? 0;
     const bt = b.verifiedAt?.toMillis?.() ?? 0;
@@ -419,7 +447,7 @@ export default function WorkerProfileScreen({ navigation, route }) {
 
   const locationShort = [area, city].filter(Boolean).join(', ') + (pincode ? ` · ${pincode}` : '');
   const locationFull  = [area, city].filter(Boolean).join(', ') + (pincode ? ` — ${pincode}` : '');
-  const amtStr = formatAmountK(verifiedAmt);
+  const amtStr = formatAmountIndian(verifiedAmt);
 
   return (
     <View style={s.screen}>
@@ -474,11 +502,20 @@ export default function WorkerProfileScreen({ navigation, route }) {
                   <Text style={s.verifiedText}>✓</Text>
                 </View>
               </View>
-              <Text style={s.heroSkill} numberOfLines={1}>
-                {primarySkill}{experience ? `  ·  ${experience} yrs exp` : ''}
-              </Text>
             </View>
           </View>
+
+          {/* ── 2.25 WORKER TYPE + TRADE + EXPERIENCE ────────────────────── */}
+          {heroTypeTradeParts.length > 0 && (
+            <Text style={s.heroTypeTradeLine} numberOfLines={1}>
+              {heroTypeTradeParts.map((part, i) => (
+                <Text key={i}>
+                  {i > 0 && <Text style={s.heroTypeTradeSep}> · </Text>}
+                  {part}
+                </Text>
+              ))}
+            </Text>
+          )}
 
           {/* ── 2.5 LOCATION LINES ──────────────────────────────────────── */}
           <Text style={s.heroLoc} numberOfLines={1}>
@@ -491,13 +528,27 @@ export default function WorkerProfileScreen({ navigation, route }) {
           {/* ── 3. STATUS CHIPS ─────────────────────────────────────────── */}
           <View style={s.chipsRow}>
             {isOwn ? (
-              <TouchableOpacity onPress={handleToggleAvailability} activeOpacity={0.75}>
-                <AvailabilityChip available={available} />
+              <TouchableOpacity onPress={handleToggleAvailability} activeOpacity={0.6}>
+                <AvailabilityChip available={available} isOwn />
               </TouchableOpacity>
             ) : (
               <AvailabilityChip available={available} />
             )}
           </View>
+
+          {/* Self-stated daily rate — deliberately plain text, never a pill/badge,
+              so it can never be mistaken for verified data. */}
+          {worker?.dailyCharge ? (
+            <Text style={s.dailyChargeText}>₹{worker.dailyCharge} / day</Text>
+          ) : isOwn ? (
+            <TouchableOpacity onPress={() => handleEditSection('rate')} activeOpacity={0.7}>
+              <Text style={s.dailyChargeAdd}>Add daily charge</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {isOwn && !hasToggledAvailability && (
+            <Text style={s.availHint}>Tap to change</Text>
+          )}
 
           {link ? (
             <TouchableOpacity onPress={handleOpenLink} activeOpacity={0.7}>
@@ -524,12 +575,12 @@ export default function WorkerProfileScreen({ navigation, route }) {
             </View>
             <View style={s.verStatSep} />
             <View style={s.verStat}>
-              <Text style={s.verStatVal}>{worker?.onTimeRate || '—'}</Text>
+              <Text style={s.verStatVal}>{onTimeDisplay}</Text>
               <Text style={s.verStatLbl}>On-time</Text>
             </View>
             <View style={s.verStatSep} />
             <View style={s.verStat}>
-              <Text style={s.verStatVal}>{hasRating ? `★ ${rating}` : '—'}</Text>
+              <Text style={s.verStatVal}>{ratingDisplay}</Text>
               <Text style={s.verStatLbl}>Rating</Text>
             </View>
           </View>
@@ -537,9 +588,18 @@ export default function WorkerProfileScreen({ navigation, route }) {
           {/* ── 4.5 ACTION BUTTONS ───────────────────────────────────────── */}
           <View style={s.actionRow}>
             {isOwn ? (
-              <TouchableOpacity style={s.editProfileBtn} onPress={handleEditProfile} activeOpacity={0.85}>
-                <Text style={s.editProfileBtnText}>✏️  Edit Profile</Text>
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity style={s.editProfileBtn} onPress={handleEditProfile} activeOpacity={0.85}>
+                  <Text style={s.editProfileBtnText}>✏️  Edit Profile</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={s.newWorkRecordBtn}
+                  onPress={() => navigation.navigate('CreateWorkRecord')}
+                  activeOpacity={0.85}
+                >
+                  <Text style={s.newWorkRecordBtnText}>🧾  New Work Record</Text>
+                </TouchableOpacity>
+              </>
             ) : (
               <>
                 <TouchableOpacity
@@ -548,12 +608,15 @@ export default function WorkerProfileScreen({ navigation, route }) {
                   disabled={!available}
                   activeOpacity={0.85}
                 >
-                  <Text style={[s.callBtnText, !available && s.callBtnTextLocked]}>
-                    {available ? '📞  Call' : '🔒  Call'}
+                  <Text style={[s.callBtnText, !available && s.callBtnTextLocked]} numberOfLines={1}>
+                    {available ? '📞 Call' : '🔒 Call'}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.chatBtn} onPress={handleChat} activeOpacity={0.85}>
-                  <Text style={s.chatBtnText}>💬  Chat</Text>
+                  <Text style={s.chatBtnText} numberOfLines={1}>💬 Chat</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.enquiryBtn} onPress={handleEnquiry} activeOpacity={0.85}>
+                  <Text style={s.enquiryBtnText} numberOfLines={1}>📋 Enquiry</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.bookmarkBtn} onPress={handleBookmark} activeOpacity={0.85}>
                   <Text style={s.bookmarkIcon}>{bookmarked ? '🔖' : '☆'}</Text>
@@ -682,6 +745,12 @@ export default function WorkerProfileScreen({ navigation, route }) {
         onClose={closeViewer}
       />
 
+      {toastMessage ? (
+        <Animated.View style={[s.toast, { opacity: toastOpacity }]} pointerEvents="none">
+          <Text style={s.toastText}>{toastMessage}</Text>
+        </Animated.View>
+      ) : null}
+
     </View>
   );
 }
@@ -753,12 +822,16 @@ const s = injectFonts({
     backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center',
   },
   verifiedText: { fontSize: 10, color: '#fff', fontWeight: '900' },
-  heroSkill: { fontSize: 13, fontWeight: '500', color: MID, marginBottom: 3 },
+  heroTypeTradeLine: { fontSize: 15, fontWeight: '700', color: DARK, marginBottom: 8 },
+  heroTypeTradeSep: { fontWeight: '400', color: LIGHT },
   heroLoc:   { fontSize: 12, color: LIGHT },
   heroNative: { fontSize: 12, color: LIGHT, marginTop: 3 },
 
   // ── STATUS CHIPS
   chipsRow: { flexDirection: 'row', gap: 8 },
+  // Self-stated daily rate — plain muted text only, never styled like verified data.
+  dailyChargeText: { fontSize: 12, color: LIGHT, fontWeight: '400', marginTop: 5 },
+  dailyChargeAdd: { fontSize: 12, color: FAINT, fontWeight: '400', marginTop: 5 },
   chipAvail: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: GREEN_LIGHT, borderRadius: 20,
@@ -771,6 +844,9 @@ const s = injectFonts({
     paddingHorizontal: 10, paddingVertical: 5,
   },
   chipUnavailText: { fontSize: 12, fontWeight: '600', color: LIGHT },
+  chipToggleIcon: { fontSize: 11, fontWeight: '700', color: GREEN, marginLeft: 2 },
+  chipToggleIconMuted: { color: LIGHT },
+  availHint: { fontSize: 10, color: FAINT, fontWeight: '500', marginTop: 4 },
   linkText: { fontSize: 12, fontWeight: '600', color: '#1877F2', marginTop: 8 },
 
   // ── VERIFIED WORK
@@ -840,33 +916,54 @@ const s = injectFonts({
 
   // ── ACTION BUTTONS
   actionRow: {
-    flexDirection: 'row', gap: 8, marginTop: 16,
+    flexDirection: 'row', gap: 6, marginTop: 16,
   },
   callBtn: {
-    flex: 2, height: 50, borderRadius: 14,
+    flex: 1.5, height: 50, borderRadius: 14,
     backgroundColor: DARK, alignItems: 'center', justifyContent: 'center',
   },
-  callBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 15 },
+  callBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
   callBtnLocked: { backgroundColor: FILL },
   callBtnTextLocked: { color: LIGHT },
   chatBtn: {
-    flex: 1.5, height: 50, borderRadius: 14,
+    flex: 1.2, height: 50, borderRadius: 14,
     borderWidth: 1.5, borderColor: DARK,
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: '#FFFFFF',
   },
-  chatBtnText: { color: DARK, fontWeight: '600', fontSize: 14 },
+  chatBtnText: { color: DARK, fontWeight: '600', fontSize: 12 },
+  enquiryBtn: {
+    flex: 1.4, height: 50, borderRadius: 14,
+    borderWidth: 1.5, borderColor: DARK,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  enquiryBtnText: { color: DARK, fontWeight: '600', fontSize: 12 },
   bookmarkBtn: {
-    width: 50, height: 50, borderRadius: 14,
+    width: 44, height: 50, borderRadius: 14,
     borderWidth: 1.5, borderColor: BORDER,
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: '#FFFFFF',
   },
-  bookmarkIcon: { fontSize: 20 },
+  bookmarkIcon: { fontSize: 18 },
   editProfileBtn: {
     flex: 1, height: 50, borderRadius: 14,
     backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: BORDER,
     alignItems: 'center', justifyContent: 'center',
   },
   editProfileBtnText: { color: DARK, fontWeight: '600', fontSize: 15 },
+  newWorkRecordBtn: {
+    flex: 1, height: 50, borderRadius: 14,
+    backgroundColor: DARK, alignItems: 'center', justifyContent: 'center',
+  },
+  newWorkRecordBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
+
+  // ── TOAST (brief confirmation, e.g. availability toggled)
+  toast: {
+    position: 'absolute', left: 24, right: 24, bottom: 40,
+    backgroundColor: DARK, borderRadius: 12,
+    paddingVertical: 12, paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  toastText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
 });

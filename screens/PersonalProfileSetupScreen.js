@@ -1,11 +1,13 @@
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   ScrollView, StatusBar, Image, Alert, ActivityIndicator,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
 import { useState, useEffect } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { saveProfile, getProfile } from '../services/userService';
 import { auth } from '../config/firebase';
@@ -18,12 +20,14 @@ const TEXT_MID = '#666666';
 const TEXT_LIGHT = '#888888';
 
 export default function PersonalProfileSetupScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [photoUri, setPhotoUri] = useState('');
   const [area, setArea] = useState('');
   const [city, setCity] = useState('');
   const [pincode, setPincode] = useState('');
   const [saving, setSaving] = useState(false);
+  const [initial, setInitial] = useState({ name: '', photoUri: '', area: '', city: '', pincode: '' });
 
   useEffect(() => {
     (async () => {
@@ -37,15 +41,39 @@ export default function PersonalProfileSetupScreen({ navigation }) {
           if (local) p = JSON.parse(local);
         }
         if (p && p.profileType === 'personal') {
-          setName(p.name || '');
-          setPhotoUri(p.photoUri || '');
-          setArea(p.area || '');
-          setCity(p.city || '');
-          setPincode(p.pincode || '');
+          const loaded = {
+            name: p.name || '', photoUri: p.photoUri || '',
+            area: p.area || '', city: p.city || '', pincode: p.pincode || '',
+          };
+          setName(loaded.name);
+          setPhotoUri(loaded.photoUri);
+          setArea(loaded.area);
+          setCity(loaded.city);
+          setPincode(loaded.pincode);
+          setInitial(loaded);
         }
       } catch (_) {}
     })();
   }, []);
+
+  const hasUnsavedChanges = () =>
+    name !== initial.name || photoUri !== initial.photoUri ||
+    area !== initial.area || city !== initial.city || pincode !== initial.pincode;
+
+  const handleBack = () => {
+    if (hasUnsavedChanges()) {
+      Alert.alert(
+        'Discard changes?',
+        'You have unsaved changes. If you go back now, they will be lost.',
+        [
+          { text: 'Keep Editing', style: 'cancel' },
+          { text: 'Discard', style: 'destructive', onPress: () => navigation.goBack() },
+        ]
+      );
+    } else {
+      navigation.goBack();
+    }
+  };
 
   const pickPhoto = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -54,7 +82,7 @@ export default function PersonalProfileSetupScreen({ navigation }) {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
@@ -108,10 +136,13 @@ export default function PersonalProfileSetupScreen({ navigation }) {
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <StatusBar barStyle="dark-content" backgroundColor="white" />
 
       <View style={styles.header}>
+        <TouchableOpacity style={styles.backBtn} onPress={handleBack} activeOpacity={0.7}>
+          <Text style={styles.backBtnText}>←</Text>
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Complete Your Profile</Text>
         <Text style={styles.headerSub}>Just a few details to get you started</Text>
       </View>
@@ -187,7 +218,7 @@ export default function PersonalProfileSetupScreen({ navigation }) {
         <View style={{ height: 32 }} />
       </ScrollView>
 
-      <View style={styles.bottomBar}>
+      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) }]}>
         <TouchableOpacity
           style={[styles.saveBtn, (!name.trim() || saving) && styles.saveBtnDisabled]}
           onPress={handleSave}
@@ -196,7 +227,7 @@ export default function PersonalProfileSetupScreen({ navigation }) {
           {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Save & Continue →</Text>}
         </TouchableOpacity>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -207,6 +238,11 @@ const styles = injectFonts({
     paddingHorizontal: 20, paddingTop: 56, paddingBottom: 20,
     backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: BORDER,
   },
+  backBtn: {
+    width: 36, height: 36, borderRadius: 10, backgroundColor: GREY_BG,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 14,
+  },
+  backBtnText: { fontSize: 20, fontWeight: '700', color: TEXT_DARK },
   headerTitle: { fontSize: 22, fontWeight: '900', color: TEXT_DARK, marginBottom: 4 },
   headerSub: { fontSize: 13, color: TEXT_MID },
 
@@ -240,7 +276,7 @@ const styles = injectFonts({
   locationRow: { flexDirection: 'row', gap: 12 },
 
   bottomBar: {
-    padding: 16, paddingBottom: 32,
+    padding: 16,
     backgroundColor: 'white', borderTopWidth: 1, borderTopColor: BORDER,
   },
   saveBtn: { backgroundColor: ORANGE, paddingVertical: 16, borderRadius: 14, alignItems: 'center' },

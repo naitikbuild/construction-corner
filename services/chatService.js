@@ -1,8 +1,9 @@
-import { db } from '../config/firebase';
+import { db, storage } from '../config/firebase';
 import {
   collection, addDoc, query, orderBy, limit, startAfter,
   onSnapshot, doc, setDoc, getDoc, updateDoc, serverTimestamp, getDocs, increment,
 } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const MESSAGE_PAGE_SIZE = 30;
 
@@ -49,6 +50,51 @@ export const sendWorkRecordMessage = async (chatId, senderUid, recipientUid, rec
   });
   const update = {
     lastMessage: '📄 Work record shared',
+    lastMessageAt: serverTimestamp(),
+    lastMessageSenderId: senderUid,
+  };
+  if (recipientUid) {
+    update[`unreadCount.${recipientUid}`] = increment(1);
+  }
+  await updateDoc(doc(db, 'chats', chatId), update).catch(() => {});
+};
+
+// Uploads a local file URI (from expo-image-picker / expo-document-picker) to
+// Firebase Storage under this chat and returns its public download URL.
+async function uploadChatAttachment(chatId, uri, fileName) {
+  const response = await fetch(uri);
+  const blob = await response.blob();
+  const safeName = (fileName || 'attachment').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path = `chat_attachments/${chatId}/${Date.now()}_${safeName}`;
+  const storageRef = ref(storage, path);
+  await uploadBytes(storageRef, blob);
+  return getDownloadURL(storageRef);
+}
+
+// Sends an image or file attachment as its own message type. For logged-in
+// users the file is uploaded to Firebase Storage first so it syncs across
+// devices; guest sessions (uid prefix `guest_`, no Firebase Auth identity —
+// see LoginScreen's "Skip for now") keep the local device URI as-is, same as
+// the rest of the app's guest-data convention. Throws on upload/write failure
+// so the caller can show a retry option — never silently swallowed here.
+export const sendAttachmentMessage = async (chatId, senderUid, recipientUid, attachment) => {
+  const { type, uri, fileName, fileSize, mimeType } = attachment;
+  const isGuest = (senderUid || '').startsWith('guest_');
+  const finalUri = isGuest ? uri : await uploadChatAttachment(chatId, uri, fileName);
+
+  await addDoc(collection(db, 'chats', chatId, 'messages'), {
+    type,
+    uri: finalUri,
+    fileName: fileName || '',
+    fileSize: fileSize ?? null,
+    mimeType: mimeType || '',
+    sender: senderUid,
+    timestamp: serverTimestamp(),
+  });
+
+  const preview = type === 'image' ? '📷 Photo' : `📎 ${fileName || 'File'}`;
+  const update = {
+    lastMessage: preview,
     lastMessageAt: serverTimestamp(),
     lastMessageSenderId: senderUid,
   };

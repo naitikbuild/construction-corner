@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, StatusBar, SafeAreaView, Image, Alert, Animated,
+  StyleSheet, StatusBar, Image, Alert, Animated,
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { signOut } from 'firebase/auth';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import BottomNav from '../components/BottomNav';
 import PhotoViewer from '../components/PhotoViewer';
 import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
@@ -14,9 +15,9 @@ import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
 import { auth } from '../config/firebase';
 import { getProfile } from '../services/userService';
 import { getWorkByCustomer } from '../services/workService';
+import { getClientReviews } from '../services/workRecordService';
+import ClientReviewsSection from '../components/ClientReviewsSection';
 import { formatAmountIndian } from '../utils/format';
-
-const AnimatedSafeAreaView = Animated.createAnimatedComponent(SafeAreaView);
 
 const DARK = '#262626';
 const GREEN = '#22A559';
@@ -56,13 +57,20 @@ export default function PersonalProfileScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState(null);
   const [bookings, setBookings] = useState([]);
+  const [clientReviews, setClientReviews] = useState([]);
   const [myUid, setMyUid] = useState(null);
   const [viewerVisible, setViewerVisible] = useState(false);
   const { headerAnimatedStyle, headerHeight, onHeaderLayout, onScroll } = useAutoHideHeader();
+  const insets = useSafeAreaInsets();
 
   const load = useCallback(async () => {
     try {
-      const me = await AsyncStorage.getItem('uid');
+      // Prefer the live Firebase Auth uid over the cached AsyncStorage copy —
+      // see WorkerProfileScreen.js's load() for why these can drift. This
+      // screen is always a self-view (no visitor mode), so a stale cached uid
+      // here means loading the wrong profile entirely, not just a UI mode bug.
+      const cachedUid = await AsyncStorage.getItem('uid');
+      const me = auth.currentUser?.uid || cachedUid;
       if (!me) { setLoading(false); return; }
       setMyUid(me);
 
@@ -82,6 +90,8 @@ export default function PersonalProfileScreen({ navigation }) {
       } catch (_) {
         setBookings([]);
       }
+
+      try { setClientReviews(await getClientReviews(me)); } catch (_) { setClientReviews([]); }
     } catch (_) {}
     finally { setLoading(false); }
   }, []);
@@ -118,17 +128,17 @@ export default function PersonalProfileScreen({ navigation }) {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      <AnimatedSafeAreaView
+      <Animated.View
         style={[styles.header, styles.headerFloating, headerAnimatedStyle]}
         onLayout={onHeaderLayout}
       >
-        <View style={styles.headerRow}>
+        <View style={[styles.headerRow, { paddingTop: insets.top + 8 }]}>
           <Text style={styles.headerTitle}>My Profile</Text>
           <TouchableOpacity style={styles.settingsBtn} onPress={() => navigation.navigate('Settings')}>
             <Text style={{ fontSize: 18 }}>⚙️</Text>
           </TouchableOpacity>
         </View>
-      </AnimatedSafeAreaView>
+      </Animated.View>
 
       <ScrollView
         style={styles.scroll}
@@ -180,6 +190,15 @@ export default function PersonalProfileScreen({ navigation }) {
 
         {bookings.map(item => <BookingCard key={item.id} item={item} />)}
 
+        {/* Reviews as a client — providers' reviews of this person, from
+            work records where they hired someone. */}
+        <View style={styles.sectionHead}>
+          <Text style={styles.sectionTitle}>Reviews as a Client</Text>
+        </View>
+        <View style={styles.reviewsWrap}>
+          <ClientReviewsSection reviews={clientReviews} />
+        </View>
+
         {/* Settings / Sign Out */}
         <View style={{ height: 12 }} />
         <TouchableOpacity style={styles.settingsRow} onPress={() => navigation.navigate('Settings')}>
@@ -216,7 +235,7 @@ const styles = injectFonts({
   headerFloating: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
   headerRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16,
+    paddingHorizontal: 20, paddingBottom: 16,
   },
   headerTitle: { fontSize: 20, fontWeight: '700', color: TEXT_DARK },
   settingsBtn: {
@@ -247,6 +266,10 @@ const styles = injectFonts({
   sectionHead: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     marginHorizontal: 16, marginBottom: 12, marginTop: 4,
+  },
+  reviewsWrap: {
+    marginHorizontal: 16, marginBottom: 16, padding: 14, borderRadius: 14,
+    backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: BORDER,
   },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: TEXT_DARK },
   sectionCount: {

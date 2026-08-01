@@ -15,7 +15,6 @@ const features = [
   { icon: '✅', text: 'Verified Work System with CC Score' },
   { icon: '💬', text: 'Real-time messaging with construction network' },
   { icon: '📋', text: 'Post and find construction jobs' },
-  { icon: '🏗️', text: 'Material marketplace with live pricing' },
   { icon: '📚', text: 'Construction courses and certifications' },
 ];
 

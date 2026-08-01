@@ -6,28 +6,6 @@ import {
 import { DEMO_MODE } from '../config/demoMode';
 import { getDemoProfile, isDemoUid } from '../demoData';
 
-export const markWorkComplete = async (workData) => {
-  if (DEMO_MODE && isDemoUid(workData.providerId)) {
-    throw new Error('This is a demo profile for preview purposes — work records can\'t be created against it.');
-  }
-  const ref = await addDoc(collection(db, 'pending_work'), {
-    ...workData,
-    status: 'pending',
-    createdAt: serverTimestamp(),
-  });
-  // Notify the service provider
-  if (workData.providerId) {
-    await addDoc(collection(db, 'notifications', workData.providerId, 'items'), {
-      type: 'work_confirm',
-      message: `${workData.customerName || 'Customer'} marked work complete — ₹${workData.amount}`,
-      workId: ref.id,
-      read: false,
-      createdAt: serverTimestamp(),
-    });
-  }
-  return ref.id;
-};
-
 export const confirmWork = async (workId, commission) => {
   const pendingRef = doc(db, 'pending_work', workId);
   const pendingSnap = await getDoc(pendingRef);

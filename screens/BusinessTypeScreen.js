@@ -1,7 +1,9 @@
+import { useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  SafeAreaView, StatusBar, ScrollView,
+  SafeAreaView, StatusBar, ScrollView, BackHandler,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { injectFonts } from '../theme/typography';
 import { BLUE, CONCRETE_BORDER, CONCRETE_TEXT } from '../constants/colors';
 
@@ -24,12 +26,26 @@ const BUSINESS_TYPES = [
     key: 'contractor',
     profileType: 'contractor',
     emoji: '👷‍♂️',
-    label: 'Contractor',
+    label: 'Sub Contractor',
     sub: 'Individual contractor with a small crew - Civil, Electrical, Plumbing',
   },
 ];
 
 export default function BusinessTypeScreen({ navigation }) {
+  // Scoped to when this screen is actually focused (not just mounted) so it
+  // can't be intercepted by — or itself linger and intercept for — another
+  // screen's hardware-back listener left over deeper in the stack.
+  useFocusEffect(
+    useCallback(() => {
+      const onBack = () => {
+        navigation.goBack();
+        return true;
+      };
+      const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
+      return () => sub.remove();
+    }, [navigation])
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />

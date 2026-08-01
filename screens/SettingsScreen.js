@@ -143,6 +143,7 @@ export default function SettingsScreen({ navigation }) {
   };
 
   const isGuest = !!uid && uid.startsWith('guest_');
+  const isPersonal = (profile?.profileType || '').toLowerCase() === 'personal';
 
   // ── Persist any profile patch — Firestore for real users, AsyncStorage for guests
   const persistSetting = async (patch) => {
@@ -169,9 +170,7 @@ export default function SettingsScreen({ navigation }) {
     persistSetting({ notificationPrefs: { ...notifs, [key]: !notifs[key] } });
   };
 
-  const profileVisible = profile?.profileVisible !== false;
   const available = profile?.available !== false;
-  const callPrivacy = profile?.callPrivacy || 'everyone';
   const blockedUsers = profile?.blockedUsers || [];
 
   const unblockUser = (blockedUid) => {
@@ -213,7 +212,9 @@ export default function SettingsScreen({ navigation }) {
   // ── Navigation shortcuts ──────────────────────────────────────────────────
   const goEditProfile = () => navigation.navigate('EditProfile', { profileType: (profile?.profileType || '').toLowerCase() || undefined });
   const goWorkHistory = () => navigation.navigate('WorkHistory', { uid });
+  const goMyWorkRecords = () => navigation.navigate('MyWorkRecords');
   const goMyReviews = () => navigation.navigate('ReviewsList', { uid });
+  const goMyBookings = () => navigation.navigate('PersonalProfile');
 
   // ── Sign out ───────────────────────────────────────────────────────────────
   const handleSignOut = () => {
@@ -300,61 +301,94 @@ export default function SettingsScreen({ navigation }) {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
 
-        {/* ACCOUNT */}
-        <Group title="ACCOUNT">
-          <Row label="Edit Profile" onPress={goEditProfile} />
-          <Row label="Change Phone Number" subtitle={profile?.phone ? `+91 ${profile.phone}` : 'Not added'} onPress={openPhoneModal} />
-          <Row label="Change Email" subtitle={profile?.email || 'Not added'} onPress={openEmailModal} />
-          <ToggleRow
-            label="Profile Visibility"
-            subtitle={profileVisible ? 'Visible in search results' : 'Hidden from search results'}
-            value={profileVisible}
-            onToggle={() => persistSetting({ profileVisible: !profileVisible })}
-          />
-        </Group>
+        {isPersonal ? (
+          <>
+            {/* ACCOUNT — client version: no provider-only visibility toggle */}
+            <Group title="ACCOUNT">
+              <Row label="Edit Profile" onPress={goEditProfile} />
+              <Row label="Change Phone Number" subtitle={profile?.phone ? `+91 ${profile.phone}` : 'Not added'} onPress={openPhoneModal} />
+              <Row label="Change Email" subtitle={profile?.email || 'Not added'} onPress={openEmailModal} />
+            </Group>
 
-        {/* WORK */}
-        <Group title="WORK">
-          <ToggleRow
-            label="Availability"
-            subtitle={available ? 'Available for work' : 'Marked as Busy'}
-            value={available}
-            onToggle={() => persistSetting({ available: !available })}
-          />
-          <Row label="Work History" subtitle="View your verified work history" onPress={goWorkHistory} />
-          <Row label="My Reviews" onPress={goMyReviews} />
-        </Group>
+            {/* MY BOOKINGS */}
+            <Group title="MY BOOKINGS">
+              <Row label="My Bookings" subtitle="View the services you've hired" onPress={goMyBookings} />
+            </Group>
 
-        {/* NOTIFICATIONS */}
-        <Group title="NOTIFICATIONS">
-          <ToggleRow label="Push Notifications" value={notifs.push} onToggle={() => toggleNotif('push')} />
-          <ToggleRow label="New Message Alerts" value={notifs.messages} onToggle={() => toggleNotif('messages')} />
-          <ToggleRow label="Work Request Alerts" value={notifs.workRequests} onToggle={() => toggleNotif('workRequests')} />
-        </Group>
+            {/* NOTIFICATIONS */}
+            <Group title="NOTIFICATIONS">
+              <ToggleRow label="Push Notifications" value={notifs.push} onToggle={() => toggleNotif('push')} />
+              <ToggleRow label="Alerts" subtitle="Messages and booking updates" value={notifs.messages} onToggle={() => toggleNotif('messages')} />
+            </Group>
 
-        {/* PRIVACY */}
-        <Group title="PRIVACY">
-          <Row
-            label="Who Can Call Me"
-            subtitle={callPrivacy === 'clients' ? 'Only clients I’ve worked with' : 'Everyone'}
-            onPress={() => persistSetting({ callPrivacy: callPrivacy === 'everyone' ? 'clients' : 'everyone' })}
-          />
-          <View style={s.blockedWrap}>
-            <Text style={s.rowLabel}>Blocked Users</Text>
-            {blockedUsers.length === 0 ? (
-              <Text style={s.rowSub}>No blocked users</Text>
-            ) : (
-              blockedUsers.map((u, i) => (
-                <View key={u.uid || i} style={s.blockedRow}>
-                  <Text style={s.blockedName} numberOfLines={1}>{u.name || 'User'}</Text>
-                  <TouchableOpacity onPress={() => unblockUser(u.uid)}>
-                    <Text style={s.unblockText}>Unblock</Text>
-                  </TouchableOpacity>
-                </View>
-              ))
-            )}
-          </View>
-        </Group>
+            {/* PRIVACY — client version: just blocked users, no "who can call me" */}
+            <Group title="PRIVACY">
+              <View style={s.blockedWrap}>
+                <Text style={s.rowLabel}>Blocked Users</Text>
+                {blockedUsers.length === 0 ? (
+                  <Text style={s.rowSub}>No blocked users</Text>
+                ) : (
+                  blockedUsers.map((u, i) => (
+                    <View key={u.uid || i} style={s.blockedRow}>
+                      <Text style={s.blockedName} numberOfLines={1}>{u.name || 'User'}</Text>
+                      <TouchableOpacity onPress={() => unblockUser(u.uid)}>
+                        <Text style={s.unblockText}>Unblock</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))
+                )}
+              </View>
+            </Group>
+          </>
+        ) : (
+          <>
+            {/* ACCOUNT */}
+            <Group title="ACCOUNT">
+              <Row label="Edit Profile" onPress={goEditProfile} />
+              <Row label="Change Phone Number" subtitle={profile?.phone ? `+91 ${profile.phone}` : 'Not added'} onPress={openPhoneModal} />
+              <Row label="Change Email" subtitle={profile?.email || 'Not added'} onPress={openEmailModal} />
+            </Group>
+
+            {/* WORK */}
+            <Group title="WORK">
+              <ToggleRow
+                label="Availability"
+                subtitle={available ? 'Available for work' : 'Marked as Busy'}
+                value={available}
+                onToggle={() => persistSetting({ available: !available })}
+              />
+              <Row label="Work History" subtitle="View your verified work history" onPress={goWorkHistory} />
+              <Row label="My Work Records" subtitle="Drafts, awaiting confirmation & completed" onPress={goMyWorkRecords} />
+              <Row label="My Reviews" onPress={goMyReviews} />
+            </Group>
+
+            {/* NOTIFICATIONS */}
+            <Group title="NOTIFICATIONS">
+              <ToggleRow label="Push Notifications" value={notifs.push} onToggle={() => toggleNotif('push')} />
+              <ToggleRow label="New Message Alerts" value={notifs.messages} onToggle={() => toggleNotif('messages')} />
+              <ToggleRow label="Work Request Alerts" value={notifs.workRequests} onToggle={() => toggleNotif('workRequests')} />
+            </Group>
+
+            {/* PRIVACY */}
+            <Group title="PRIVACY">
+              <View style={s.blockedWrap}>
+                <Text style={s.rowLabel}>Blocked Users</Text>
+                {blockedUsers.length === 0 ? (
+                  <Text style={s.rowSub}>No blocked users</Text>
+                ) : (
+                  blockedUsers.map((u, i) => (
+                    <View key={u.uid || i} style={s.blockedRow}>
+                      <Text style={s.blockedName} numberOfLines={1}>{u.name || 'User'}</Text>
+                      <TouchableOpacity onPress={() => unblockUser(u.uid)}>
+                        <Text style={s.unblockText}>Unblock</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))
+                )}
+              </View>
+            </Group>
+          </>
+        )}
 
         {/* SUPPORT */}
         <Group title="SUPPORT">

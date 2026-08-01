@@ -4,9 +4,15 @@ import {
   StyleSheet, StatusBar, useWindowDimensions, Alert, ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getProfile, recordProfileView } from '../services/userService';
-import { getTotalVerifiedAmount } from '../services/workService';
-import { createChat } from '../services/chatService';
+import {
+  getProviderWorkRecords, workRecordToProject, getClientReviews, WORK_RECORD_STATUS,
+} from '../services/workRecordService';
+import ClientReviewsSection from '../components/ClientReviewsSection';
+import ProjectDetailModal from '../components/ProjectDetailModal';
+import PhotoViewer from '../components/PhotoViewer';
+import { formatAmountIndian } from '../utils/format';
 import { auth } from '../config/firebase';
 
 // ─── Orange Gradient Button ───────────────────────────────────────────────────
@@ -55,8 +61,6 @@ const PROFILE = {
   projectsValue: '₹120 Cr+',
   teamSize: 250,
   experience: '25 Yrs',
-  verifiedAmt: '₹12,00,00,000',
-  verifiedProjects: 85,
   about: 'Mehta Construction Pvt Ltd is an ISO 9001:2015 certified civil contractor specialising in residential complexes, commercial towers, and infrastructure projects. RERA registered, GST compliant, and trusted by 200+ clients across Gujarat.',
 };
 
@@ -84,20 +88,20 @@ const TEAM = [
   { emoji: '📊', name: 'Amit Joshi', role: 'QS Manager' },
 ];
 
-const PROJECTS = [
-  { emoji: '🏢', name: 'Mehta Heights', location: 'Satellite, Ahmedabad', value: '₹45 Cr', year: '2023', status: 'Completed', bg: '#E3F2FD' },
-  { emoji: '🏗️', name: 'SG Highway Mall', location: 'SG Highway, Ahmedabad', value: '₹32 Cr', year: '2022', status: 'Completed', bg: '#FFF3E0' },
-  { emoji: '🏘️', name: 'Green Valley Residency', location: 'Bopal, Ahmedabad', value: '₹28 Cr', year: '2024', status: 'Ongoing', bg: '#E8F5E9' },
-];
-
 // ─── Screen ───────────────────────────────────────────────────────────────────
 export default function BusinessProfileScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const viewUid = route?.params?.uid ?? null;
   const { width } = useWindowDimensions();
   const [activeTab, setActiveTab] = useState('Projects');
   const [loading, setLoading] = useState(true);
   const [liveProfile, setLiveProfile] = useState(null);
   const [verifiedAmt, setVerifiedAmt] = useState('');
+  const [verifiedJobsCount, setVerifiedJobsCount] = useState(0);
+  const [realProjects, setRealProjects] = useState([]);
+  const [projectDetail, setProjectDetail] = useState(null);
+  const [viewer, setViewer] = useState({ visible: false, photos: [], index: 0 });
+  const [clientReviews, setClientReviews] = useState([]);
   const [myUid, setMyUid] = useState(null);
 
   useEffect(() => {
@@ -111,33 +115,54 @@ export default function BusinessProfileScreen({ navigation, route }) {
       setMyUid(me);
       if (!uid) { setLoading(false); return; }
       if (uid !== me) recordProfileView(uid, me);
-      const [profile, totalAmt] = await Promise.all([getProfile(uid), getTotalVerifiedAmount(uid)]);
+      const profile = await getProfile(uid);
       if (profile) setLiveProfile(profile);
-      setVerifiedAmt(totalAmt > 0 ? `₹${totalAmt.toLocaleString('en-IN')}` : '₹0');
+
+      // Verified totals + projects now come from work_records, same system
+      // Worker/Contractor/Professional use — no demo Business/Supplier
+      // profiles exist today, so this is always the real-data path.
+      if (uid && !uid.startsWith('guest_')) {
+        try {
+          const records = await getProviderWorkRecords(uid);
+          const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.CONFIRMED);
+          const total = confirmed.reduce((sum, r) => sum + (r.contractValue || 0), 0);
+          setVerifiedAmt(total > 0 ? `₹${total.toLocaleString('en-IN')}` : '₹0');
+          setVerifiedJobsCount(confirmed.length);
+          setRealProjects(records.map(workRecordToProject));
+        } catch (_) {}
+        try { setClientReviews(await getClientReviews(uid)); } catch (_) { setClientReviews([]); }
+      }
     } catch (_) {}
     finally { setLoading(false); }
   };
 
-  const handleChat = async () => {
+  const openPhotoViewer = (photos, index = 0) => setViewer({ visible: true, photos, index });
+
+  const handleChat = () => {
     if (!viewUid || viewUid === myUid) return;
-    try {
-      const myName = await AsyncStorage.getItem('userName') || 'Me';
-      const chatId = await createChat(
-        { uid: myUid, name: myName },
-        { uid: viewUid, name: liveProfile?.companyName || liveProfile?.name || 'Company' }
+    if (!myUid || myUid.startsWith('guest_')) {
+      Alert.alert(
+        'Sign in to chat',
+        'Create a free account or sign in to start chatting with providers.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Sign In', onPress: () => navigation.navigate('Login') },
+        ]
       );
-      navigation.navigate('Chat', {
-        conversation: {
-          id: chatId,
-          uid: viewUid,
-          name: liveProfile?.companyName || liveProfile?.name || 'Company',
-          role: liveProfile?.companyType || 'Construction Company',
-          emoji: '🏢',
-          avatarBg: '#E8F5E9',
-          online: false,
-        }
-      });
-    } catch (_) { Alert.alert('Error', 'Could not open chat.'); }
+      return;
+    }
+    // ChatScreen creates the chat itself from conversation.uid — no need to
+    // pre-create it here (that redundant call was the thing failing silently).
+    navigation.navigate('Chat', {
+      conversation: {
+        uid: viewUid,
+        name: liveProfile?.companyName || liveProfile?.name || 'Company',
+        role: liveProfile?.companyType || 'Construction Company',
+        emoji: '🏢',
+        avatarBg: '#E8F5E9',
+        online: false,
+      }
+    });
   };
 
   const display = {
@@ -146,6 +171,8 @@ export default function BusinessProfileScreen({ navigation, route }) {
     location: [liveProfile?.city, liveProfile?.state].filter(Boolean).join(', ') || 'Add location',
     verified: verifiedAmt || '₹0',
   };
+
+  const isOwn = !viewUid || viewUid === myUid;
 
   if (loading) {
     return (
@@ -248,13 +275,18 @@ export default function BusinessProfileScreen({ navigation, route }) {
             </View>
             <View style={ss.verifiedDivider} />
             <View style={ss.verifiedStat}>
-              <Text style={ss.verifiedAmt}>{PROFILE.verifiedProjects}</Text>
+              <Text style={ss.verifiedAmt}>{verifiedJobsCount}</Text>
               <Text style={ss.verifiedLbl}>Projects Done</Text>
             </View>
           </View>
-          <TouchableOpacity style={ss.viewHistoryBtn} onPress={() => navigation.navigate('WorkHistory')}>
+          <TouchableOpacity style={ss.viewHistoryBtn} onPress={() => setActiveTab('Projects')}>
             <Text style={ss.viewHistoryText}>View Full History →</Text>
           </TouchableOpacity>
+          {isOwn && (
+            <TouchableOpacity style={ss.viewHistoryBtn} onPress={() => navigation.navigate('MyWorkRecords')}>
+              <Text style={ss.viewHistoryText}>My Work Records →</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* LINKS */}
@@ -338,27 +370,40 @@ export default function BusinessProfileScreen({ navigation, route }) {
           ))}
         </View>
 
-        {/* PAST PROJECTS */}
+        {/* PAST PROJECTS — from work_records, same system Worker/Contractor/
+            Professional use. Only 'confirmed' records read as Completed;
+            locked-but-unconfirmed ones still show, as Ongoing. */}
         {activeTab === 'Projects' && (
           <View style={{ paddingHorizontal: 14, paddingTop: 12, gap: 10 }}>
-            {PROJECTS.map((p, i) => (
-              <TouchableOpacity key={i} style={[ss.projectCard, { backgroundColor: p.bg }]}>
-                <View style={ss.projectLogoWrap}>
-                  <Text style={{ fontSize: 32 }}>{p.emoji}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                    <Text style={ss.projectName}>{p.name}</Text>
-                    <View style={[ss.statusBadge, { backgroundColor: p.status === 'Completed' ? '#C8E6C9' : '#FFF9C4' }]}>
-                      <Text style={[ss.statusText, { color: p.status === 'Completed' ? '#2E7D32' : '#F57F17' }]}>{p.status}</Text>
+            {realProjects.length === 0 ? (
+              <Text style={ss.projectsEmptyText}>No verified projects yet</Text>
+            ) : (
+              realProjects.map((p, i) => {
+                const isDone = p.status === 'done';
+                return (
+                  <TouchableOpacity
+                    key={p.id || i}
+                    style={[ss.projectCard, { backgroundColor: isDone ? '#E8F5E9' : '#FFF3E0' }]}
+                    activeOpacity={0.85}
+                    onPress={() => setProjectDetail(p)}
+                  >
+                    <View style={ss.projectLogoWrap}>
+                      <Text style={{ fontSize: 32 }}>🏗️</Text>
                     </View>
-                  </View>
-                  <Text style={ss.projectLoc}>📍 {p.location}</Text>
-                  <Text style={ss.projectYear}>{p.year}</Text>
-                </View>
-                <Text style={ss.projectValue}>{p.value}</Text>
-              </TouchableOpacity>
-            ))}
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                        <Text style={ss.projectName} numberOfLines={1}>{p.name || 'Untitled project'}</Text>
+                        <View style={[ss.statusBadge, { backgroundColor: isDone ? '#C8E6C9' : '#FFF9C4' }]}>
+                          <Text style={[ss.statusText, { color: isDone ? '#2E7D32' : '#F57F17' }]}>{isDone ? 'Completed' : 'Ongoing'}</Text>
+                        </View>
+                      </View>
+                      {p.location ? <Text style={ss.projectLoc}>📍 {p.location}</Text> : null}
+                    </View>
+                    <Text style={ss.projectValue}>{p.value ? formatAmountIndian(p.value) : '—'}</Text>
+                  </TouchableOpacity>
+                );
+              })
+            )}
           </View>
         )}
 
@@ -368,22 +413,26 @@ export default function BusinessProfileScreen({ navigation, route }) {
           </View>
         )}
 
+        {activeTab === 'Reviews' && (
+          <View style={ss.reviewsCard}>
+            <ClientReviewsSection reviews={clientReviews} />
+          </View>
+        )}
+
         <View style={{ height: 100 }} />
       </ScrollView>
 
       {/* ACTION BAR */}
-      <View style={ss.bookBar}>
-        <TouchableOpacity
-          style={ss.markCompleteBtn}
-          onPress={() => navigation.navigate('MarkWorkComplete', {
-            workerName: display.name,
-            workerRole: display.type,
-            workerEmoji: '🏢',
-            workerUid: viewUid,
-          })}
-        >
-          <Text style={ss.markCompleteBtnText}>✅ Mark{'\n'}Complete</Text>
-        </TouchableOpacity>
+      <View style={[ss.bookBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+        {isOwn && (
+          <TouchableOpacity
+            style={ss.newRecordBtn}
+            onPress={() => navigation.navigate('CreateWorkRecord')}
+            activeOpacity={0.85}
+          >
+            <Text style={ss.newRecordBtnText}>🧾 New{'\n'}Work Record</Text>
+          </TouchableOpacity>
+        )}
         <View style={{ flex: 1 }}>
           <GradBtn
             label="Contact Now"
@@ -392,6 +441,19 @@ export default function BusinessProfileScreen({ navigation, route }) {
           />
         </View>
       </View>
+
+      <ProjectDetailModal
+        visible={!!projectDetail}
+        project={projectDetail}
+        onClose={() => setProjectDetail(null)}
+        onViewPhoto={openPhotoViewer}
+      />
+      <PhotoViewer
+        visible={viewer.visible}
+        photos={viewer.photos}
+        initialIndex={viewer.index}
+        onClose={() => setViewer(v => ({ ...v, visible: false }))}
+      />
     </View>
   );
 }
@@ -473,13 +535,13 @@ const ss = StyleSheet.create({
   projectLogoWrap: { width: 52, height: 52, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.8)', alignItems: 'center', justifyContent: 'center' },
   projectName: { fontSize: 13, fontWeight: '800', color: '#1A1A1A' },
   projectLoc: { fontSize: 11, color: '#666666', marginTop: 2 },
-  projectYear: { fontSize: 10, color: '#888888', marginTop: 2 },
   projectValue: { fontSize: 15, fontWeight: '800', color: '#FFB830' },
   statusBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
   statusText: { fontSize: 10, fontWeight: '700' },
 
   aboutCard: { backgroundColor: '#FFFFFF', marginHorizontal: 14, marginTop: 12, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#EFEFEF' },
   aboutText: { fontSize: 13, color: '#666666', lineHeight: 20 },
+  reviewsCard: { backgroundColor: '#FFFFFF', marginHorizontal: 14, marginTop: 12, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#EFEFEF' },
 
   gradWrap: { borderRadius: 14, overflow: 'hidden', height: 56 },
   gradBg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, flexDirection: 'row' },
@@ -487,9 +549,10 @@ const ss = StyleSheet.create({
   gradLabel: { color: '#FFFFFF', fontWeight: '700', fontSize: 17 },
   gradSub: { color: 'rgba(255,255,255,0.75)', fontSize: 11, fontWeight: '600', marginTop: 2 },
 
-  bookBar: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingBottom: 28, paddingTop: 10, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#EFEFEF' },
+  bookBar: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingTop: 10, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#EFEFEF' },
   viewHistoryBtn: { paddingVertical: 10, alignItems: 'center', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)' },
   viewHistoryText: { fontSize: 12, fontWeight: '800', color: '#FF6B2B' },
-  markCompleteBtn: { width: 72, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F0FFF4', borderWidth: 2, borderColor: '#2ECC71' },
-  markCompleteBtnText: { fontSize: 11, fontWeight: '800', color: '#2ECC71', textAlign: 'center', lineHeight: 16 },
+  newRecordBtn: { width: 84, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F0FFF4', borderWidth: 2, borderColor: '#2ECC71' },
+  newRecordBtnText: { fontSize: 11, fontWeight: '800', color: '#2ECC71', textAlign: 'center', lineHeight: 16 },
+  projectsEmptyText: { fontSize: 13, color: '#888888', fontStyle: 'italic', textAlign: 'center', paddingVertical: 16 },
 });

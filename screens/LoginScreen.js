@@ -1,6 +1,7 @@
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   StatusBar, BackHandler, Alert, SafeAreaView, ActivityIndicator,
+  ScrollView, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
 import { useState, useEffect, useRef } from 'react';
@@ -147,8 +148,13 @@ export default function LoginScreen({ navigation, route }) {
         err.code === 'auth/email-already-in-use' ? 'This email is already registered. Try signing in.' :
         err.code === 'auth/user-not-found' ? 'No account found. Use Sign Up to create one.' :
         err.code === 'auth/wrong-password' ? 'Incorrect password. Please try again.' :
+        // Newer Firebase projects (email-enumeration protection, on by default
+        // since mid-2023) merge wrong-password/no-such-user into this one code.
+        err.code === 'auth/invalid-credential' ? 'Incorrect email or password. Please try again.' :
         err.code === 'auth/invalid-email' ? 'Invalid email address.' :
         err.code === 'auth/weak-password' ? 'Password must be at least 6 characters.' :
+        err.code === 'auth/too-many-requests' ? 'Too many attempts. Please wait a moment and try again.' :
+        err.code === 'auth/network-request-failed' ? 'Network error. Please check your connection and try again.' :
         err.message || 'Authentication failed.';
       Alert.alert('Auth Error', msg);
     } finally {
@@ -179,7 +185,7 @@ export default function LoginScreen({ navigation, route }) {
         </View>
         <Text style={styles.splashTitle}>Construction Corner</Text>
         <Text style={styles.splashTagline}>India's #1 Construction Network</Text>
-        <TouchableOpacity style={styles.primaryBtn} onPress={() => navigation.navigate('Onboarding')}>
+        <TouchableOpacity style={styles.primaryBtn} onPress={() => navigation.replace('Onboarding')}>
           <Text style={styles.primaryBtnText}>Get Started →</Text>
         </TouchableOpacity>
         <Text style={styles.splashVersion}>v1.0.0 · Made in India 🇮🇳</Text>
@@ -189,9 +195,8 @@ export default function LoginScreen({ navigation, route }) {
 
   // ─── ONBOARDING ──────────────────────────────────────────────────────────────
   const SLIDES = [
-    { key: 'onboard1', emoji: '👷', title: 'Find Contractors\n& Professionals', sub: 'Connect with verified architects, engineers, contractors and 50+ construction professionals across India.', dot: 0, next: 'onboard2', nextLabel: 'Next →' },
-    { key: 'onboard2', emoji: '🏭', title: 'Source Materials\nat Best Price', sub: 'Compare prices from 1000+ verified suppliers for cement, steel, tiles, RMC and all construction materials.', dot: 1, next: 'onboard3', nextLabel: 'Next →' },
-    { key: 'onboard3', emoji: '📈', title: 'Grow Your Business\n& Network', sub: 'Post tenders, find jobs, take courses and be part of India\'s construction revolution.', dot: 2, next: 'accountType', nextLabel: "Let's Go! 🚀" },
+    { key: 'onboard1', emoji: '👷', title: 'Find Sub Contractors\n& Professionals', sub: 'Connect with verified architects, engineers, contractors and 50+ construction professionals across India.', dot: 0, next: 'onboard3', nextLabel: 'Next →' },
+    { key: 'onboard3', emoji: '📈', title: 'Grow Your Business\n& Network', sub: 'Post tenders, find jobs, take courses and be part of India\'s construction revolution.', dot: 1, next: 'accountType', nextLabel: "Let's Go! 🚀" },
   ];
 
   const slide = SLIDES.find(s => s.key === screen);
@@ -208,7 +213,7 @@ export default function LoginScreen({ navigation, route }) {
         <Text style={styles.onboardTitle}>{slide.title}</Text>
         <Text style={styles.onboardSub}>{slide.sub}</Text>
         <View style={styles.dotsRow}>
-          {[0, 1, 2].map(i => (
+          {[0, 1].map(i => (
             <View key={i} style={[styles.dot, i === slide.dot && styles.dotActive]} />
           ))}
         </View>
@@ -273,7 +278,8 @@ export default function LoginScreen({ navigation, route }) {
 
   // ─── LOGIN ────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={styles.page}>
+    <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <SafeAreaView style={{ flex: 1 }}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       <TouchableOpacity style={styles.backBtn} onPress={() => {
         if (roleParam) { navigation.goBack(); return; }
@@ -282,6 +288,11 @@ export default function LoginScreen({ navigation, route }) {
         <Text style={styles.backBtnText}>← Back</Text>
       </TouchableOpacity>
 
+      <ScrollView
+        contentContainerStyle={{ flexGrow: 1 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
       <View style={styles.loginTop}>
         <Text style={styles.loginLogoEmoji}>🏗️</Text>
         <Text style={styles.pageTitle}>Sign In</Text>
@@ -419,7 +430,9 @@ export default function LoginScreen({ navigation, route }) {
       <TouchableOpacity style={styles.skipForNowBtn} onPress={handleSkipForNow}>
         <Text style={styles.skipForNowText}>Skip for now</Text>
       </TouchableOpacity>
+      </ScrollView>
     </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }
 

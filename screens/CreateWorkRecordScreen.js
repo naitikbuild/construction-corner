@@ -6,12 +6,17 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { injectFonts } from '../theme/typography';
 import PhotoViewer from '../components/PhotoViewer';
 import { searchUsers, getProfile } from '../services/userService';
-import { createWorkRecord, updateWorkRecord, getWorkRecord, lockWorkRecord } from '../services/workRecordService';
+import { createWorkRecord, updateWorkRecord, getWorkRecord, lockWorkRecord, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { sendNotification } from '../services/notificationService';
+import { createChat, sendWorkRecordMessage } from '../services/chatService';
 import { useToast } from '../hooks/useToast';
+import { PROJECT_CATEGORIES, WORK_KEYWORDS } from '../constants/categories';
+
+const MAX_KEYWORDS = 10;
 
 const DARK = '#262626';
 const GREEN = '#22A559';
@@ -37,7 +42,7 @@ function roleLabel(u) {
   const type = (u.profileType || '').toLowerCase();
   if (type === 'personal') return 'Homeowner';
   if (type === 'worker') return u.category || u.workerSkill || u.primarySkill || 'Worker';
-  if (type === 'contractor') return u.category || u.contractorType || 'Contractor';
+  if (type === 'contractor') return u.category || u.contractorType || 'Sub Contractor';
   if (type === 'professional') return u.category || u.designation || 'Professional';
   if (type === 'business' || type === 'supplier') return 'Company';
   return 'User';
@@ -163,6 +168,60 @@ function ClientPickerModal({ visible, onClose, onSelect, excludeUid }) {
   );
 }
 
+// ── Type of work picker — fixed list only, type to filter, no custom entries.
+function KeywordPickerModal({ visible, onClose, onSelect, selected }) {
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    if (!visible) setQuery('');
+  }, [visible]);
+
+  const atLimit = selected.length >= MAX_KEYWORDS;
+  const q = query.trim().toLowerCase();
+  const results = WORK_KEYWORDS.filter(k => !selected.includes(k) && (!q || k.toLowerCase().includes(q)));
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <TouchableOpacity style={s.modalOverlay} onPress={onClose} activeOpacity={1}>
+        <TouchableOpacity style={s.modalSheet} activeOpacity={1} onPress={() => {}}>
+          <Text style={s.modalTitle}>Add type of work</Text>
+          {atLimit ? (
+            <Text style={s.keywordLimitText}>Maximum {MAX_KEYWORDS} — remove one below to add another.</Text>
+          ) : (
+            <TextInput
+              style={s.modalSearchInput}
+              placeholder="Search type of work, e.g. Waterproofing..."
+              placeholderTextColor={LIGHT}
+              value={query}
+              onChangeText={setQuery}
+              autoCorrect={false}
+              autoCapitalize="none"
+            />
+          )}
+          {!atLimit && (
+            <ScrollView style={s.modalList} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              {results.length === 0 ? (
+                <Text style={s.modalEmptyText}>No matching results</Text>
+              ) : (
+                results.map(k => (
+                  <TouchableOpacity
+                    key={k}
+                    style={s.keywordResultRow}
+                    onPress={() => { onSelect(k); onClose(); }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={s.keywordResultText}>{k}</Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+          )}
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
 // ── Minimal in-app calendar — avoids adding a native date-picker dependency
 // (none exists in this codebase yet) so the screen keeps working in Expo Go.
 function CalendarModal({ visible, title, value, onSelect, onClose }) {
@@ -253,21 +312,27 @@ function LockConfirmModal({ visible, clientName, labourCharge, onCancel, onConfi
 }
 
 export default function CreateWorkRecordScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const existingRecordId = route?.params?.recordId ?? null;
 
   const [providerId, setProviderId] = useState(null);
   const [providerName, setProviderName] = useState('');
   const [recordId, setRecordId] = useState(existingRecordId);
   const [loading, setLoading] = useState(!!existingRecordId);
+  const [notFound, setNotFound] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [status, setStatus] = useState('draft');
   const [lockedAt, setLockedAt] = useState(null);
   const [lockedByName, setLockedByName] = useState('');
+  const [providerReview, setProviderReview] = useState(null);
 
   const [client, setClient] = useState(null); // full user object of selected client
   const [projectName, setProjectName] = useState('');
   const [workArea, setWorkArea] = useState('');
+  const [category, setCategory] = useState('');
+  const [location, setLocation] = useState('');
+  const [keywords, setKeywords] = useState([]);
   const [plannedStart, setPlannedStart] = useState(null);
   const [plannedFinish, setPlannedFinish] = useState(null);
   const [contractValue, setContractValue] = useState('');
@@ -276,6 +341,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
 
   const [errors, setErrors] = useState({});
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  const [keywordPickerOpen, setKeywordPickerOpen] = useState(false);
   const [startPickerOpen, setStartPickerOpen] = useState(false);
   const [finishPickerOpen, setFinishPickerOpen] = useState(false);
   const [lockModalOpen, setLockModalOpen] = useState(false);
@@ -283,7 +349,9 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
 
-  const isLocked = status === 'locked';
+  // Once locked (pending confirmation, confirmed, or disputed) a record is
+  // permanently read-only for the provider — only 'draft' is editable.
+  const isLocked = status !== WORK_RECORD_STATUS.DRAFT;
 
   const { toastMessage, toastOpacity, showToast } = useToast();
 
@@ -304,6 +372,13 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
       if (existingRecordId) {
         try {
           const rec = await getWorkRecord(existingRecordId);
+          // This screen is the provider's own editable/locked view. Anyone
+          // else who opens it (the client, tapping the record card shared in
+          // chat) belongs in the read-only client review flow instead.
+          if (rec && rec.providerId !== uid) {
+            navigation.replace('WorkRecordReview', { recordId: existingRecordId });
+            return;
+          }
           if (rec) {
             setClient({
               uid: rec.clientId,
@@ -314,6 +389,9 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
             });
             setProjectName(rec.projectName || '');
             setWorkArea(rec.workArea || '');
+            setCategory(rec.category || '');
+            setLocation(rec.location || '');
+            setKeywords(rec.keywords || []);
             setPlannedStart(rec.plannedStart ? new Date(rec.plannedStart) : null);
             setPlannedFinish(rec.plannedFinish ? new Date(rec.plannedFinish) : null);
             setContractValue(rec.contractValue != null ? String(rec.contractValue) : '');
@@ -322,9 +400,12 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
             setStatus(rec.status || 'draft');
             setLockedAt(toJsDate(rec.lockedAt));
             setLockedByName(rec.lockedByName || '');
+            setProviderReview(rec.providerReview || null);
+          } else {
+            setNotFound(true);
           }
         } catch (_) {
-          Alert.alert('Could not load', 'This work record could not be loaded.');
+          setNotFound(true);
         } finally {
           setLoading(false);
         }
@@ -336,6 +417,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
     const next = {};
     if (!client) next.client = 'Select the client this work is agreed with';
     if (!projectName.trim()) next.projectName = 'Enter a project name';
+    if (!category) next.category = 'Select a project category';
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -343,6 +425,19 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
   const handleSelectClient = (u) => {
     setClient(u);
     if (errors.client) setErrors(prev => ({ ...prev, client: '' }));
+  };
+
+  const handleSelectCategory = (c) => {
+    setCategory(c);
+    if (errors.category) setErrors(prev => ({ ...prev, category: '' }));
+  };
+
+  const handleAddKeyword = (k) => {
+    setKeywords(prev => (prev.includes(k) || prev.length >= MAX_KEYWORDS) ? prev : [...prev, k]);
+  };
+
+  const handleRemoveKeyword = (k) => {
+    setKeywords(prev => prev.filter(x => x !== k));
   };
 
   const handleAddPhoto = async () => {
@@ -353,7 +448,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [4, 3],
       quality: 0.7,
@@ -375,6 +470,9 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
     clientVerified: !!client.verified,
     projectName: projectName.trim(),
     workArea: workArea.trim(),
+    category,
+    location: location.trim(),
+    keywords,
     plannedStart: plannedStart ? plannedStart.toISOString() : null,
     plannedFinish: plannedFinish ? plannedFinish.toISOString() : null,
     contractValue: contractValue ? Number(contractValue) : null,
@@ -398,7 +496,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
     setSaving(true);
     try {
       await persist();
-      showToast('Draft saved');
+      showToast('Draft saved — find it in My Work Records');
     } catch (err) {
       Alert.alert('Could Not Save', err.message || 'Something went wrong. Please try again.');
     } finally {
@@ -429,8 +527,20 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
         `${nameForLock} marked work as completed — please review`,
         { recordId: id }
       );
+      // Share it into their chat as a tappable card — this is the client's
+      // entry point into the read-only review + confirm/rate flow, since
+      // there's no notification-tap routing for 'work_locked' yet.
+      try {
+        const chatId = await createChat(
+          { uid: providerId, name: nameForLock },
+          { uid: client.uid, name: client.name || client.companyName || 'Client' }
+        );
+        await sendWorkRecordMessage(chatId, providerId, client.uid, {
+          id, projectName, workArea, contractValue: contractValue ? Number(contractValue) : null,
+        });
+      } catch (_) {}
 
-      setStatus('locked');
+      setStatus(WORK_RECORD_STATUS.LOCKED_PENDING_CONFIRMATION);
       setLockedAt(new Date());
       setLockedByName(nameForLock);
       setLockModalOpen(false);
@@ -463,6 +573,10 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
         <View style={s.center}>
           <ActivityIndicator size="large" color={DARK} />
         </View>
+      ) : notFound ? (
+        <View style={s.center}>
+          <Text style={s.emptyStateText}>This work record could not be found.</Text>
+        </View>
       ) : (
         <ScrollView style={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
@@ -476,6 +590,29 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
             <View style={s.banner}>
               <Text style={s.bannerText}>✏️ Editable anytime — update these details until the work is completed. Locking happens only on completion.</Text>
             </View>
+          )}
+
+          {status === WORK_RECORD_STATUS.DISPUTED && (
+            <View style={s.disputedBanner}>
+              <Text style={s.disputedBannerText}>
+                ⚑ {client?.name || client?.companyName || 'The client'} raised an issue with this work record.
+              </Text>
+            </View>
+          )}
+
+          {/* Deliberately shows only whether you've rated this client, never
+              the rating/review itself — that only ever appears on the
+              client's own profile (see ClientReviewsSection). */}
+          {status === WORK_RECORD_STATUS.CONFIRMED && (
+            providerReview ? (
+              <View style={s.rateClientDoneBanner}>
+                <Text style={s.rateClientDoneText}>✓ You've rated {client?.name || client?.companyName || 'this client'}</Text>
+              </View>
+            ) : (
+              <TouchableOpacity style={s.rateClientBtn} onPress={() => navigation.navigate('RateClient', { recordId })} activeOpacity={0.85}>
+                <Text style={s.rateClientBtnText}>{client?.name || client?.companyName || 'The client'} confirmed this work — Rate them →</Text>
+              </TouchableOpacity>
+            )
           )}
 
           <Field label="Agreed with client" required error={errors.client}>
@@ -549,6 +686,68 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
                 placeholderTextColor={LIGHT}
               />
             )}
+          </Field>
+
+          <Field label="Project category" required error={errors.category}>
+            {isLocked ? (
+              <View style={s.readOnlyBox}><Text style={s.readOnlyText}>{category || '—'}</Text></View>
+            ) : (
+              <View style={s.categoryRow}>
+                {PROJECT_CATEGORIES.map(c => {
+                  const active = category === c;
+                  return (
+                    <TouchableOpacity
+                      key={c}
+                      style={[s.categoryChip, active && s.categoryChipActive]}
+                      onPress={() => handleSelectCategory(c)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[s.categoryChipText, active && s.categoryChipTextActive]}>{c}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </Field>
+
+          <Field label="Project location">
+            {isLocked ? (
+              <View style={s.readOnlyBox}><Text style={s.readOnlyText}>{location || '—'}</Text></View>
+            ) : (
+              <TextInput
+                style={s.input}
+                value={location}
+                onChangeText={setLocation}
+                placeholder="e.g. Bopal, Ahmedabad"
+                placeholderTextColor={LIGHT}
+              />
+            )}
+          </Field>
+
+          <Field
+            label="Type of work"
+            hint={isLocked ? undefined : 'Optional — extra/specific work done on this project, beyond your primary trade. Up to 10.'}
+          >
+            <View style={s.keywordChipsWrap}>
+              {keywords.map(k => (
+                <View key={k} style={s.keywordChip}>
+                  <Text style={s.keywordChipText}>{k}</Text>
+                  {!isLocked && (
+                    <TouchableOpacity onPress={() => handleRemoveKeyword(k)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                      <Text style={s.keywordChipRemove}>✕</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+              {!isLocked && keywords.length < MAX_KEYWORDS && (
+                <TouchableOpacity style={s.keywordAddChip} onPress={() => setKeywordPickerOpen(true)} activeOpacity={0.8}>
+                  <Text style={s.keywordAddChipText}>+ Add type of work</Text>
+                </TouchableOpacity>
+              )}
+              {keywords.length === 0 && isLocked && (
+                <Text style={s.readOnlyText}>—</Text>
+              )}
+            </View>
           </Field>
 
           <View style={s.fieldWrap}>
@@ -654,8 +853,18 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
         </ScrollView>
       )}
 
+      {!isLocked && recordId && (
+        <TouchableOpacity
+          style={s.viewRecordsLink}
+          onPress={() => navigation.navigate('MyWorkRecords')}
+          activeOpacity={0.7}
+        >
+          <Text style={s.viewRecordsLinkText}>🧾 Saved as draft — View My Work Records →</Text>
+        </TouchableOpacity>
+      )}
+
       {!isLocked && (
-        <View style={s.bottomBar}>
+        <View style={[s.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           <TouchableOpacity
             style={[s.saveBtn, saving && s.btnDisabled]}
             onPress={handleSaveDetails}
@@ -680,6 +889,12 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
         onClose={() => setClientPickerOpen(false)}
         onSelect={handleSelectClient}
         excludeUid={providerId}
+      />
+      <KeywordPickerModal
+        visible={keywordPickerOpen}
+        onClose={() => setKeywordPickerOpen(false)}
+        onSelect={handleAddKeyword}
+        selected={keywords}
       />
       <CalendarModal
         visible={startPickerOpen}
@@ -721,7 +936,8 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
 
 const s = injectFonts({
   screen: { flex: 1, backgroundColor: BG },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
+  emptyStateText: { fontSize: 14, color: LIGHT, fontWeight: '600', textAlign: 'center' },
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -748,6 +964,23 @@ const s = injectFonts({
     borderRadius: 12, backgroundColor: FILL, borderWidth: 1, borderColor: BORDER,
   },
   lockedBannerText: { fontSize: 12, color: MID, fontWeight: '600', lineHeight: 18, flex: 1 },
+
+  rateClientBtn: {
+    margin: 14, marginBottom: 6, padding: 14, borderRadius: 12,
+    backgroundColor: DARK, alignItems: 'center',
+  },
+  rateClientBtnText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
+  rateClientDoneBanner: {
+    margin: 14, marginBottom: 6, padding: 12, borderRadius: 12,
+    backgroundColor: GREEN_LIGHT, borderWidth: 1, borderColor: '#B7E4C7',
+  },
+  rateClientDoneText: { fontSize: 12, color: GREEN, fontWeight: '700', lineHeight: 18 },
+
+  disputedBanner: {
+    margin: 14, marginBottom: 6, padding: 12, borderRadius: 12,
+    backgroundColor: '#FDEAEA', borderWidth: 1, borderColor: '#F3B9B9',
+  },
+  disputedBannerText: { fontSize: 12, color: ALERT, fontWeight: '700', lineHeight: 18 },
 
   fieldWrap: { paddingHorizontal: 14, marginTop: 18 },
   fieldLabel: { fontSize: 13, fontWeight: '600', color: DARK, marginBottom: 8 },
@@ -783,6 +1016,34 @@ const s = injectFonts({
 
   dropdownPlaceholder: { fontSize: 14, color: LIGHT, flex: 1 },
   dropdownArrow: { fontSize: 16, color: LIGHT },
+
+  // ── Project category chips
+  categoryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  categoryChip: {
+    borderWidth: 1.5, borderColor: BORDER, borderRadius: 20,
+    paddingHorizontal: 14, paddingVertical: 9, backgroundColor: '#FFFFFF',
+  },
+  categoryChipActive: { backgroundColor: DARK, borderColor: DARK },
+  categoryChipText: { fontSize: 13, fontWeight: '600', color: DARK },
+  categoryChipTextActive: { color: '#FFFFFF' },
+
+  // ── Type of work chips
+  keywordChipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  keywordChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: GREEN_LIGHT, borderRadius: 20,
+    paddingHorizontal: 12, paddingVertical: 7,
+  },
+  keywordChipText: { fontSize: 12, fontWeight: '600', color: GREEN },
+  keywordChipRemove: { fontSize: 11, fontWeight: '900', color: GREEN },
+  keywordAddChip: {
+    borderWidth: 1.5, borderColor: BORDER, borderStyle: 'dashed', borderRadius: 20,
+    paddingHorizontal: 12, paddingVertical: 7, backgroundColor: FILL,
+  },
+  keywordAddChipText: { fontSize: 12, fontWeight: '700', color: MID },
+  keywordLimitText: { fontSize: 12, color: LIGHT, fontWeight: '500', marginBottom: 10, lineHeight: 18 },
+  keywordResultRow: { paddingVertical: 12, borderTopWidth: 1, borderTopColor: BORDER },
+  keywordResultText: { fontSize: 14, fontWeight: '600', color: DARK },
 
   // ── Client field / picker
   clientField: {
@@ -863,8 +1124,13 @@ const s = injectFonts({
   photoAddText: { fontSize: 12, fontWeight: '700', color: MID },
 
   // ── Bottom actions
+  viewRecordsLink: {
+    paddingHorizontal: 14, paddingVertical: 10, alignItems: 'center',
+    backgroundColor: GREEN_LIGHT, borderTopWidth: 1, borderTopColor: BORDER,
+  },
+  viewRecordsLinkText: { fontSize: 12, fontWeight: '700', color: GREEN },
   bottomBar: {
-    flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 24,
+    flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingTop: 12,
     backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: BORDER,
   },
   saveBtn: {

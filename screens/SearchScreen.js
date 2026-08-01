@@ -6,8 +6,11 @@ import {
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { searchUsers, getAllUsers, getProfile } from '../services/userService';
-import { formatAmountIndian } from '../utils/format';
+import { formatAmountIndian, isRecentJoin } from '../utils/format';
+import ProjectDetailModal from '../components/ProjectDetailModal';
+import PhotoViewer from '../components/PhotoViewer';
 
 const GREEN       = '#22A559';
 const GREEN_LIGHT  = '#EAF7EF';
@@ -30,9 +33,10 @@ const PROFILE_SCREEN = {
 };
 
 const SORT_OPTIONS = [
+  { key: 'best', label: 'Best match' },
   { key: 'nearest', label: 'Nearest' },
+  { key: 'revenue', label: 'Highest revenue' },
   { key: 'rating', label: 'Highest rated' },
-  { key: 'verified', label: 'Most verified work' },
   { key: 'jobs', label: 'Most jobs' },
 ];
 
@@ -60,6 +64,22 @@ const RATING_OPTIONS = [
 // the only availability signal is the boolean `available` flag. Rather than
 // fabricate a fake day, busy providers just show a plain "Busy" label.
 const BUSY_LABEL = 'Busy';
+
+const NEAR_ME_RE = /\bnear me\b/i;
+
+function hasCoords(u) {
+  return typeof u.lat === 'number' && typeof u.lng === 'number';
+}
+
+// Great-circle distance in km between two lat/lng points.
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 function tradeLine(u) {
   const trade = u.category || u.designation || u.workerSkill || u.contractorType || u.primarySkill || '';
@@ -89,6 +109,68 @@ function ratingDisplay(u) {
   return r > 0 ? r.toFixed(1) : '—';
 }
 
+function onTimeNum(u) {
+  const n = parseFloat(u.onTimeRate);
+  return Number.isFinite(n) ? n : -1;
+}
+
+// "Best match" — the default ranking, tuned for construction: verified work
+// (proven, app-confirmed jobs) outranks unverified every time; among verified
+// (or among unverified) providers, higher revenue wins since it reflects
+// consistent, repeat work rather than a single lucky job; then rating, then
+// on-time reliability; available-now providers get a final nudge ahead of
+// otherwise-equal peers. New providers with zero revenue/no verified work
+// still sort in — just toward the bottom — never filtered out.
+function bestMatchCompare(a, b) {
+  const av = hasVerifiedWork(a) ? 1 : 0;
+  const bv = hasVerifiedWork(b) ? 1 : 0;
+  if (av !== bv) return bv - av;
+
+  const arev = verifiedAmountNum(a), brev = verifiedAmountNum(b);
+  if (arev !== brev) return brev - arev;
+
+  const ar = ratingNum(a), br = ratingNum(b);
+  if (ar !== br) return br - ar;
+
+  const aot = onTimeNum(a), bot = onTimeNum(b);
+  if (aot !== bot) return bot - aot;
+
+  const aa = a.available === true ? 1 : 0;
+  const ba = b.available === true ? 1 : 0;
+  return ba - aa;
+}
+
+// ─── Projects tab matching ──────────────────────────────────────────────────
+function norm(s) {
+  return (s || '').toString().toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+// Project-level match for the Projects tab: 2 = "Type of work" keyword match
+// (the strongest signal — e.g. searching "island counter" finds a project
+// tagged with that keyword), 1 = project name/category match (secondary),
+// 0 = no match. Browsing with no query shows everything at the top tier.
+function projectMatchInfo(project, q) {
+  if (!q) return { tier: 2, keyword: null };
+  const keywords = Array.isArray(project.keywords) ? project.keywords : [];
+  const keyword = keywords.find(k => norm(k).includes(q));
+  if (keyword) return { tier: 2, keyword };
+  if (norm(project.name).includes(q) || norm(project.category).includes(q)) {
+    return { tier: 1, keyword: null };
+  }
+  return { tier: 0, keyword: null };
+}
+
+// Most verified/completed project entries don't carry a real timestamp (the
+// self-declared `projects` array predates that) — fall back gracefully
+// through whatever date-like field is available instead of crashing/sorting
+// randomly; ties with nothing at all just keep their fetch order.
+function projectRecencyMs(project) {
+  const raw = project.completedAt || project.plannedFinish || project.plannedStart;
+  if (!raw) return 0;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
 // ─── Result row ───────────────────────────────────────────────────────────────
 function ResultRow({ item, onPress }) {
   // A provider with zero completed jobs can't have a real on-time % or star
@@ -96,9 +178,13 @@ function ResultRow({ item, onPress }) {
   // that contradicts the "0 jobs" count next to it.
   const jobs = jobsCountNum(item);
   const hasJobs = jobs > 0;
+  // Zero jobs AND joined under a month ago -> show a "New" label instead of
+  // the ₹0 · 0 jobs · — · — stats row. Past the first month with still no
+  // jobs, fall through to the normal (zero) stats row above.
+  const isNew = !hasJobs && isRecentJoin(item.createdAt);
 
   return (
-    <View style={s.row}>
+    <TouchableOpacity style={s.row} onPress={onPress} activeOpacity={0.7}>
       <View style={s.thumbWrap}>
         {item.photoUri ? (
           <Image source={{ uri: item.photoUri }} style={s.thumbImg} resizeMode="cover" />
@@ -117,15 +203,21 @@ function ResultRow({ item, onPress }) {
           ) : null}
         </View>
         <Text style={s.tradeLine} numberOfLines={1}>{tradeLine(item) || '—'}</Text>
-        <Text style={s.statsRow} numberOfLines={1}>
-          <Text style={s.statsGreen}>{formatAmountIndian(verifiedAmountNum(item))}</Text>
-          <Text style={s.statsDot}> · </Text>
-          <Text style={s.statsGreen}>{jobs} jobs</Text>
-          <Text style={s.statsDot}> · </Text>
-          <Text style={s.statsGreen}>{hasJobs ? (item.onTimeRate || '—') : '—'}</Text>
-          <Text style={s.statsDot}> · </Text>
-          <Text style={s.statsGreen}>{hasJobs ? `★${ratingDisplay(item)}` : 'New'}</Text>
-        </Text>
+        {isNew ? (
+          <View style={s.newBadge}>
+            <Text style={s.newBadgeText}>New</Text>
+          </View>
+        ) : (
+          <Text style={s.statsRow} numberOfLines={1}>
+            <Text style={s.statsGreen}>{formatAmountIndian(verifiedAmountNum(item))}</Text>
+            <Text style={s.statsDot}> · </Text>
+            <Text style={s.statsGreen}>{jobs} jobs</Text>
+            <Text style={s.statsDot}> · </Text>
+            <Text style={s.statsGreen}>{hasJobs ? (item.onTimeRate || '—') : '—'}</Text>
+            <Text style={s.statsDot}> · </Text>
+            <Text style={s.statsGreen}>{hasJobs ? `★${ratingDisplay(item)}` : 'New'}</Text>
+          </Text>
+        )}
       </View>
 
       <View style={s.rightCol}>
@@ -137,11 +229,30 @@ function ResultRow({ item, onPress }) {
         ) : (
           <Text style={s.availNextText}>{BUSY_LABEL}</Text>
         )}
-        <TouchableOpacity style={s.viewBtn} onPress={onPress} activeOpacity={0.85}>
-          <Text style={s.viewBtnText}>View</Text>
-        </TouchableOpacity>
       </View>
-    </View>
+    </TouchableOpacity>
+  );
+}
+
+// ─── Project row (Projects tab) — plain list, no inline photos ─────────────
+function ProjectRow({ item, onPress }) {
+  const subline = [item.category, item.value ? formatAmountIndian(item.value) : null].filter(Boolean).join(' · ');
+  return (
+    <TouchableOpacity style={s.projectRow} onPress={onPress} activeOpacity={0.7}>
+      <Text style={s.projectName} numberOfLines={1}>{item.name || 'Untitled project'}</Text>
+      {subline ? <Text style={s.projectSubline} numberOfLines={1}>{subline}</Text> : null}
+      <View style={s.projectProviderRow}>
+        <Text style={s.projectProviderName} numberOfLines={1}>{item.__providerName}</Text>
+        {item.__providerVerified ? (
+          <View style={s.verifiedBadge}><Text style={s.verifiedBadgeText}>✓</Text></View>
+        ) : null}
+      </View>
+      {item.__keyword ? (
+        <View style={s.projectKeywordChip}>
+          <Text style={s.projectKeywordChipText}>{item.__keyword}</Text>
+        </View>
+      ) : null}
+    </TouchableOpacity>
   );
 }
 
@@ -194,6 +305,7 @@ function DistanceSlider({ value, min, max, onChange, disabled }) {
 
 // ─── Filters bottom sheet ────────────────────────────────────────────────────
 function FilterSheet({ visible, filters, setFilters, resultCount, onClose }) {
+  const insets = useSafeAreaInsets();
   const [locationStatus, setLocationStatus] = useState('unknown'); // 'unknown' | 'granted' | 'denied'
 
   useEffect(() => {
@@ -216,7 +328,7 @@ function FilterSheet({ visible, filters, setFilters, resultCount, onClose }) {
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={fs.overlay}>
         <TouchableOpacity style={{ flex: 1 }} onPress={onClose} activeOpacity={1} />
-        <View style={fs.sheet}>
+        <View style={[fs.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
           <View style={fs.dragHandle} />
 
           <View style={fs.header}>
@@ -315,17 +427,27 @@ function FilterSheet({ visible, filters, setFilters, resultCount, onClose }) {
 
 // ─── Main screen ────────────────────────────────────────────────────────────
 export default function SearchScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const inputRef = useRef(null);
   const [query, setQuery] = useState(route?.params?.query || '');
   const [loading, setLoading] = useState(true);
   const [allResults, setAllResults] = useState([]);
   const [myCity, setMyCity] = useState('');
+  // 'accounts' | 'projects'
+  const [resultTab, setResultTab] = useState('accounts');
+  const [projectDetail, setProjectDetail] = useState(null);
+  const [viewer, setViewer] = useState({ visible: false, photos: [], index: 0 });
 
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
-  const [sortBy, setSortBy] = useState('nearest');
+  const [sortBy, setSortBy] = useState('best');
   const [sortOpen, setSortOpen] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  // Searcher's own coordinates — resolved lazily (only once distance-based
+  // ranking is actually needed) via expo-location, never on every screen load.
+  const [myCoords, setMyCoords] = useState(null);
+  const [locationDenied, setLocationDenied] = useState(false);
 
   const fetchTimer = useRef(null);
 
@@ -345,14 +467,50 @@ export default function SearchScreen({ navigation, route }) {
     })();
   }, []);
 
+  const nearMeMatch = NEAR_ME_RE.test(query);
+  // "Near me" text or an active distance slider means the searcher explicitly
+  // wants distance-aware results — this is what triggers requesting their GPS
+  // location. Deliberately NOT tied to the "Nearest" sort default, since that's
+  // selected on every screen open and would prompt for location unprompted.
+  const distanceModeActive = nearMeMatch || filters.distanceKm < DISTANCE_MAX;
+
+  // Resolve the searcher's GPS position once distance mode is actually needed.
+  // Denial/failure is remembered so we fall back to their profile city instead
+  // of re-prompting on every render.
+  useEffect(() => {
+    if (!distanceModeActive || myCoords || locationDenied) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') { if (!cancelled) setLocationDenied(true); return; }
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (!cancelled) setMyCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      } catch (_) {
+        if (!cancelled) setLocationDenied(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [distanceModeActive, myCoords, locationDenied]);
+
+  // Only shown once we know we're using the city-text fallback (permission
+  // denied/unavailable) rather than real GPS distance.
+  const locationNote = (distanceModeActive && !myCoords && locationDenied && myCity)
+    ? `Showing results in ${myCity}`
+    : '';
+
   useEffect(() => {
     if (fetchTimer.current) clearTimeout(fetchTimer.current);
     const run = async () => {
       setLoading(true);
       try {
+        // "near me" is a location signal, not text to match against — strip it
+        // before hitting the text search so e.g. "electrician near me" still
+        // finds electricians; distance/city ranking is applied separately below.
+        const textQuery = query.replace(NEAR_ME_RE, '').trim();
         let combined;
-        if (query.trim()) {
-          const users = await searchUsers(query.trim());
+        if (textQuery) {
+          const users = await searchUsers(textQuery);
           combined = (users || []).filter(u => PROVIDER_TYPES.includes((u.profileType || '').toLowerCase()));
         } else {
           const lists = await Promise.all(PROVIDER_TYPES.map(pt => getAllUsers(pt)));
@@ -372,21 +530,72 @@ export default function SearchScreen({ navigation, route }) {
   }, [query]);
 
   const sortedFiltered = useMemo(() => {
-    const list = allResults.filter(u => {
+    // Attach each provider's distance from the searcher once, up front, so
+    // filtering and sorting both read the same precomputed __km value.
+    const withDistance = allResults.map(u => ({
+      ...u,
+      __km: (myCoords && hasCoords(u)) ? haversineKm(myCoords.lat, myCoords.lng, u.lat, u.lng) : null,
+    }));
+
+    const list = withDistance.filter(u => {
       if (filters.availableNow && u.available !== true) return false;
       if (filters.minRating > 0 && ratingNum(u) < filters.minRating) return false;
       if (filters.verifiedWorkOnly && !hasVerifiedWork(u)) return false;
-      // distanceKm is intentionally not applied — see DistanceSlider note: no
-      // provider carries lat/lng anywhere in this data model to filter against.
+
+      if (distanceModeActive) {
+        if (myCoords) {
+          if (u.__km != null) return u.__km <= filters.distanceKm;
+          // No coordinates on this provider — never let them silently vanish;
+          // fall back to matching the searcher's own city as plain text.
+          return myCity ? (u.city || '').toLowerCase() === myCity.toLowerCase() : true;
+        }
+        if (locationDenied && myCity) {
+          return (u.city || '').toLowerCase() === myCity.toLowerCase();
+        }
+        // Still resolving location, or no reference city at all — don't
+        // filter yet rather than returning an empty list.
+      }
       return true;
     });
+
+    // Distance takes over as the primary sort whenever the searcher explicitly
+    // asked for it ("near me" / distance filter, on the default Best match
+    // sort — or the Nearest sort picked directly) and their location is known.
+    // Ties (equal/unknown distance) still break using verified + revenue.
+    const useDistancePrimary = myCoords && (sortBy === 'nearest' || (sortBy === 'best' && distanceModeActive));
+    const distanceCompare = (a, b) => {
+      if (a.__km != null && b.__km != null && a.__km !== b.__km) return a.__km - b.__km;
+      if (a.__km != null && b.__km == null) return -1;
+      if (a.__km == null && b.__km != null) return 1;
+      const av = hasVerifiedWork(a) ? 1 : 0, bv = hasVerifiedWork(b) ? 1 : 0;
+      if (av !== bv) return bv - av;
+      return verifiedAmountNum(b) - verifiedAmountNum(a);
+    };
+    let withinTierCompare;
+    if (useDistancePrimary) withinTierCompare = distanceCompare;
+    else if (sortBy === 'best') withinTierCompare = bestMatchCompare;
+    else if (sortBy === 'revenue') withinTierCompare = (a, b) => verifiedAmountNum(b) - verifiedAmountNum(a);
+    else if (sortBy === 'rating') withinTierCompare = (a, b) => ratingNum(b) - ratingNum(a);
+    else if (sortBy === 'jobs') withinTierCompare = (a, b) => jobsCountNum(b) - jobsCountNum(a);
+    // 'nearest' with no resolved location yet — keep fetch order until it resolves
+    else withinTierCompare = () => 0;
+
     const sorted = [...list];
-    if (sortBy === 'rating') sorted.sort((a, b) => ratingNum(b) - ratingNum(a));
-    else if (sortBy === 'verified') sorted.sort((a, b) => verifiedAmountNum(b) - verifiedAmountNum(a));
-    else if (sortBy === 'jobs') sorted.sort((a, b) => jobsCountNum(b) - jobsCountNum(a));
-    // 'nearest' — no distance data available, keep fetch order
+    // A provider whose PRIMARY skill/category matched the search query always
+    // ranks above one who only matched via extra skills/services/tools, which
+    // in turn ranks above one who only matched via a verified project's
+    // "Type of work" tags (__matchTier: 3 = primary/name/city, 2 = extra-only,
+    // 1 = project-type-of-work-only) — the chosen sort (Best match, distance,
+    // revenue, etc.) only decides order within a tier. No active text query
+    // means every result carries the same tier (3), so this is a no-op and
+    // behaves exactly as before.
+    sorted.sort((a, b) => {
+      const at = a.__matchTier ?? 3, bt = b.__matchTier ?? 3;
+      if (at !== bt) return bt - at;
+      return withinTierCompare(a, b);
+    });
     return sorted;
-  }, [allResults, filters, sortBy]);
+  }, [allResults, filters, sortBy, distanceModeActive, myCoords, locationDenied, myCity]);
 
   // Any change to the underlying set re-pages from the top rather than lazily
   // loading more of a now-stale list.
@@ -405,6 +614,40 @@ export default function SearchScreen({ navigation, route }) {
     return `${n} provider${n === 1 ? '' : 's'}${myCity ? ` in ${myCity}` : ''}`;
   }, [sortedFiltered.length, query, myCity]);
 
+  // Projects tab — flattens every fetched provider's verified (non-ongoing)
+  // projects, matches each individually against the query (Type-of-work
+  // keyword first, then name/category as a secondary signal), and ranks
+  // keyword matches above name/category matches, then by value, then by
+  // whatever recency signal the project happens to carry.
+  const projectResults = useMemo(() => {
+    const q = norm(query.replace(NEAR_ME_RE, ''));
+    const rows = [];
+    allResults.forEach(u => {
+      const projects = Array.isArray(u.projects) ? u.projects : [];
+      projects.forEach((p, i) => {
+        if (p.status === 'ongoing') return; // only verified/completed projects
+        const { tier, keyword } = projectMatchInfo(p, q);
+        if (tier === 0) return;
+        rows.push({
+          ...p,
+          __key: `${u.uid || u.name || 'x'}_${i}`,
+          __tier: tier,
+          __keyword: keyword,
+          __providerUid: u.uid,
+          __providerName: u.name || u.companyName || 'Unnamed',
+          __providerVerified: !!u.verified,
+        });
+      });
+    });
+    rows.sort((a, b) => {
+      if (a.__tier !== b.__tier) return b.__tier - a.__tier;
+      const av = Number(a.value) || 0, bv = Number(b.value) || 0;
+      if (av !== bv) return bv - av;
+      return projectRecencyMs(b) - projectRecencyMs(a);
+    });
+    return rows;
+  }, [allResults, query]);
+
   const toggleAvailableNow = () => setFilters(f => ({ ...f, availableNow: !f.availableNow }));
   const toggleMinRating4 = () => setFilters(f => ({ ...f, minRating: f.minRating > 0 ? 0 : 4 }));
   const toggleVerifiedWork = () => setFilters(f => ({ ...f, verifiedWorkOnly: !f.verifiedWorkOnly }));
@@ -414,12 +657,15 @@ export default function SearchScreen({ navigation, route }) {
     if (item.uid && screen) navigation.navigate(screen, { uid: item.uid });
   };
 
+  const closeViewer = () => setViewer(v => ({ ...v, visible: false }));
+  const openViewer = (photos, index = 0) => setViewer({ visible: true, photos, index });
+
   return (
     <View style={s.screen}>
       <StatusBar barStyle="dark-content" backgroundColor={BG} />
 
       {/* ── Top bar ── */}
-      <View style={s.topBar}>
+      <View style={[s.topBar, { paddingTop: insets.top + 8 }]}>
         <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
           <Text style={s.backIcon}>←</Text>
         </TouchableOpacity>
@@ -469,37 +715,91 @@ export default function SearchScreen({ navigation, route }) {
         <QuickChip label="Verified" active={filters.verifiedWorkOnly} onPress={toggleVerifiedWork} />
       </ScrollView>
 
-      {/* ── Results header ── */}
-      <View style={s.resultsHeader}>
-        <Text style={s.resultsHeaderText} numberOfLines={1}>{headerText}</Text>
-        <TouchableOpacity onPress={() => setSortOpen(true)} activeOpacity={0.7}>
-          <Text style={s.sortText}>Sort: {SORT_OPTIONS.find(o => o.key === sortBy)?.label} ⌄</Text>
-        </TouchableOpacity>
+      {/* ── Tabs — single pill toggle ── */}
+      <View style={s.tabsRow}>
+        <View style={s.tabsPill}>
+          <TouchableOpacity
+            style={[s.tabSeg, resultTab === 'accounts' && s.tabSegActive]}
+            onPress={() => setResultTab('accounts')}
+            activeOpacity={0.8}
+          >
+            <Text style={[s.tabSegText, resultTab === 'accounts' && s.tabSegTextActive]} numberOfLines={1}>
+              Accounts {sortedFiltered.length}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.tabSeg, resultTab === 'projects' && s.tabSegActive]}
+            onPress={() => setResultTab('projects')}
+            activeOpacity={0.8}
+          >
+            <Text style={[s.tabSegText, resultTab === 'projects' && s.tabSegTextActive]} numberOfLines={1}>
+              Projects {projectResults.length}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* ── Body ── */}
-      {loading && allResults.length === 0 ? (
-        <View style={s.center}>
-          <ActivityIndicator size="large" color={DARK} />
-        </View>
-      ) : visible.length === 0 ? (
-        <View style={s.center}>
-          <Text style={s.emptyIcon}>🔍</Text>
-          <Text style={s.emptyTitle}>No results found</Text>
-        </View>
+      {resultTab === 'accounts' ? (
+        <>
+          {/* ── Results header ── */}
+          <View style={s.resultsHeader}>
+            <Text style={s.resultsHeaderText} numberOfLines={1}>{headerText}</Text>
+            <TouchableOpacity onPress={() => setSortOpen(true)} activeOpacity={0.7}>
+              <Text style={s.sortText}>Sort: {SORT_OPTIONS.find(o => o.key === sortBy)?.label} ⌄</Text>
+            </TouchableOpacity>
+          </View>
+          {locationNote ? <Text style={s.locationNote}>{locationNote}</Text> : null}
+
+          {/* ── Accounts body ── */}
+          {loading && allResults.length === 0 ? (
+            <View style={s.center}>
+              <ActivityIndicator size="large" color={DARK} />
+            </View>
+          ) : visible.length === 0 ? (
+            <View style={s.center}>
+              <Text style={s.emptyIcon}>🔍</Text>
+              <Text style={s.emptyTitle}>No accounts found</Text>
+            </View>
+          ) : (
+            <FlatList
+              style={{ flex: 1 }}
+              data={visible}
+              keyExtractor={(item, i) => (item.uid || item.name || 'x') + i}
+              renderItem={({ item }) => <ResultRow item={item} onPress={() => openProfile(item)} />}
+              ItemSeparatorComponent={() => <View style={s.rowSep} />}
+              onEndReached={() => setVisibleCount(v => Math.min(v + PAGE_SIZE, sortedFiltered.length))}
+              onEndReachedThreshold={0.4}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingTop: 8, paddingBottom: 24 }}
+            />
+          )}
+        </>
       ) : (
-        <FlatList
-          style={{ flex: 1 }}
-          data={visible}
-          keyExtractor={(item, i) => (item.uid || item.name || 'x') + i}
-          renderItem={({ item }) => <ResultRow item={item} onPress={() => openProfile(item)} />}
-          ItemSeparatorComponent={() => <View style={s.rowSep} />}
-          onEndReached={() => setVisibleCount(v => Math.min(v + PAGE_SIZE, sortedFiltered.length))}
-          onEndReachedThreshold={0.4}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ paddingBottom: 24 }}
-        />
+        // ── Projects body ──
+        loading && allResults.length === 0 ? (
+          <View style={s.center}>
+            <ActivityIndicator size="large" color={DARK} />
+          </View>
+        ) : projectResults.length === 0 ? (
+          <View style={s.center}>
+            <Text style={s.emptyIcon}>📁</Text>
+            <Text style={s.emptyTitle}>No projects found</Text>
+          </View>
+        ) : (
+          <FlatList
+            style={{ flex: 1 }}
+            data={projectResults}
+            keyExtractor={(item) => item.__key}
+            renderItem={({ item }) => (
+              <ProjectRow item={item} onPress={() => setProjectDetail(item)} />
+            )}
+            ItemSeparatorComponent={() => <View style={s.rowSep} />}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingTop: 8, paddingBottom: 24 }}
+          />
+        )
       )}
 
       {/* ── Sort sheet ── */}
@@ -529,6 +829,20 @@ export default function SearchScreen({ navigation, route }) {
         resultCount={sortedFiltered.length}
         onClose={() => setFilterSheetOpen(false)}
       />
+
+      {/* ── Verified project detail (Projects tab row tap) ── */}
+      <ProjectDetailModal
+        visible={!!projectDetail}
+        project={projectDetail}
+        onClose={() => setProjectDetail(null)}
+        onViewPhoto={(photos, index) => openViewer(photos, index)}
+      />
+      <PhotoViewer
+        visible={viewer.visible}
+        photos={viewer.photos}
+        initialIndex={viewer.index}
+        onClose={closeViewer}
+      />
     </View>
   );
 }
@@ -542,7 +856,7 @@ const s = injectFonts({
   topBar: {
     flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0,
     backgroundColor: '#FFFFFF',
-    paddingTop: 52, paddingBottom: 12, paddingHorizontal: 14,
+    paddingBottom: 12, paddingHorizontal: 14,
     borderBottomWidth: 1, borderBottomColor: BORDER,
   },
   backBtn: {
@@ -594,53 +908,83 @@ const s = injectFonts({
   chipText: { fontSize: 12, lineHeight: 16, fontWeight: '600', color: MID },
   chipTextActive: { color: GREEN, fontWeight: '700' },
 
-  // ── Results header
+  // ── Result tabs (Accounts / Projects) — single pill toggle, compact height
+  tabsRow: {
+    flexDirection: 'row', flexShrink: 0,
+    paddingHorizontal: 16, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: BORDER,
+  },
+  tabsPill: {
+    flexDirection: 'row', backgroundColor: FILL, borderRadius: 20, padding: 3,
+  },
+  tabSeg: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 17 },
+  tabSegActive: { backgroundColor: DARK },
+  tabSegText: { fontSize: 13, lineHeight: 17, fontWeight: '600', color: MID },
+  tabSegTextActive: { color: '#FFFFFF', fontWeight: '700' },
+
+  // ── Results header — its own compact row, clear space above (tabs) and
+  // below (first result) so it can never collide with either.
   resultsHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    flexShrink: 0,
-    paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8,
+    flexShrink: 0, flexWrap: 'nowrap',
+    paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12,
+    marginBottom: 4,
+    borderBottomWidth: 1, borderBottomColor: BORDER,
   },
   resultsHeaderText: { fontSize: 12, lineHeight: 16, color: MID, fontWeight: '500', flexShrink: 1, marginRight: 10 },
-  sortText: { fontSize: 12, lineHeight: 16, color: DARK, fontWeight: '700' },
+  sortText: { fontSize: 12, lineHeight: 16, color: DARK, fontWeight: '700', flexShrink: 0 },
+  locationNote: { fontSize: 11, color: LIGHT, fontWeight: '500', paddingHorizontal: 16, marginTop: 6 },
 
   // ── Empty / loading
   emptyIcon: { fontSize: 40, marginBottom: 10, opacity: 0.5 },
   emptyTitle: { fontSize: 14, fontWeight: '600', color: MID },
 
-  // ── Result row
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 13 },
+  // ── Result row — kept compact so ~6-7 rows fit on one screen
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 9 },
   rowSep: { height: 1, backgroundColor: BORDER, marginLeft: 16 },
-  thumbWrap: { width: 56, height: 56, borderRadius: 12, overflow: 'hidden', flexShrink: 0 },
+  thumbWrap: { width: 46, height: 46, borderRadius: 10, overflow: 'hidden', flexShrink: 0 },
   thumbImg: { width: '100%', height: '100%' },
   thumbPlaceholder: {
     width: '100%', height: '100%', backgroundColor: FILL,
     alignItems: 'center', justifyContent: 'center',
   },
-  thumbPlaceholderIcon: { fontSize: 22, opacity: 0.4 },
+  thumbPlaceholderIcon: { fontSize: 18, opacity: 0.4 },
 
   rowInfo: { flex: 1, minWidth: 0 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  name: { fontSize: 14, fontWeight: '700', color: DARK, flexShrink: 1 },
+  name: { fontSize: 13, fontWeight: '700', color: DARK, flexShrink: 1 },
   verifiedBadge: {
-    width: 15, height: 15, borderRadius: 8, backgroundColor: LINK_BLUE,
+    width: 14, height: 14, borderRadius: 7, backgroundColor: LINK_BLUE,
     alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  verifiedBadgeText: { fontSize: 9, color: '#FFFFFF', fontWeight: '900' },
-  tradeLine: { fontSize: 12, color: LIGHT, fontWeight: '500', marginTop: 2 },
-  statsRow: { fontSize: 12, fontWeight: '700', marginTop: 4 },
+  verifiedBadgeText: { fontSize: 8, color: '#FFFFFF', fontWeight: '900' },
+  tradeLine: { fontSize: 11, color: LIGHT, fontWeight: '500', marginTop: 1 },
+  statsRow: { fontSize: 11, fontWeight: '700', marginTop: 3 },
   statsGreen: { color: GREEN },
   statsDot: { color: LIGHT, fontWeight: '500' },
+  newBadge: {
+    alignSelf: 'flex-start', backgroundColor: GREEN_LIGHT, borderRadius: 6,
+    paddingHorizontal: 7, paddingVertical: 2, marginTop: 3,
+  },
+  newBadgeText: { fontSize: 10, fontWeight: '700', color: GREEN },
+
+  // ── Project row (Projects tab)
+  projectRow: { paddingHorizontal: 16, paddingVertical: 13 },
+  projectName: { fontSize: 14, fontWeight: '700', color: DARK },
+  projectSubline: { fontSize: 12, color: GREEN, fontWeight: '600', marginTop: 3 },
+  projectProviderRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 },
+  projectProviderName: { fontSize: 12, color: LIGHT, fontWeight: '500', flexShrink: 1 },
+  projectKeywordChip: {
+    alignSelf: 'flex-start', backgroundColor: FILL, borderRadius: 6,
+    paddingHorizontal: 7, paddingVertical: 2, marginTop: 6,
+  },
+  projectKeywordChipText: { fontSize: 11, fontWeight: '600', color: MID },
 
   rightCol: { alignItems: 'flex-end', gap: 6, flexShrink: 0 },
   availNowRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   availDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: GREEN },
   availNowText: { fontSize: 11, fontWeight: '700', color: GREEN },
   availNextText: { fontSize: 11, fontWeight: '600', color: LIGHT },
-  viewBtn: {
-    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10,
-    borderWidth: 1.5, borderColor: DARK,
-  },
-  viewBtnText: { fontSize: 12, fontWeight: '700', color: DARK },
 
   // ── Sort sheet
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', paddingHorizontal: 20 },
@@ -660,7 +1004,7 @@ const fs = injectFonts({
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 28, maxHeight: '85%',
+    paddingHorizontal: 20, paddingTop: 10, maxHeight: '85%',
   },
   dragHandle: {
     width: 40, height: 4, borderRadius: 2, backgroundColor: BORDER,

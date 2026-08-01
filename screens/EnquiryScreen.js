@@ -8,8 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getProfile } from '../services/userService';
 import { submitEnquiry } from '../services/enquiryService';
 import {
-  SKILLED_WORKER_CATEGORIES,
-  UNSKILLED_WORKER_CATEGORIES,
+  SOLO_WORKER_CATEGORIES,
   CONTRACTOR_CATEGORIES,
   PROFESSIONAL_CATEGORIES,
 } from '../constants/categories';
@@ -32,9 +31,8 @@ const TIMELINE_OPTIONS = ['Urgent', 'This week', 'This month', 'Flexible'];
 // related work in the same request. Pulled from the central categories file
 // so it stays in sync when categories are added later.
 const WORK_TYPE_GROUPS = [
-  { key: 'skilled', label: 'SKILLED WORKERS', options: SKILLED_WORKER_CATEGORIES },
-  { key: 'unskilled', label: 'UNSKILLED WORKERS', options: UNSKILLED_WORKER_CATEGORIES },
-  { key: 'contractors', label: 'CONTRACTORS', options: CONTRACTOR_CATEGORIES },
+  { key: 'workers', label: 'SOLO WORKERS', options: SOLO_WORKER_CATEGORIES },
+  { key: 'contractors', label: 'SUB CONTRACTORS', options: CONTRACTOR_CATEGORIES },
   { key: 'professionals', label: 'PROFESSIONALS', options: PROFESSIONAL_CATEGORIES },
 ];
 

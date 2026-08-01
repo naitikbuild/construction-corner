@@ -1,19 +1,19 @@
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   ScrollView, StatusBar, Switch, Modal, FlatList, Animated, Alert,
-  Image, Dimensions, ActivityIndicator,
+  Image, Dimensions, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
 import { useState, useEffect, useRef } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { saveProfile, getProfile } from '../services/userService';
 import { auth } from '../config/firebase';
 import {
-  SKILLED_WORKER_CATEGORIES,
-  UNSKILLED_WORKER_CATEGORIES,
+  SOLO_WORKER_CATEGORIES,
   CONTRACTOR_CATEGORIES,
   PROFESSIONAL_CATEGORIES as PROFESSIONAL_SKILLS,
 } from '../constants/categories';
@@ -51,7 +51,7 @@ const MATERIALS = [
 const ROLES = [
   { key: 'Professional', icon: '🏛️',   label: 'Professional', sub: 'Architect, Engineer, Designer' },
   { key: 'Worker',       icon: '👷',   label: 'Worker',       sub: 'Mason, Electrician, Plumber' },
-  { key: 'Contractor',   icon: '👷‍♂️', label: 'Contractor',   sub: 'Individual contractor with a crew' },
+  { key: 'Contractor',   icon: '👷‍♂️', label: 'Sub Contractor',   sub: 'Individual contractor with a crew' },
   { key: 'Business',     icon: '🏢',   label: 'Business',     sub: 'Contractor, Developer, Builder' },
   { key: 'Supplier',     icon: '🏭',   label: 'Supplier',     sub: 'Cement, Steel, Tiles, RMC' },
 ];
@@ -71,12 +71,6 @@ const BUSINESS_SERVICES = [
   'Residential Construction', 'Commercial Construction', 'Industrial Construction',
   'Renovation & Interiors', 'Civil Works', 'Electrical & Plumbing',
   'Waterproofing', 'Painting', 'Flooring', 'Glass & Aluminum', 'HVAC',
-];
-
-const EQUIPMENT_LIST = [
-  'JCB / Excavator', 'Crane', 'Concrete Mixer', 'Concrete Pump', 'Generator',
-  'Scaffolding', 'Compactor / Roller', 'Transit Mixer', 'Tipper / Truck',
-  'Tower Crane', 'Forklift', 'Drilling Machine',
 ];
 
 // ─── Sub-components ─────────────────────────────────────────────────────────
@@ -335,6 +329,8 @@ function CurrentLocationField({ data, setData }) {
           city: place.city || place.subregion || place.district || data.city,
           state: place.region || data.state,
           pincode: place.postalCode || data.pincode,
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
         });
       } else {
         Alert.alert('Could not detect location', 'Please enter your city, state and pincode manually below.');
@@ -369,19 +365,24 @@ function CurrentLocationField({ data, setData }) {
         <Input
           style={{ flex: 1 }}
           value={data.city}
-          onChangeText={(v) => setData({ ...data, city: v })}
+          onChangeText={(v) => setData({ ...data, city: v, lat: null, lng: null })}
           placeholder="City"
         />
         <Input
           style={{ flex: 1 }}
           value={data.state}
-          onChangeText={(v) => setData({ ...data, state: v })}
+          onChangeText={(v) => setData({ ...data, state: v, lat: null, lng: null })}
           placeholder="State"
         />
       </View>
       <Text style={styles.skillHint}>
         Auto-detected from your device — you can edit if it's not quite right
       </Text>
+      {!(data.city.trim() && data.state.trim()) && (
+        <Text style={styles.locationRequiredHint}>
+          Please add your city and state to continue — if detection didn't work, enter them manually above.
+        </Text>
+      )}
     </Field>
   );
 }
@@ -426,7 +427,7 @@ function Step1({ data, setData, profileType }) {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
@@ -608,7 +609,7 @@ function Step3Professional({ data, setData }) {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
@@ -895,7 +896,7 @@ function Step3Worker({ data, setData }) {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
@@ -920,59 +921,18 @@ function Step3Worker({ data, setData }) {
     });
   };
 
-  const selectWorkerType = (type) => {
-    if (data.workerType === type) return;
-    // Changing Worker Type invalidates the previously selected skill — the two
-    // lists don't overlap, so the old skill can't carry over.
-    setData({
-      ...data,
-      workerType: type,
-      primarySkill: '',
-      workerSkills: [],
-      skillTags: [],
-      workerSkill: '',
-    });
-  };
-
-  const skillOptions = data.workerType === 'unskilled' ? UNSKILLED_WORKER_CATEGORIES : SKILLED_WORKER_CATEGORIES;
-
   return (
     <ScrollView style={styles.stepScroll} showsVerticalScrollIndicator={false}>
       <Text style={styles.stepTitle}>Worker Details</Text>
       <Text style={styles.stepSub}>Find the right jobs matching your skill</Text>
 
-      <Field label="Worker Type" required>
-        <View style={styles.workerTypeRow}>
-          <TouchableOpacity
-            style={[styles.workerTypeBtn, data.workerType === 'skilled' && styles.workerTypeBtnActive]}
-            onPress={() => selectWorkerType('skilled')}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.workerTypeBtnText, data.workerType === 'skilled' && styles.workerTypeBtnTextActive]}>
-              Skilled
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.workerTypeBtn, data.workerType === 'unskilled' && styles.workerTypeBtnActive]}
-            onPress={() => selectWorkerType('unskilled')}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.workerTypeBtnText, data.workerType === 'unskilled' && styles.workerTypeBtnTextActive]}>
-              Unskilled
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </Field>
-
       <Dropdown
         label="Skill"
         required
         value={data.primarySkill}
-        options={skillOptions}
+        options={SOLO_WORKER_CATEGORIES}
         onSelect={selectSkill}
         searchable
-        disabled={!data.workerType}
-        disabledHint="Select Worker Type first"
       />
 
       <Field label="Experience (Years)" required>
@@ -1074,7 +1034,7 @@ function Step3Worker({ data, setData }) {
   );
 }
 
-// ─── Step 3: Contractor Details ─────────────────────────────────────────────
+// ─── Step 3: Sub Contractor Details ──────────────────────────────────────────
 
 function Step3Contractor({ data, setData }) {
   const slotSize = Math.floor((Dimensions.get('window').width - 48) / 3);
@@ -1096,7 +1056,7 @@ function Step3Contractor({ data, setData }) {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
@@ -1113,11 +1073,11 @@ function Step3Contractor({ data, setData }) {
 
   return (
     <ScrollView style={styles.stepScroll} showsVerticalScrollIndicator={false}>
-      <Text style={styles.stepTitle}>Contractor Details</Text>
+      <Text style={styles.stepTitle}>Sub Contractor Details</Text>
       <Text style={styles.stepSub}>Show clients your crew, trade and track record</Text>
 
       <Dropdown
-        label="Contractor Type / Trade"
+        label="Sub Contractor Type / Trade"
         required
         value={data.contractorType}
         options={CONTRACTOR_CATEGORIES}
@@ -1435,8 +1395,6 @@ function Step3Business({ data, setData }) {
 // ─── Step 3: Supplier Details ────────────────────────────────────────────────
 
 function Step3Supplier({ data, setData }) {
-  const isRentals = data.role === 'rentals';
-
   const toggleMaterial = (mat) => {
     const current = data.materials || [];
     setData({
@@ -1447,19 +1405,9 @@ function Step3Supplier({ data, setData }) {
     });
   };
 
-  const toggleEquipment = (eq) => {
-    const current = data.equipment || [];
-    setData({
-      ...data,
-      equipment: current.includes(eq)
-        ? current.filter((e) => e !== eq)
-        : [...current, eq],
-    });
-  };
-
   return (
     <ScrollView style={styles.stepScroll} showsVerticalScrollIndicator={false}>
-      <Text style={styles.stepTitle}>{isRentals ? 'Rental Details' : 'Supplier Details'}</Text>
+      <Text style={styles.stepTitle}>Supplier Details</Text>
       <Text style={styles.stepSub}>Connect with buyers across construction projects</Text>
 
       <Dropdown
@@ -1480,33 +1428,18 @@ function Step3Supplier({ data, setData }) {
         />
       </Field>
 
-      {isRentals ? (
-        <Field label="Equipment Available" required>
-          <View style={styles.materialGrid}>
-            {EQUIPMENT_LIST.map((eq) => (
-              <Checkbox
-                key={eq}
-                label={eq}
-                checked={(data.equipment || []).includes(eq)}
-                onPress={() => toggleEquipment(eq)}
-              />
-            ))}
-          </View>
-        </Field>
-      ) : (
-        <Field label="Materials Supplied" required>
-          <View style={styles.materialGrid}>
-            {MATERIALS.map((mat) => (
-              <Checkbox
-                key={mat}
-                label={mat}
-                checked={(data.materials || []).includes(mat)}
-                onPress={() => toggleMaterial(mat)}
-              />
-            ))}
-          </View>
-        </Field>
-      )}
+      <Field label="Materials Supplied" required>
+        <View style={styles.materialGrid}>
+          {MATERIALS.map((mat) => (
+            <Checkbox
+              key={mat}
+              label={mat}
+              checked={(data.materials || []).includes(mat)}
+              onPress={() => toggleMaterial(mat)}
+            />
+          ))}
+        </View>
+      </Field>
 
       <Field label="Delivery Radius (km)">
         <View style={styles.pillRow}>
@@ -1651,7 +1584,6 @@ function Step4({ data, onEdit, profileType }) {
       {/* Worker */}
       {(pt === 'worker' || pt === 'Worker') && (
         <ReviewCard title="Worker Details" onEdit={() => onEdit(detailStep)}>
-          <ReviewRow icon="🛠️" label="Worker Type" value={data.workerType === 'unskilled' ? 'Unskilled' : (data.workerType === 'skilled' ? 'Skilled' : '')} />
           <ReviewRow icon="⭐" label="Skill" value={data.primarySkill || data.workerSkills?.[0] || data.workerSkill} />
           <ReviewRow icon="📅" label="Experience" value={data.workerExperience ? `${data.workerExperience} years` : ''} />
           <ReviewRow icon="💰" label="Daily Charge" value={data.dailyCharge ? `₹${data.dailyCharge} / day` : ''} />
@@ -1661,7 +1593,7 @@ function Step4({ data, onEdit, profileType }) {
 
       {/* Contractor */}
       {(pt === 'contractor' || pt === 'Contractor') && (
-        <ReviewCard title="Contractor Details" onEdit={() => onEdit(detailStep)}>
+        <ReviewCard title="Sub Contractor Details" onEdit={() => onEdit(detailStep)}>
           <ReviewRow icon="🏗️" label="Trade" value={data.contractorType} />
           <ReviewRow icon="📅" label="Experience" value={data.contractorExperience ? `${data.contractorExperience} years` : ''} />
           <ReviewRow icon="👥" label="Team Size" value={data.contractorTeamSize} />
@@ -1728,6 +1660,7 @@ function ReviewRow({ icon, label, value }) {
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
 export default function EditProfileScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const phone = route?.params?.phone || '';
   const profileType = route?.params?.profileType || null;
   const roleParam = route?.params?.role || '';
@@ -1754,6 +1687,8 @@ export default function EditProfileScreen({ navigation, route }) {
     city: '',
     state: '',
     pincode: '',
+    lat: null,
+    lng: null,
     languages: [],
     // company identity (business / supplier)
     companyName: '',
@@ -1770,7 +1705,6 @@ export default function EditProfileScreen({ navigation, route }) {
     experienceHistory: [],
     // worker
     workPhotos: [],
-    workerType: '',
     workerSkills: [],
     primarySkill: '',
     skillTags: [],
@@ -1807,7 +1741,6 @@ export default function EditProfileScreen({ navigation, route }) {
     supplierCategory: '',
     supplierGst: '',
     materials: [],
-    equipment: [],
     deliveryRadius: '',
     minOrder: '',
     paymentTerms: '',
@@ -1845,8 +1778,14 @@ export default function EditProfileScreen({ navigation, route }) {
   const canProceed = () => {
     if (step === 1) {
       const isCompany = profileType === 'business' || profileType === 'supplier';
+      const isProvider = profileType === 'worker' || profileType === 'contractor' || profileType === 'professional';
       const primaryName = isCompany ? data.companyName : data.name;
-      return primaryName.trim().length > 0 && data.city.trim().length > 0;
+      // Providers must supply both city and state (current location); other
+      // profile types only need city, matching the manual City & State field.
+      const hasLocation = isProvider
+        ? data.city.trim().length > 0 && data.state.trim().length > 0
+        : data.city.trim().length > 0;
+      return primaryName.trim().length > 0 && hasLocation;
     }
     // Original flow step 2: role selection
     if (!profileType && step === 2) return data.role.length > 0;
@@ -1855,7 +1794,7 @@ export default function EditProfileScreen({ navigation, route }) {
     if (step === detailStep) {
       const pt = profileType || data.role;
       if (pt === 'professional' || pt === 'Professional') return data.designation.length > 0;
-      if (pt === 'worker'       || pt === 'Worker')       return !!data.workerType && (data.workerSkills || []).length > 0;
+      if (pt === 'worker'       || pt === 'Worker')       return (data.workerSkills || []).length > 0;
       if (pt === 'contractor'   || pt === 'Contractor')   return data.contractorType.length > 0 && data.contractorExperience.trim().length > 0;
       if (pt === 'business'     || pt === 'Business')     return data.companyName.trim().length > 0;
       if (pt === 'supplier'     || pt === 'Supplier')     return data.supplierCategory.length > 0;
@@ -1901,6 +1840,27 @@ export default function EditProfileScreen({ navigation, route }) {
       const pincode = cleanData.pincode || '';
       const locationStr = [area, city].filter(Boolean).join(', ') + (pincode ? ` — ${pincode}` : '');
 
+      // Coordinates: GPS-detected ones already live on cleanData.lat/lng. If the
+      // provider set location manually (or edited city/state after a GPS detect,
+      // which clears them), approximate coordinates by geocoding the city/state
+      // text so distance-based ("near me") search still has something to work
+      // with. Never block saving on this — falls back to null on any failure,
+      // and Search already handles providers with no coordinates gracefully.
+      let lat = typeof cleanData.lat === 'number' ? cleanData.lat : null;
+      let lng = typeof cleanData.lng === 'number' ? cleanData.lng : null;
+      if (lat == null && lng == null && (city || cleanData.state)) {
+        try {
+          const address = [city, cleanData.state].filter(Boolean).join(', ');
+          const geocoded = await Location.geocodeAsync(address);
+          if (geocoded?.[0]) {
+            lat = geocoded[0].latitude;
+            lng = geocoded[0].longitude;
+          }
+        } catch (_) {
+          // geocoding unavailable/failed — lat/lng stay null
+        }
+      }
+
       // Contractor / Professional only: verification is either an Aadhaar or a GST number
       // (never both required), and drives the green verified badge — never write `verified`
       // for other profile types.
@@ -1926,6 +1886,8 @@ export default function EditProfileScreen({ navigation, route }) {
         area,
         city,
         pincode,
+        lat,
+        lng,
         location: locationStr,
         ccScore: 500,
         createdAt: new Date().toISOString(),
@@ -1985,7 +1947,7 @@ export default function EditProfileScreen({ navigation, route }) {
   }
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <StatusBar barStyle="dark-content" backgroundColor="white" />
 
       {/* Header */}
@@ -2011,7 +1973,7 @@ export default function EditProfileScreen({ navigation, route }) {
       </View>
 
       {/* Bottom Nav */}
-      <View style={styles.bottomNav}>
+      <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 16) }]}>
         {step > 1 && (
           <TouchableOpacity style={styles.prevBtn} onPress={handleBack}>
             <Text style={styles.prevBtnText}>← Back</Text>
@@ -2029,7 +1991,7 @@ export default function EditProfileScreen({ navigation, route }) {
           <Text style={styles.nextBtnText}>{nextLabel}</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -2151,15 +2113,6 @@ const styles = injectFonts({
   dropdownTriggerDisabled: { backgroundColor: LIGHT_BLUE, opacity: 0.6 },
   dropdownArrow: { fontSize: 16, color: TEXT_LIGHT },
 
-  workerTypeRow: { flexDirection: 'row', gap: 10 },
-  workerTypeBtn: {
-    flex: 1, height: 48, borderRadius: 12,
-    borderWidth: 1.5, borderColor: BORDER, backgroundColor: 'white',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  workerTypeBtnActive: { backgroundColor: BLUE, borderColor: BLUE },
-  workerTypeBtnText: { fontSize: 14, fontWeight: '600', color: TEXT_MID },
-  workerTypeBtnTextActive: { color: '#FFFFFF' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalSheet: {
     backgroundColor: 'white', borderTopLeftRadius: 24, borderTopRightRadius: 24,
@@ -2181,6 +2134,7 @@ const styles = injectFonts({
   // Skill Tags
   tagsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   skillHint: { fontSize: 11, color: TEXT_LIGHT, marginTop: 8, fontStyle: 'italic', fontWeight: '500' },
+  locationRequiredHint: { fontSize: 11, color: '#E53E3E', marginTop: 8, fontWeight: '600' },
   hashChipEdit: {
     backgroundColor: LIGHT_BLUE, borderRadius: 20,
     paddingHorizontal: 10, paddingVertical: 5,
@@ -2311,7 +2265,7 @@ const styles = injectFonts({
 
   // Bottom Nav
   bottomNav: {
-    flexDirection: 'row', gap: 10, padding: 16, paddingBottom: 32,
+    flexDirection: 'row', gap: 10, padding: 16,
     backgroundColor: 'white', borderTopWidth: 1, borderTopColor: BORDER,
   },
   prevBtn: {

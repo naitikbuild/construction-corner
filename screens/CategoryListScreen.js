@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { useState, useEffect } from 'react';
 import { getAllUsers } from '../services/userService';
-import { formatAmountIndian } from '../utils/format';
+import { formatAmountIndian, isRecentJoin } from '../utils/format';
 
 const PROFILE_SCREEN = {
   professional: 'ProfessionalProfile',
@@ -14,8 +14,52 @@ const PROFILE_SCREEN = {
   business:     'BusinessProfile',
 };
 
+// ─── Default ranking ("Best match") ────────────────────────────────────────
+// Same rules as the Search screen's default sort, tuned for construction:
+// verified (proven, app-confirmed) work outranks unverified; then revenue,
+// since it reflects consistent repeat work over a single lucky job; then
+// rating, then on-time reliability; available-now providers get a final
+// nudge ahead of otherwise-equal peers. Zero-revenue/unverified providers
+// still appear — just ranked toward the bottom, never filtered out.
+function verifiedAmountNum(u) {
+  return Number(u.totalVerifiedAmount ?? u.demoVerifiedAmount ?? 0) || 0;
+}
+function hasVerifiedWork(u) {
+  return Number(u.jobsCompleted ?? 0) > 0 || verifiedAmountNum(u) > 0;
+}
+function ratingNum(u) {
+  const r = Number(u.rating);
+  return Number.isFinite(r) ? r : 0;
+}
+function onTimeNum(u) {
+  const n = parseFloat(u.onTimeRate);
+  return Number.isFinite(n) ? n : -1;
+}
+function bestMatchCompare(a, b) {
+  const av = hasVerifiedWork(a) ? 1 : 0;
+  const bv = hasVerifiedWork(b) ? 1 : 0;
+  if (av !== bv) return bv - av;
+
+  const arev = verifiedAmountNum(a), brev = verifiedAmountNum(b);
+  if (arev !== brev) return brev - arev;
+
+  const ar = ratingNum(a), br = ratingNum(b);
+  if (ar !== br) return br - ar;
+
+  const aot = onTimeNum(a), bot = onTimeNum(b);
+  if (aot !== bot) return bot - aot;
+
+  const aa = a.available === true ? 1 : 0;
+  const ba = b.available === true ? 1 : 0;
+  return ba - aa;
+}
+
 // ─── Card ─────────────────────────────────────────────────────────────────────
 function ProfileCard({ profile, isLast, onPress }) {
+  // Zero jobs AND joined under a month ago -> a subtle "New" label instead of
+  // the "₹0 verified work" line. Past the first month with still no jobs,
+  // the real (zero) verified-amount line shows as normal.
+  const isNew = profile.jobsCompleted === 0 && isRecentJoin(profile.createdAt);
   return (
     <TouchableOpacity
       style={[ss.card, isLast && ss.cardLast]}
@@ -30,11 +74,19 @@ function ProfileCard({ profile, isLast, onPress }) {
       </View>
 
       <View style={ss.info}>
-        <Text style={ss.name} numberOfLines={2}>{profile.name}</Text>
+        <Text style={ss.name} numberOfLines={2}>
+          {profile.name}
+          <Text style={ss.verifiedTick}> ✓</Text>
+        </Text>
         <Text style={ss.desig} numberOfLines={1}>{profile.designation}</Text>
         <Text style={ss.meta} numberOfLines={1}>📍 {profile.location}{profile.experience ? `  ·  ${profile.experience}` : ''}</Text>
-        <Text style={ss.highlight} numberOfLines={1}>{profile.highlight}</Text>
-        <Text style={ss.verifiedAmt}>{profile.verifiedAmt} verified work</Text>
+        {isNew ? (
+          <View style={ss.newBadge}>
+            <Text style={ss.newBadgeText}>New</Text>
+          </View>
+        ) : (
+          <Text style={ss.verifiedAmt}>{profile.verifiedAmt} verified work</Text>
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -55,7 +107,8 @@ function firestoreUserToCard(user) {
     experience: user.experience ? `${user.experience} yrs exp` : user.workerExperience ? `${user.workerExperience} yrs exp` : '',
     rating: user.rating ? String(user.rating) : '4.5',
     verifiedAmt: formatAmountIndian(user.totalVerifiedAmount ?? user.demoVerifiedAmount ?? 0),
-    highlight: '✓ Verified Member',
+    jobsCompleted: Number(user.jobsCompleted ?? 0) || 0,
+    createdAt: user.createdAt || null,
   };
 }
 
@@ -75,7 +128,15 @@ export default function CategoryListScreen({ navigation, route }) {
     setLoading(true);
     try {
       const users = await getAllUsers(profileType, category);
-      setProfiles(users.map(firestoreUserToCard));
+      // Primary-category matches (__categoryTier 2) rank above providers who
+      // only match via extra skills/services/tools (tier 1); within each
+      // tier, keep the existing default ranking (verified, revenue, rating).
+      const ranked = [...users].sort((a, b) => {
+        const at = a.__categoryTier ?? 2, bt = b.__categoryTier ?? 2;
+        if (at !== bt) return bt - at;
+        return bestMatchCompare(a, b);
+      });
+      setProfiles(ranked.map(firestoreUserToCard));
     } catch (_) {
       setProfiles([]);
     } finally {
@@ -210,12 +271,17 @@ const ss = StyleSheet.create({
 
   info: { flex: 1, paddingTop: 2 },
   name: { fontSize: 14, fontWeight: '700', color: '#1A1A1A', marginBottom: 3, lineHeight: 17 },
+  verifiedTick: { fontSize: 13, fontWeight: '900', color: '#1877F2' },
   desig: { fontSize: 12, color: '#666666', fontWeight: '500', marginBottom: 3 },
   meta: { fontSize: 11, color: '#888888', fontWeight: '400', marginBottom: 5 },
-  highlight: { fontSize: 12, color: '#FF6B2B', fontWeight: '600', marginBottom: 6 },
   verifiedAmt: {
     fontSize: 12, fontWeight: '700', color: '#2ECC71',
     backgroundColor: '#F0FFF4', paddingHorizontal: 8, paddingVertical: 3,
     borderRadius: 8, alignSelf: 'flex-start',
   },
+  newBadge: {
+    alignSelf: 'flex-start', backgroundColor: '#EAF7EF',
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
+  },
+  newBadgeText: { fontSize: 12, fontWeight: '700', color: '#22A559' },
 });

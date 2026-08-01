@@ -2,34 +2,36 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, Alert, ActivityIndicator, Linking,
-  Image, Animated,
+  Image, Animated, Switch,
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import PhotoViewer from '../components/PhotoViewer';
+import ProjectDetailModal from '../components/ProjectDetailModal';
+import AllProjectsModal from '../components/AllProjectsModal';
 import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
 import { useToast } from '../hooks/useToast';
 import { getProfile, recordProfileView, updateProfile } from '../services/userService';
 import { getVerifiedWork, getTotalVerifiedAmount } from '../services/workService';
-import { createChat } from '../services/chatService';
-import { toggleBookmark, isBookmarked } from '../services/bookmarkService';
-import { formatAmountIndian } from '../utils/format';
+import { getProviderWorkRecords, workRecordToProject, workRecordToVerifiedWork, getClientReviews, WORK_RECORD_STATUS } from '../services/workRecordService';
+import ClientReviewsSection from '../components/ClientReviewsSection';
+import { formatAmountIndian, formatJoinedDate } from '../utils/format';
+import { auth } from '../config/firebase';
 
 
 // ─── Status pill (Taking new projects / Not taking projects) ───────────────
-function StatusPill({ available, isOwn }) {
+function StatusPill({ available }) {
   return available ? (
     <View style={s.chipAvail}>
       <View style={s.chipDot} />
       <Text style={s.chipAvailText}>Taking new projects</Text>
-      {isOwn && <Text style={s.chipToggleIcon}>⇄</Text>}
     </View>
   ) : (
     <View style={s.chipBusy}>
       <Text style={s.chipBusyText}>Not taking projects</Text>
-      {isOwn && <Text style={[s.chipToggleIcon, s.chipToggleIconMuted]}>⇄</Text>}
     </View>
   );
 }
@@ -92,38 +94,46 @@ function ServicesChips({ services = [] }) {
 }
 
 // ─── PROJECTS list ──────────────────────────────────────────────────────────
-function ProjectsList({ projects = [], onViewPhoto }) {
+// Category + amount reads better than location for scanning a list —
+// "Residential · ₹18.5L" tells a client type + scale at a glance.
+function projectSubline(p) {
+  return [p.category, p.value ? formatAmountIndian(p.value) : null].filter(Boolean).join(' · ');
+}
+
+const PROJECTS_PREVIEW_COUNT = 3;
+
+function ProjectsList({ projects = [], onOpenProject }) {
   if (projects.length === 0) {
     return <Text style={s.placeholder}>Add your projects</Text>;
   }
+  const visible = projects.slice(0, PROJECTS_PREVIEW_COUNT);
   return (
     <View>
-      {projects.map((p, i) => (
-        <View key={i} style={[pj.row, i > 0 && pj.rowBorder]}>
-          <TouchableOpacity
-            style={pj.thumb}
-            activeOpacity={p.photoUri ? 0.8 : 1}
-            disabled={!p.photoUri}
-            onPress={() => onViewPhoto(p.photoUri)}
-          >
+      {visible.map((p, i) => (
+        <TouchableOpacity
+          key={i}
+          style={[pj.row, i > 0 && pj.rowBorder]}
+          activeOpacity={0.7}
+          onPress={() => onOpenProject(p)}
+        >
+          <View style={pj.thumb}>
             {p.photoUri ? (
               <Image source={{ uri: p.photoUri }} style={pj.thumbImg} resizeMode="cover" />
             ) : (
               <Text style={pj.thumbIcon}>🏗️</Text>
             )}
-          </TouchableOpacity>
+          </View>
           <View style={pj.info}>
             <Text style={pj.name} numberOfLines={1}>{p.name || 'Untitled project'}</Text>
-            <Text style={pj.meta} numberOfLines={1}>
-              {[p.location, p.value ? formatAmountIndian(p.value) : null].filter(Boolean).join(' · ')}
-            </Text>
+            {projectSubline(p) ? <Text style={pj.meta} numberOfLines={1}>{projectSubline(p)}</Text> : null}
           </View>
           <View style={[pj.badge, p.status === 'ongoing' ? pj.badgeOngoing : pj.badgeDone]}>
             <Text style={[pj.badgeText, p.status === 'ongoing' ? pj.badgeTextOngoing : pj.badgeTextDone]}>
               {p.status === 'ongoing' ? 'ONGOING' : 'DONE'}
             </Text>
           </View>
-        </View>
+          <Text style={pj.chevron}>›</Text>
+        </TouchableOpacity>
       ))}
     </View>
   );
@@ -147,6 +157,7 @@ const pj = injectFonts({
   badgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
   badgeTextOngoing: { color: '#B26A00' },
   badgeTextDone: { color: '#1E874B' },
+  chevron: { fontSize: 18, color: '#B5B5B5', marginLeft: 2 },
 });
 
 // ─── GALLERY grid ───────────────────────────────────────────────────────────
@@ -269,11 +280,14 @@ export default function ContractorProfileScreen({ navigation, route }) {
   const [contractor, setContractor] = useState(null);
   const [verifiedAmt, setVerifiedAmt] = useState(0);
   const [verifiedWork, setVerifiedWork] = useState([]);
+  const [realProjects, setRealProjects] = useState([]);
+  const [clientReviews, setClientReviews] = useState([]);
   const [myUid, setMyUid] = useState(null);
-  const [bookmarked, setBookmarked] = useState(false);
   const [viewer, setViewer] = useState({ visible: false, photos: [], index: 0 });
-  const [hasToggledAvailability, setHasToggledAvailability] = useState(false);
+  const [projectDetail, setProjectDetail] = useState(null);
+  const [allProjectsOpen, setAllProjectsOpen] = useState(false);
   const { headerAnimatedStyle, headerHeight, onHeaderLayout, onScroll } = useAutoHideHeader();
+  const insets = useSafeAreaInsets();
   const { toastMessage, toastOpacity, showToast } = useToast();
 
   const openViewer = (photos, index = 0) => setViewer({ visible: true, photos, index });
@@ -281,7 +295,13 @@ export default function ContractorProfileScreen({ navigation, route }) {
 
   const load = useCallback(async () => {
     try {
-      const me = await AsyncStorage.getItem('uid');
+      // Prefer the live Firebase Auth uid over the cached AsyncStorage copy —
+      // the two can drift (e.g. a stale 'uid' left from an earlier session),
+      // and comparing viewUid against a stale "me" silently breaks owner
+      // detection even when this really is the signed-in user's own profile.
+      // Guests have no auth.currentUser, so they fall back to the cache.
+      const cachedUid = await AsyncStorage.getItem('uid');
+      const me = auth.currentUser?.uid || cachedUid;
       const uid = viewUid || me;
       setMyUid(me);
 
@@ -289,7 +309,6 @@ export default function ContractorProfileScreen({ navigation, route }) {
 
       if (uid !== me) {
         recordProfileView(uid, me).catch(() => {});
-        isBookmarked(me, uid).then(v => setBookmarked(v)).catch(() => {});
       }
 
       // Try Firestore first
@@ -306,16 +325,31 @@ export default function ContractorProfileScreen({ navigation, route }) {
 
       setContractor(profile);
 
-      // Verified work — only meaningful for real Firebase users (and demo profiles)
+      // Verified totals — only meaningful for real Firebase users (and demo profiles).
+      // Demo profiles keep reading their fixture data via the legacy workService
+      // calls (already special-cased for demo uids). Real accounts read their
+      // own `work_records` — only 'confirmed' records count toward verified
+      // totals; 'locked_pending_confirmation' ones still show in VERIFIED
+      // PROJECTS (as ONGOING) but don't count yet.
       if (uid && !uid.startsWith('guest_')) {
         try {
-          const [amt, works] = await Promise.all([
-            getTotalVerifiedAmount(uid),
-            getVerifiedWork(uid),
-          ]);
-          setVerifiedAmt(amt || 0);
-          setVerifiedWork(works || []);
+          if (profile?.isDemo) {
+            const [amt, works] = await Promise.all([
+              getTotalVerifiedAmount(uid),
+              getVerifiedWork(uid),
+            ]);
+            setVerifiedAmt(amt || 0);
+            setVerifiedWork(works || []);
+            setRealProjects([]);
+          } else {
+            const records = await getProviderWorkRecords(uid);
+            const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.CONFIRMED);
+            setVerifiedAmt(confirmed.reduce((sum, r) => sum + (r.contractValue || 0), 0));
+            setVerifiedWork(confirmed.map(workRecordToVerifiedWork));
+            setRealProjects(records.map(workRecordToProject));
+          }
         } catch (_) {}
+        try { setClientReviews(await getClientReviews(uid)); } catch (_) {}
       }
     } catch (_) {}
     finally { setLoading(false); }
@@ -334,52 +368,43 @@ export default function ContractorProfileScreen({ navigation, route }) {
     Linking.openURL(`tel:+91${phone}`).catch(() => Alert.alert('Could not open dialler.'));
   };
 
-  const handleMessage = async () => {
+  const handleMessage = () => {
     if (!viewUid || viewUid === myUid) { Alert.alert('This is your own profile'); return; }
-    try {
-      const myName = await AsyncStorage.getItem('userName') || 'Me';
-      const chatId = await createChat(
-        { uid: myUid, name: myName },
-        { uid: viewUid, name: contractor?.companyName || contractor?.name || 'Contractor' }
+    if (!myUid || myUid.startsWith('guest_')) {
+      Alert.alert(
+        'Sign in to chat',
+        'Create a free account or sign in to start chatting with providers.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Sign In', onPress: () => navigation.navigate('Login') },
+        ]
       );
-      navigation.navigate('Chat', {
-        conversation: {
-          id: chatId,
-          uid: viewUid,
-          name: contractor?.companyName || contractor?.name || 'Contractor',
-          role: contractor?.contractorType || 'Contractor',
-          emoji: '👷‍♂️',
-          avatarBg: '#F2F2F2',
-          online: false,
-        },
-      });
-    } catch (_) { Alert.alert('Error', 'Could not open chat.'); }
+      return;
+    }
+    // ChatScreen creates the chat itself from conversation.uid — no need to
+    // pre-create it here (that redundant call was the thing failing silently).
+    navigation.navigate('Chat', {
+      conversation: {
+        uid: viewUid,
+        name: contractor?.companyName || contractor?.name || 'Sub Contractor',
+        role: contractor?.contractorType || 'Sub Contractor',
+        emoji: '👷‍♂️',
+        avatarBg: '#F2F2F2',
+        online: false,
+      },
+    });
   };
 
   const handleEnquiry = () => {
     if (!viewUid || viewUid === myUid) { Alert.alert('This is your own profile'); return; }
     navigation.navigate('Enquiry', {
       providerId: viewUid,
-      providerName: contractor?.companyName || contractor?.name || 'Contractor',
+      providerName: contractor?.companyName || contractor?.name || 'Sub Contractor',
       providerRole: contractor?.contractorType || '',
       providerEmoji: '👷‍♂️',
       services,
       profileType: 'contractor',
     });
-  };
-
-  const handleBookmark = async () => {
-    if (!myUid || !viewUid || viewUid === myUid) return;
-    try {
-      const saved = await toggleBookmark(myUid, {
-        uid: viewUid,
-        name: contractor?.companyName || contractor?.name || 'Contractor',
-        profileType: 'contractor',
-        category: contractor?.contractorType || '',
-        city: contractor?.city || '',
-      });
-      setBookmarked(saved);
-    } catch (_) {}
   };
 
   const handleOpenLink = () => {
@@ -414,10 +439,8 @@ export default function ContractorProfileScreen({ navigation, route }) {
     }
   };
 
-  const handleToggleAvailability = () => {
-    const nextAvailable = !(contractor?.available !== false);
+  const handleToggleAvailability = (nextAvailable) => {
     persistOwnProfileChange({ available: nextAvailable });
-    setHasToggledAvailability(true);
     showToast(nextAvailable ? "You're now taking new projects" : "You're now marked busy");
   };
 
@@ -428,7 +451,7 @@ export default function ContractorProfileScreen({ navigation, route }) {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
@@ -445,7 +468,7 @@ export default function ContractorProfileScreen({ navigation, route }) {
       return null;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
@@ -504,6 +527,7 @@ export default function ContractorProfileScreen({ navigation, route }) {
 
   const available    = contractor?.available !== false;
   const website       = contractor?.contractorWebsite || '';
+  const joinedText    = formatJoinedDate(contractor?.createdAt);
   const verificationType = contractor?.verificationType || '';
   const isVerified    = !!(contractor?.verificationNumber || contractor?.verified);
 
@@ -513,7 +537,7 @@ export default function ContractorProfileScreen({ navigation, route }) {
     ? contractor.services
     : (contractor?.otherSkills?.length > 0 ? contractor.otherSkills : (contractor?.skillTags || []));
 
-  const projects     = contractor?.projects || [];
+  const projects     = contractor?.isDemo ? (contractor?.projects || []) : realProjects;
   const galleryItems = contractor?.gallery?.length > 0
     ? contractor.gallery
     : (contractor?.workPhotos || []).map(uri => ({ uri, caption: '' }));
@@ -559,18 +583,18 @@ export default function ContractorProfileScreen({ navigation, route }) {
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
       {/* ── 1. HEADER (auto-hides on scroll) ───────────────────────────────── */}
-      <Animated.View style={[s.nav, s.navFloating, headerAnimatedStyle]} onLayout={onHeaderLayout}>
+      <Animated.View style={[s.nav, s.navFloating, { paddingTop: insets.top + 8 }, headerAnimatedStyle]} onLayout={onHeaderLayout}>
         <TouchableOpacity style={s.navBtn} onPress={() => navigation.goBack()}>
           <Text style={s.navBack}>←</Text>
         </TouchableOpacity>
-        <Text style={s.navTitle}>Contractor</Text>
-        <TouchableOpacity
-          style={s.navBtn}
-          onPress={isOwn ? handleOpenSettings : handleBookmark}
-          activeOpacity={0.7}
-        >
-          <Text style={s.navShare}>{isOwn ? '⚙️' : (bookmarked ? '🔖' : '☆')}</Text>
-        </TouchableOpacity>
+        <Text style={s.navTitle}>Sub Contractor</Text>
+        {isOwn ? (
+          <TouchableOpacity style={s.navBtn} onPress={handleOpenSettings} activeOpacity={0.7}>
+            <Text style={s.navShare}>⚙️</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={[s.navBtn, { backgroundColor: 'transparent' }]} />
+        )}
       </Animated.View>
 
       <ScrollView
@@ -610,7 +634,7 @@ export default function ContractorProfileScreen({ navigation, route }) {
                 )}
               </View>
               <View style={s.contractorPill}>
-                <Text style={s.contractorPillText}>CONTRACTOR</Text>
+                <Text style={s.contractorPillText}>SUB CONTRACTOR</Text>
               </View>
               <Text style={s.heroType} numberOfLines={1}>{contractorType}</Text>
             </View>
@@ -620,37 +644,41 @@ export default function ContractorProfileScreen({ navigation, route }) {
           <Text style={s.heroLoc} numberOfLines={1}>
             {currentLoc ? `📍 ${currentLoc}` : '📍 Add your location'}
           </Text>
-          <Text style={s.heroNative} numberOfLines={1}>
-            {nativePlace ? `🏠 ${nativePlace}` : '🏠 Add native place'}
-          </Text>
+          {nativePlace ? (
+            <Text style={s.heroNative} numberOfLines={1}>🏠 {nativePlace}</Text>
+          ) : null}
 
           {/* ── 4. STATUS PILL + LINK ───────────────────────────────────── */}
           <View style={s.availRow}>
             {isOwn ? (
-              <TouchableOpacity onPress={handleToggleAvailability} activeOpacity={0.6}>
-                <StatusPill available={available} isOwn />
-              </TouchableOpacity>
+              <View style={s.availToggleRow}>
+                <Text style={[s.availToggleLabel, !available && s.availToggleLabelMuted]}>
+                  {available ? 'Taking new projects' : 'Not taking projects'}
+                </Text>
+                <Switch
+                  value={available}
+                  onValueChange={handleToggleAvailability}
+                  trackColor={{ false: '#E5E5E5', true: GREEN_LIGHT }}
+                  thumbColor={available ? GREEN : '#FFFFFF'}
+                />
+              </View>
             ) : (
               <StatusPill available={available} />
             )}
           </View>
-          {isOwn && !hasToggledAvailability && (
-            <Text style={s.availHint}>Tap to change</Text>
-          )}
           {website ? (
             <TouchableOpacity onPress={handleOpenLink} activeOpacity={0.7}>
               <Text style={s.linkText} numberOfLines={1}>🔗 {website}</Text>
             </TouchableOpacity>
           ) : null}
 
+          {joinedText ? <Text style={s.joinedText}>{joinedText}</Text> : null}
+
           <View style={s.divider} />
 
           {/* ── 5. VERIFIED WORK ────────────────────────────────────────── */}
           <View style={s.verHeader}>
-            <Text style={s.verLabel}>✓ VERIFIED WORK</Text>
-            {isVerified && verificationType ? (
-              <Text style={s.verNote}>via {verificationType === 'gst' ? 'GST' : 'Aadhaar'}</Text>
-            ) : null}
+            <Text style={s.verLabel}>✓ {isOwn ? 'COMPLETED JOBS' : 'VERIFIED WORK'}</Text>
           </View>
           {isOwn && <Text style={s.verOwnerNote}>Verified from completed jobs — cannot be edited</Text>}
           <View style={s.verStats}>
@@ -708,44 +736,40 @@ export default function ContractorProfileScreen({ navigation, route }) {
                 <TouchableOpacity style={s.actionEnquiryBtn} onPress={handleEnquiry} activeOpacity={0.85}>
                   <Text style={s.actionEnquiryText} numberOfLines={1}>📋 Enquiry</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={s.actionBookmarkBtn} onPress={handleBookmark} activeOpacity={0.85}>
-                  <Text style={s.bookmarkIcon}>{bookmarked ? '🔖' : '☆'}</Text>
-                </TouchableOpacity>
               </>
             )}
           </View>
 
           <View style={s.divider} />
 
-          {/* ── 7. ABOUT ─────────────────────────────────────────────────── */}
+          {/* ── 7. VERIFIED PROJECTS ─────────────────────────────────────── */}
           <View style={s.sectionHeadRow}>
-            <Text style={[s.sLabel, { marginBottom: 0 }]}>ABOUT</Text>
-            {isOwn && (
-              <TouchableOpacity onPress={() => handleEditSection('about')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Text style={s.editPencil}>✏️</Text>
-              </TouchableOpacity>
-            )}
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>
+              PROJECTS{jobsCount > 0 ? ` (${jobsCount})` : ''}
+            </Text>
+            <View style={s.sectionHeadRight}>
+              {projects.length > 0 && (
+                <TouchableOpacity onPress={() => setAllProjectsOpen(true)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={s.viewAllLink}>View all</Text>
+                </TouchableOpacity>
+              )}
+              {isOwn && (
+                <TouchableOpacity onPress={() => navigation.navigate('MyWorkRecords')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={s.viewAllLink}>My Work Records</Text>
+                </TouchableOpacity>
+              )}
+              {isOwn && (
+                <TouchableOpacity onPress={() => handleEditSection('projects')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={s.editPencil}>✏️</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
-          <Text style={about ? s.aboutText : s.placeholder}>
-            {about || 'Add a short bio to attract more clients'}
-          </Text>
+          <ProjectsList projects={projects} onOpenProject={setProjectDetail} />
 
           <View style={s.divider} />
 
-          {/* ── 8. VERIFIED PROJECTS ─────────────────────────────────────── */}
-          <View style={s.sectionHeadRow}>
-            <Text style={[s.sLabel, { marginBottom: 0 }]}>VERIFIED PROJECTS</Text>
-            {isOwn && (
-              <TouchableOpacity onPress={() => handleEditSection('projects')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Text style={s.editPencil}>✏️</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-          <ProjectsList projects={projects} onViewPhoto={(uri) => uri && openViewer([uri])} />
-
-          <View style={s.divider} />
-
-          {/* ── 9. GALLERY ───────────────────────────────────────────────── */}
+          {/* ── 8. GALLERY ───────────────────────────────────────────────── */}
           <View style={s.sectionHeadRow}>
             <Text style={[s.sLabel, { marginBottom: 0 }]}>GALLERY</Text>
             {isOwn && (
@@ -762,6 +786,21 @@ export default function ContractorProfileScreen({ navigation, route }) {
             onRemove={handleRemoveGalleryPhoto}
             onView={(i) => openViewer(galleryItems, i)}
           />
+
+          <View style={s.divider} />
+
+          {/* ── 9. ABOUT ─────────────────────────────────────────────────── */}
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>ABOUT</Text>
+            {isOwn && (
+              <TouchableOpacity onPress={() => handleEditSection('about')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.editPencil}>✏️</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <Text style={about ? s.aboutText : s.placeholder}>
+            {about || 'Add a short bio to attract more clients'}
+          </Text>
 
           <View style={s.divider} />
 
@@ -830,6 +869,12 @@ export default function ContractorProfileScreen({ navigation, route }) {
             ))
           )}
 
+          <View style={s.divider} />
+
+          {/* ── 14. REVIEWS AS A CLIENT ─────────────────────────────────── */}
+          <Text style={s.sLabel}>REVIEWS AS A CLIENT</Text>
+          <ClientReviewsSection reviews={clientReviews} />
+
         </View>
 
       </ScrollView>
@@ -839,6 +884,21 @@ export default function ContractorProfileScreen({ navigation, route }) {
         photos={viewer.photos}
         initialIndex={viewer.index}
         onClose={closeViewer}
+      />
+
+      <AllProjectsModal
+        visible={allProjectsOpen}
+        projects={projects}
+        verifiedCount={jobsCount}
+        onClose={() => setAllProjectsOpen(false)}
+        onOpenProject={setProjectDetail}
+      />
+
+      <ProjectDetailModal
+        visible={!!projectDetail}
+        project={projectDetail}
+        onClose={() => setProjectDetail(null)}
+        onViewPhoto={(photos, index) => openViewer(photos, index)}
       />
 
       {toastMessage ? (
@@ -870,7 +930,7 @@ const s = injectFonts({
   // ── 1. HEADER
   nav: {
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 14, paddingTop: 52, paddingBottom: 12,
+    paddingHorizontal: 14, paddingBottom: 12,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1, borderBottomColor: BORDER,
   },
@@ -912,10 +972,10 @@ const s = injectFonts({
   logoEditIcon: { fontSize: 10 },
   heroInfo: { flex: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 6 },
-  heroName: { fontSize: 18, fontWeight: '700', color: DARK, flexShrink: 1, flex: 1, lineHeight: 22 },
+  heroName: { fontSize: 18, fontWeight: '700', color: DARK, flexShrink: 1, lineHeight: 22 },
   verifiedBadge: {
     width: 18, height: 18, borderRadius: 9,
-    backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: LINK_BLUE, alignItems: 'center', justifyContent: 'center',
   },
   verifiedText: { fontSize: 10, color: '#fff', fontWeight: '900' },
   contractorPill: {
@@ -943,10 +1003,13 @@ const s = injectFonts({
     paddingHorizontal: 14, paddingVertical: 7,
   },
   chipBusyText: { fontSize: 13, fontWeight: '600', color: LIGHT },
-  chipToggleIcon: { fontSize: 12, fontWeight: '700', color: GREEN, marginLeft: 2 },
-  chipToggleIconMuted: { color: LIGHT },
-  availHint: { fontSize: 10, color: FAINT, fontWeight: '500', marginTop: 4 },
+  availToggleRow: {
+    alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8,
+  },
+  availToggleLabel: { fontSize: 13, fontWeight: '600', color: GREEN },
+  availToggleLabelMuted: { color: LIGHT },
   linkText: { fontSize: 13, fontWeight: '600', color: LINK_BLUE, marginTop: 10 },
+  joinedText: { fontSize: 11, fontWeight: '400', color: LIGHT, marginTop: 6 },
 
   // ── 5. VERIFIED WORK
   verHeader: {
@@ -969,6 +1032,8 @@ const s = injectFonts({
   },
   sectionHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   sectionHeadLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  sectionHeadRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  viewAllLink: { fontSize: 12, fontWeight: '700', color: GREEN },
   editPencil: { fontSize: 13 },
   placeholder: { fontSize: 13, color: FAINT, fontStyle: 'italic' },
   aboutText: { fontSize: 14, color: MID, lineHeight: 22 },
@@ -994,11 +1059,6 @@ const s = injectFonts({
     alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
   },
   actionEnquiryText: { color: DARK, fontWeight: '600', fontSize: 11 },
-  actionBookmarkBtn: {
-    width: 40, height: 46, borderRadius: 12,
-    borderWidth: 1.5, borderColor: BORDER,
-    alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
-  },
   editProfileBtn: {
     flex: 1, height: 46, borderRadius: 12,
     backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: BORDER,
@@ -1029,8 +1089,6 @@ const s = injectFonts({
   reviewStarIcon: { fontSize: 14, color: BORDER },
   reviewStarActive: { color: STAR },
   reviewComment: { fontSize: 13, color: MID, lineHeight: 20, fontStyle: 'italic' },
-
-  bookmarkIcon: { fontSize: 18 },
 
   // ── TOAST (brief confirmation, e.g. availability toggled)
   toast: {

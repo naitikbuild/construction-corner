@@ -7,94 +7,14 @@ import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNav from '../components/BottomNav';
 import { auth } from '../config/firebase';
-import { signOut } from 'firebase/auth';
 import { getProfile } from '../services/userService';
 import { startVoiceSearch } from '../services/voiceSearchService';
 import {
-  SKILLED_WORKER_CATEGORIES,
-  UNSKILLED_WORKER_CATEGORIES,
+  SOLO_WORKER_CATEGORIES,
   CONTRACTOR_CATEGORIES,
   PROFESSIONAL_CATEGORIES,
   CATEGORY_ICONS,
 } from '../constants/categories';
-
-const GREETING_THRESHOLD = 10;
-const GREETING_ANIM_MS = 220;
-
-// Collapses the greeting row's own HEIGHT (not a translateY on an absolutely
-// positioned overlay) so the search bar — a normal sibling right below it —
-// naturally slides up to fill the space as it shrinks, with zero gap and no
-// manual scroll-content offset math. Same hide/show scroll heuristics as
-// hooks/useAutoHideHeader (10px threshold, direction-accumulator, forced
-// visible at the top) but sized to the greeting row's own measured height.
-function useCollapsingGreeting() {
-  const heightAnim = useRef(new Animated.Value(0)).current;
-  const opacityAnim = useRef(new Animated.Value(1)).current;
-  const [measured, setMeasured] = useState(false);
-
-  const fullHeight = useRef(0);
-  const hidden = useRef(false);
-  const lastY = useRef(0);
-  const accumulated = useRef(0);
-
-  const onGreetingLayout = (e) => {
-    const h = Math.round(e.nativeEvent.layout.height);
-    if (h > 0 && h !== fullHeight.current) {
-      fullHeight.current = h;
-      if (!hidden.current) heightAnim.setValue(h);
-      setMeasured(true);
-    }
-  };
-
-  const showGreeting = () => {
-    if (!hidden.current) return;
-    hidden.current = false;
-    Animated.parallel([
-      Animated.timing(heightAnim, { toValue: fullHeight.current, duration: GREETING_ANIM_MS, useNativeDriver: false }),
-      Animated.timing(opacityAnim, { toValue: 1, duration: GREETING_ANIM_MS, useNativeDriver: false }),
-    ]).start();
-  };
-
-  const hideGreeting = () => {
-    if (hidden.current) return;
-    hidden.current = true;
-    Animated.parallel([
-      Animated.timing(heightAnim, { toValue: 0, duration: GREETING_ANIM_MS, useNativeDriver: false }),
-      Animated.timing(opacityAnim, { toValue: 0, duration: GREETING_ANIM_MS, useNativeDriver: false }),
-    ]).start();
-  };
-
-  const onScroll = (e) => {
-    const y = e.nativeEvent.contentOffset.y;
-    const delta = y - lastY.current;
-    lastY.current = y;
-
-    if (y <= 0) {
-      accumulated.current = 0;
-      showGreeting();
-      return;
-    }
-
-    if ((delta > 0 && accumulated.current < 0) || (delta < 0 && accumulated.current > 0)) {
-      accumulated.current = 0;
-    }
-    accumulated.current += delta;
-
-    if (accumulated.current > GREETING_THRESHOLD) {
-      hideGreeting();
-      accumulated.current = 0;
-    } else if (accumulated.current < -GREETING_THRESHOLD) {
-      showGreeting();
-      accumulated.current = 0;
-    }
-  };
-
-  return {
-    greetingStyle: measured ? { height: heightAnim, opacity: opacityAnim } : { opacity: opacityAnim },
-    onGreetingLayout,
-    onScroll,
-  };
-}
 
 const PROFILE_SCREEN_MAP = {
   worker: 'WorkerProfile',
@@ -164,7 +84,7 @@ function iconForCategory(category, fallback) {
 // Shared "2-row grid + See More/See Less" browse section, driven entirely by a category list.
 // `tabs` (optional) renders a Skilled/Unskilled-style switcher above the grid — each tab
 // carries its own category list, so the grid always reflects whichever tab is active.
-function ProviderSection({ title, subtitle, categories, tabs, activeTab, onTabChange, profileType, iconFallback, expanded, onToggleExpand, navigation, width }) {
+function ProviderSection({ title, subtitle, categories, profileType, iconFallback, expanded, onToggleExpand, navigation, width }) {
   const visible = expanded ? categories : categories.slice(0, 8);
   return (
     <>
@@ -172,24 +92,6 @@ function ProviderSection({ title, subtitle, categories, tabs, activeTab, onTabCh
         <Text style={styles.secTitle}>{title}</Text>
       </View>
       {subtitle ? <Text style={styles.secSubtitle}>{subtitle}</Text> : null}
-      {tabs && (
-        <View style={styles.sectionPad}>
-          <View style={styles.workerTabRow}>
-            {tabs.map(tab => (
-              <TouchableOpacity
-                key={tab.key}
-                style={[styles.workerTabBtn, activeTab === tab.key && styles.workerTabBtnActive]}
-                onPress={() => onTabChange(tab.key)}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.workerTabBtnText, activeTab === tab.key && styles.workerTabBtnTextActive]}>
-                  {tab.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      )}
       <View style={styles.sectionPad}>
         <View style={styles.iconsGrid}>
           {visible.map((category) => (
@@ -223,12 +125,10 @@ function ProviderSection({ title, subtitle, categories, tabs, activeTab, onTabCh
 
 export default function HomeScreen({ navigation }) {
   const { width } = useWindowDimensions();
-  const { greetingStyle, onGreetingLayout, onScroll } = useCollapsingGreeting();
 
   const [workersExpanded, setWorkersExpanded] = useState(false);
   const [contractorsExpanded, setContractorsExpanded] = useState(false);
   const [professionalsExpanded, setProfessionalsExpanded] = useState(false);
-  const [workerTypeTab, setWorkerTypeTab] = useState('skilled');
 
   const [listening, setListening] = useState(false);
   const micPulse = useRef(new Animated.Value(1)).current;
@@ -327,78 +227,56 @@ export default function HomeScreen({ navigation }) {
       navigation.navigate('MyDashboard');
     }
   };
-  const handleResetApp = async () => {
-    try {
-      if (auth.currentUser) {
-        await signOut(auth);
-      }
-    } catch (_) {}
-    await AsyncStorage.clear();
-    navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
-  };
-
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* HEADER — greeting row collapses (height+opacity) on scroll down; the
-          search bar is a normal sibling right below it, so it slides up to
-          sit flush at the top with no gap as the greeting shrinks away. */}
-      <View style={styles.headerContainer}>
-        <Animated.View style={[styles.greetingCollapse, greetingStyle]}>
-          <View style={styles.headerTop} onLayout={onGreetingLayout}>
-            <View style={styles.brandRow}>
-              <View style={styles.brandLogo}>
-                <Text style={{ fontSize: 18 }}>🏗️</Text>
-              </View>
-              <Text style={styles.brandName}>
-                Construction <Text style={{ color: '#FC8019' }}>Corner</Text>
-              </Text>
-            </View>
-            <View style={styles.headerIcons}>
-              <TouchableOpacity style={styles.resetHeaderBtn} onPress={handleResetApp}>
-                <Text style={styles.resetHeaderBtnText}>↺ Reset</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.navigate('Notifications')}>
-                <Text style={{ fontSize: 18 }}>🔔</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.navigate('ChatList')}>
-                <Text style={{ fontSize: 18 }}>💬</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Animated.View>
-
-        <View style={styles.searchWrap}>
-          <TouchableOpacity style={styles.searchBar} onPress={() => navigation.navigate('Search')} activeOpacity={0.8}>
-            <Text style={{ fontSize: 16, marginRight: 8 }}>🔍</Text>
-            <Text style={styles.searchPlaceholder}>
-              {listening ? 'Listening...' : 'Search professionals, materials...'}
-            </Text>
-            <TouchableOpacity
-              style={[styles.micBtn, listening && styles.micBtnActive]}
-              onPress={handleMicPress}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              activeOpacity={0.75}
-            >
-              <Animated.Text style={[{ fontSize: 14 }, { transform: [{ scale: micPulse }] }]}>
-                🎤
-              </Animated.Text>
-            </TouchableOpacity>
+      {/* SEARCH — pinned at the top, always visible, never overlapped. */}
+      <View style={styles.searchWrap}>
+        <TouchableOpacity style={styles.searchBar} onPress={() => navigation.navigate('Search')} activeOpacity={0.8}>
+          <Text style={{ fontSize: 16, marginRight: 8 }}>🔍</Text>
+          <Text style={styles.searchPlaceholder}>
+            {listening ? 'Listening...' : 'Search professionals, materials...'}
+          </Text>
+          <TouchableOpacity
+            style={[styles.micBtn, listening && styles.micBtnActive]}
+            onPress={handleMicPress}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.75}
+          >
+            <Animated.Text style={[{ fontSize: 14 }, { transform: [{ scale: micPulse }] }]}>
+              🎤
+            </Animated.Text>
           </TouchableOpacity>
-        </View>
+        </TouchableOpacity>
       </View>
 
       <ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
-        onScroll={onScroll}
-        scrollEventThrottle={16}
       >
+
+        {/* BRAND ROW — part of the normal scrollable content, so it scrolls
+            away naturally with the page. No collapse animation. */}
+        <View style={styles.headerTop}>
+          <View style={styles.brandRow}>
+            <View style={styles.brandLogo}>
+              <Text style={{ fontSize: 18 }}>🏗️</Text>
+            </View>
+            <Text style={styles.brandName}>
+              Construction <Text style={{ color: '#FC8019' }}>Corner</Text>
+            </Text>
+          </View>
+          <View style={styles.headerIcons}>
+            <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.navigate('Notifications')}>
+              <Text style={{ fontSize: 18 }}>🔔</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
         {/* CONTRACTORS */}
         <ProviderSection
-          title="Contractors"
+          title="Sub Contractors"
           subtitle="Individual contractors with a crew for bigger jobs"
           categories={CONTRACTOR_CATEGORIES}
           profileType="contractor"
@@ -425,11 +303,8 @@ export default function HomeScreen({ navigation }) {
         {/* SOLO WORKERS */}
         <ProviderSection
           title="Solo Workers"
-          subtitle="Independent skilled and unskilled workers for hire"
-          categories={workerTypeTab === 'unskilled' ? UNSKILLED_WORKER_CATEGORIES : SKILLED_WORKER_CATEGORIES}
-          tabs={[{ key: 'skilled', label: 'Skilled' }, { key: 'unskilled', label: 'Unskilled' }]}
-          activeTab={workerTypeTab}
-          onTabChange={(key) => { setWorkerTypeTab(key); setWorkersExpanded(false); }}
+          subtitle="Independent skilled workers for hire"
+          categories={SOLO_WORKER_CATEGORIES}
           profileType="worker"
           iconFallback="👷"
           expanded={workersExpanded}
@@ -450,23 +325,16 @@ const styles = injectFonts({
   container: { flex: 1, backgroundColor: '#FFFFFF' },
   scroll: { flex: 1, backgroundColor: '#FAF9F5' },
 
-  // Header container — constant top clearance (status bar) that never moves;
-  // the greeting row collapses inside it, so the search bar below always sits
-  // flush under this padding whether the greeting is shown or hidden.
-  headerContainer: {
-    backgroundColor: '#FFFFFF',
-    paddingTop: 48,
-  },
-  // overflow:hidden clips the greeting content as its animated height shrinks.
-  greetingCollapse: {
-    overflow: 'hidden',
-  },
+  // Brand row now lives inside the ScrollView content, so it scrolls away
+  // naturally with the page — no collapse animation, no overlap possible.
   headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 14,
+    paddingTop: 14,
     paddingBottom: 10,
+    backgroundColor: '#FFFFFF',
   },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   brandLogo: {
@@ -481,12 +349,6 @@ const styles = injectFonts({
     backgroundColor: '#FAF9F5',
     alignItems: 'center', justifyContent: 'center',
   },
-  resetHeaderBtn: {
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
-    backgroundColor: '#262626', alignItems: 'center', justifyContent: 'center',
-  },
-  resetHeaderBtnText: { fontSize: 11, fontWeight: '800', color: '#FFFFFF' },
-
   // Search — always visible, pinned below the animated greeting header.
   // No `elevation` here: on Android, elevation promotes a view to its own
   // compositing layer with independent Z-stacking, which can paint it above
@@ -495,6 +357,7 @@ const styles = injectFonts({
   // expanding. The border is enough separation without it.
   searchWrap: {
     backgroundColor: '#FFFFFF',
+    paddingTop: 48,
     paddingBottom: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E5E5',
@@ -533,17 +396,6 @@ const styles = injectFonts({
   },
   secTitle: { fontSize: 18, fontWeight: '800', color: '#1A1A1A' },
   secSubtitle: { fontSize: 12, color: '#888888', paddingHorizontal: 14, marginBottom: 10 },
-
-  // Skilled / Unskilled tab switcher (Solo Workers section)
-  workerTabRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  workerTabBtn: {
-    flex: 1, height: 38, borderRadius: 10,
-    borderWidth: 1.5, borderColor: '#E5E5E5', backgroundColor: '#FFFFFF',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  workerTabBtnActive: { backgroundColor: '#262626', borderColor: '#262626' },
-  workerTabBtnText: { fontSize: 13, fontWeight: '600', color: '#737373' },
-  workerTabBtnTextActive: { color: '#FFFFFF' },
 
   // Icon grid
   iconsGrid: {

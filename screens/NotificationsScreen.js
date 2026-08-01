@@ -288,6 +288,9 @@ export default function NotificationsScreen({ navigation }) {
               markRead(item.id);
               if (item.type === 'work_confirm') navigation.navigate('ConfirmWork', { workId: item.workId });
               else if (item.type === 'work_verified') navigation.navigate('WorkHistory');
+              else if (item.type === 'work_locked') navigation.navigate('WorkRecordReview', { recordId: item.recordId });
+              else if (item.type === 'work_confirmed') navigation.navigate('RateClient', { recordId: item.recordId });
+              else if (item.type === 'work_disputed') navigation.navigate('CreateWorkRecord', { recordId: item.recordId });
               else if (item.type === 'message') navigation.navigate('ChatList');
               else if (item.type === 'job_update' || item.type === 'job_match') navigation.navigate('Home');
               else if (item.type === 'payment' || item.type === 'review') navigation.navigate('MyDashboard');

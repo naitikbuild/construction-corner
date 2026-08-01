@@ -1,17 +1,17 @@
 // Central provider category lists.
 //
 // These are the single source of truth for:
-//  - the Home screen's "Solo Workers" / "Contractors" / "Professionals" browse sections
+//  - the Home screen's "Solo Workers" / "Sub Contractors" / "Professionals" browse sections
 //  - the matching signup dropdowns in EditProfileScreen (Solo Worker skill,
-//    Contractor type/trade, Professional primary + extra skill)
+//    Sub Contractor type/trade, Professional primary + extra skill)
 //
 // Edit an array here and both the Home screen listing and the signup dropdown
 // stay in sync automatically. Selection everywhere is restricted to these
 // fixed values — no free text / custom entries.
 
-// Solo Worker skills are split by Worker Type — the signup dropdown only ever
-// shows one of these two lists at a time, based on the Skilled/Unskilled choice.
-export const SKILLED_WORKER_CATEGORIES = [
+// Solo Worker's single trade list — no Skilled/Unskilled split (removed as
+// confusing; helper/unskilled categories will be revisited later).
+export const SOLO_WORKER_CATEGORIES = [
   'Mason',
   'Electrician',
   'Plumber',
@@ -38,26 +38,6 @@ export const SKILLED_WORKER_CATEGORIES = [
   'Road Roller Operator',
   'Hydra Operator',
 ];
-
-export const UNSKILLED_WORKER_CATEGORIES = [
-  'General Helper',
-  'Mason Helper',
-  'Electrician Helper',
-  'Plumber Helper',
-  'Painter Helper',
-  'Carpenter Helper',
-  'Tile Fitter Helper',
-  'Site Labour',
-  'Loader / Unloader',
-  'Cleaner',
-  'Beldar',
-  'Watchman / Security',
-  'Material Shifting',
-];
-
-// Flat union of both — kept for any place that needs "all solo worker
-// categories" without splitting by Worker Type (e.g. a combined search).
-export const SOLO_WORKER_CATEGORIES = [...SKILLED_WORKER_CATEGORIES, ...UNSKILLED_WORKER_CATEGORIES];
 
 export const CONTRACTOR_CATEGORIES = [
   'RCC Contractor',
@@ -110,6 +90,27 @@ export const PROFESSIONAL_CATEGORIES = [
   'Safety Officer',
   'BIM Modeler',
   'Land Surveyor',
+];
+
+// Work record project category — single-select, required on every work
+// record (see CreateWorkRecordScreen).
+export const PROJECT_CATEGORIES = ['Residential', 'Commercial', 'Industrial', 'Infrastructure'];
+
+// Fixed, searchable list of "extra work done" keywords a provider can tag a
+// work record with (up to 10, no custom entries — see CreateWorkRecordScreen's
+// KeywordPickerModal). Also what verified-project keyword search matches
+// against (see services/userService.js's matchTier).
+export const WORK_KEYWORDS = [
+  'Italian Marble', 'Granite Flooring', 'Vitrified Tiles', 'Wooden Flooring',
+  'Bird Net', 'POP False Ceiling', 'Gypsum Ceiling', 'Modular Kitchen',
+  'Wardrobe', 'Waterproofing', 'Terrace Waterproofing', 'Texture Paint',
+  'PU Paint', 'Wall Putty', 'Wallpaper', 'Glass Partition',
+  'Aluminium Partition', 'UPVC Windows', 'Structural Glazing', 'ACP Cladding',
+  'Stone Cladding', 'Grill Work', 'MS Fabrication', 'SS Railing',
+  'Gate Fabrication', 'Boundary Wall', 'RCC Slab', 'Column Casting',
+  'Brick Masonry', 'Plastering', 'Solar Panel Installation', 'CCTV Installation',
+  'Electrical Wiring', 'Concealed Plumbing', 'Bathroom Fitting', 'Landscaping',
+  'Interior Design', 'Epoxy Flooring', 'Fire Fighting', 'HVAC Ducting',
 ];
 
 // Optional custom image icon per category — keyed by the exact category

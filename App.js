@@ -4,6 +4,7 @@ import { useFonts, Poppins_400Regular, Poppins_500Medium, Poppins_600SemiBold, P
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 // Auth & Onboarding
 import LoginScreen from './screens/LoginScreen';
@@ -35,22 +36,25 @@ import BusinessProfileScreen from './screens/BusinessProfileScreen';
 // User Features
 import MyDashboardScreen from './screens/MyDashboardScreen';
 import PersonalProfileScreen from './screens/PersonalProfileScreen';
-import BookmarksScreen from './screens/BookmarksScreen';
 import SettingsScreen from './screens/SettingsScreen';
 
-// Rentals
-import RentalsScreen from './screens/RentalsScreen';
-
-// Verified Work System
-import MarkWorkCompleteScreen from './screens/MarkWorkCompleteScreen';
+// Verified Work System — legacy pending_work/verified_work flow. Still used
+// by MyDashboardScreen (Pending Confirmations), SettingsScreen (Work
+// History), and ReviewsListScreen; MarkWorkComplete and LeaveReview were the
+// only fully-orphaned pieces, removed once Business/Supplier moved to
+// work_records (see workRecordService.js).
 import ConfirmWorkScreen from './screens/ConfirmWorkScreen';
 import WorkHistoryScreen from './screens/WorkHistoryScreen';
 import CommissionWalletScreen from './screens/CommissionWalletScreen';
-import LeaveReviewScreen from './screens/LeaveReviewScreen';
 import ReviewsListScreen from './screens/ReviewsListScreen';
 
-// Work Record System (replaces MarkWorkComplete/ConfirmWork — in progress)
+// Work Record System — now the verified-work system for all five provider
+// types (Worker/Contractor/Professional/Business/Supplier).
 import CreateWorkRecordScreen from './screens/CreateWorkRecordScreen';
+import ClientWorkRecordReviewScreen from './screens/ClientWorkRecordReviewScreen';
+import RateWorkRecordScreen from './screens/RateWorkRecordScreen';
+import RateClientScreen from './screens/RateClientScreen';
+import MyWorkRecordsScreen from './screens/MyWorkRecordsScreen';
 
 // Legal & Info (Play Store required)
 import PrivacyPolicyScreen from './screens/PrivacyPolicyScreen';
@@ -98,11 +102,12 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator
-        initialRouteName={initialRoute}
-        screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
-      >
+    <SafeAreaProvider>
+      <NavigationContainer>
+        <Stack.Navigator
+          initialRouteName={initialRoute}
+          screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
+        >
         {/* Auth & Onboarding */}
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
@@ -133,28 +138,27 @@ export default function App() {
         {/* User Features */}
         <Stack.Screen name="MyDashboard" component={MyDashboardScreen} />
         <Stack.Screen name="PersonalProfile" component={PersonalProfileScreen} />
-        <Stack.Screen name="Bookmarks" component={BookmarksScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
 
-        {/* Rentals */}
-        <Stack.Screen name="Rentals" component={RentalsScreen} />
-
-        {/* Verified Work System */}
-        <Stack.Screen name="MarkWorkComplete" component={MarkWorkCompleteScreen} />
+        {/* Verified Work System (legacy — see import comment above) */}
         <Stack.Screen name="ConfirmWork" component={ConfirmWorkScreen} />
         <Stack.Screen name="WorkHistory" component={WorkHistoryScreen} />
         <Stack.Screen name="CommissionWallet" component={CommissionWalletScreen} />
-        <Stack.Screen name="LeaveReview" component={LeaveReviewScreen} />
         <Stack.Screen name="ReviewsList" component={ReviewsListScreen} />
 
         {/* Work Record System */}
         <Stack.Screen name="CreateWorkRecord" component={CreateWorkRecordScreen} />
+        <Stack.Screen name="WorkRecordReview" component={ClientWorkRecordReviewScreen} />
+        <Stack.Screen name="RateWorkRecord" component={RateWorkRecordScreen} />
+        <Stack.Screen name="RateClient" component={RateClientScreen} />
+        <Stack.Screen name="MyWorkRecords" component={MyWorkRecordsScreen} />
 
         {/* Legal & Info */}
         <Stack.Screen name="Privacy" component={PrivacyPolicyScreen} />
         <Stack.Screen name="Terms" component={TermsScreen} />
         <Stack.Screen name="About" component={AboutScreen} />
-      </Stack.Navigator>
-    </NavigationContainer>
+        </Stack.Navigator>
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }

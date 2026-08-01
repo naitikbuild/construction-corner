@@ -32,6 +32,13 @@
       ],
       "expo-speech-recognition",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Construction Corner needs access to your photos to attach images in chat.",
+          "cameraPermission": "Construction Corner needs access to your camera to take a photo to share in chat."
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "android": {

@@ -1,16 +1,20 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, TextInput, StatusBar,
-  KeyboardAvoidingView, Platform, Image, Alert,
+  KeyboardAvoidingView, Platform, Image, Alert, Modal, Linking, ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { injectFonts } from '../theme/typography';
 import { getProfile } from '../services/userService';
 import {
-  sendMessage, createChat, markChatRead,
+  sendMessage, sendAttachmentMessage, createChat, markChatRead,
   subscribeToChat, subscribeToRecentMessages, getOlderMessages,
 } from '../services/chatService';
-import { formatAmountIndian } from '../utils/format';
+import PhotoViewer from '../components/PhotoViewer';
+import { formatAmountIndian, formatFileSize } from '../utils/format';
 import { DEMO_MODE } from '../config/demoMode';
 import { DEMO_CHATS } from '../demoData';
 
@@ -119,9 +123,113 @@ function WorkRecordCard({ item, isSent, onPress }) {
   );
 }
 
+// ─── Image message bubble ───────────────────────────────────────────────────
+function ImageBubble({ item, isSent, isRead, onPress, onRetry }) {
+  const uploading = item.__status === 'uploading';
+  const failed = item.__status === 'error';
+  return (
+    <View style={[cs.bubbleRow, isSent ? cs.bubbleRowRight : cs.bubbleRowLeft]}>
+      <View style={[cs.bubble, cs.imageBubble, isSent ? cs.bubbleSent : cs.bubbleReceived]}>
+        <TouchableOpacity
+          onPress={failed ? onRetry : onPress}
+          activeOpacity={0.85}
+          disabled={uploading}
+        >
+          <View style={cs.imageWrap}>
+            <Image source={{ uri: item.uri }} style={cs.image} resizeMode="cover" />
+            {(uploading || failed) && (
+              <View style={cs.imageOverlay}>
+                {uploading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={cs.imageRetryText}>↻ Tap to retry</Text>
+                )}
+              </View>
+            )}
+          </View>
+        </TouchableOpacity>
+        <View style={cs.bubbleMetaRow}>
+          <Text style={cs.bubbleTime}>{uploading ? 'Sending…' : formatBubbleTime(item.timestamp)}</Text>
+          {isSent && !uploading && !failed && <Text style={[cs.bubbleTicks, isRead && cs.bubbleTicksRead]}>✓✓</Text>}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ─── File message bubble ────────────────────────────────────────────────────
+function FileBubble({ item, isSent, isRead, onPress, onRetry }) {
+  const uploading = item.__status === 'uploading';
+  const failed = item.__status === 'error';
+  return (
+    <View style={[cs.bubbleRow, isSent ? cs.bubbleRowRight : cs.bubbleRowLeft]}>
+      <TouchableOpacity
+        style={[cs.bubble, cs.fileBubble, isSent ? cs.bubbleSent : cs.bubbleReceived]}
+        onPress={failed ? onRetry : onPress}
+        activeOpacity={0.85}
+        disabled={uploading}
+      >
+        <View style={cs.fileRow}>
+          <View style={cs.fileIconWrap}>
+            {uploading ? (
+              <ActivityIndicator color={DARK} size="small" />
+            ) : (
+              <Text style={cs.fileIcon}>{failed ? '⚠️' : '📄'}</Text>
+            )}
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={cs.fileName} numberOfLines={1}>{item.fileName || 'File'}</Text>
+            <Text style={cs.fileSize}>
+              {failed ? 'Failed to send' : uploading ? 'Sending…' : formatFileSize(item.fileSize)}
+            </Text>
+          </View>
+        </View>
+        <View style={cs.bubbleMetaRow}>
+          <Text style={cs.bubbleTime}>{uploading ? '' : formatBubbleTime(item.timestamp)}</Text>
+          {isSent && !uploading && !failed && <Text style={[cs.bubbleTicks, isRead && cs.bubbleTicksRead]}>✓✓</Text>}
+          {failed && <Text style={cs.retryInlineText}>Tap to retry</Text>}
+        </View>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ─── Attachment picker (bottom sheet) ───────────────────────────────────────
+function AttachmentSheet({ visible, onClose, onPhotoLibrary, onCamera, onDocument, insets }) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={cs.sheetOverlay}>
+        <TouchableOpacity style={{ flex: 1 }} onPress={onClose} activeOpacity={1} />
+        <View style={[cs.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+          <View style={cs.sheetHandle} />
+          <Text style={cs.sheetTitle}>Attach</Text>
+
+          <TouchableOpacity style={cs.sheetRow} onPress={onPhotoLibrary} activeOpacity={0.7}>
+            <View style={cs.sheetIconWrap}><Text style={cs.sheetIconText}>🖼️</Text></View>
+            <Text style={cs.sheetLabel}>Photo Library</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={cs.sheetRow} onPress={onCamera} activeOpacity={0.7}>
+            <View style={cs.sheetIconWrap}><Text style={cs.sheetIconText}>📷</Text></View>
+            <Text style={cs.sheetLabel}>Camera</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={cs.sheetRow} onPress={onDocument} activeOpacity={0.7}>
+            <View style={cs.sheetIconWrap}><Text style={cs.sheetIconText}>📄</Text></View>
+            <Text style={cs.sheetLabel}>Document</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={cs.sheetCancelBtn} onPress={onClose} activeOpacity={0.8}>
+            <Text style={cs.sheetCancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 // ─── Main screen ────────────────────────────────────────────────────────────
 export default function ChatScreen({ navigation, route }) {
   const conversation = route?.params?.conversation || {};
+  const insets = useSafeAreaInsets();
 
   const [otherProfile, setOtherProfile] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -131,6 +239,13 @@ export default function ChatScreen({ navigation, route }) {
   const [chatId, setChatId] = useState(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [demoLastReadByOther, setDemoLastReadByOther] = useState(null);
+
+  // Attachments — optimistic local queue so an upload shows a sending
+  // indicator immediately and can be retried on failure, before the synced
+  // Firestore copy (via subscribeToRecentMessages) replaces it.
+  const [attachSheetOpen, setAttachSheetOpen] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState([]);
+  const [viewer, setViewer] = useState({ visible: false, photos: [], index: 0 });
 
   const listRef = useRef(null);
   const unsubMessagesRef = useRef(null);
@@ -179,44 +294,52 @@ export default function ChatScreen({ navigation, route }) {
         .then(p => { if (!cancelled) setOtherProfile(p); })
         .catch(() => {});
 
-      const myName = (await AsyncStorage.getItem('userName')) || 'Me';
-      const id = await createChat(
-        { uid, name: myName },
-        { uid: conversation.uid, name: conversation.name || 'User' }
-      );
-      if (cancelled) return;
-      setChatId(id);
-      chatIdRef.current = id;
-      markChatRead(id, uid);
+      try {
+        const myName = (await AsyncStorage.getItem('userName')) || 'Me';
+        const id = await createChat(
+          { uid, name: myName },
+          { uid: conversation.uid, name: conversation.name || 'User' }
+        );
+        if (cancelled) return;
+        setChatId(id);
+        chatIdRef.current = id;
+        markChatRead(id, uid);
 
-      unsubChatRef.current = subscribeToChat(id, (chat) => { if (!cancelled) setChatMeta(chat); });
+        unsubChatRef.current = subscribeToChat(id, (chat) => { if (!cancelled) setChatMeta(chat); });
 
-      unsubMessagesRef.current = subscribeToRecentMessages(
-        id,
-        (recent) => {
-          if (cancelled) return;
-          setMessages(prev => {
-            const freshIds = new Set(recent.map(m => m.id));
-            const oldestFreshTs = recent[0]?.timestamp;
-            const keptOlder = prev.filter(m =>
-              !freshIds.has(m.id) && m.timestamp && oldestFreshTs && m.timestamp < oldestFreshTs
-            );
-            return [...keptOlder, ...recent];
-          });
-          setInitialLoading(false);
-          const stick = firstLoadRef.current || isNearBottomRef.current;
-          const animated = !firstLoadRef.current;
-          firstLoadRef.current = false;
-          if (stick) {
-            setTimeout(() => listRef.current?.scrollToEnd({ animated }), 60);
+        unsubMessagesRef.current = subscribeToRecentMessages(
+          id,
+          (recent) => {
+            if (cancelled) return;
+            setMessages(prev => {
+              const freshIds = new Set(recent.map(m => m.id));
+              const oldestFreshTs = recent[0]?.timestamp;
+              const keptOlder = prev.filter(m =>
+                !freshIds.has(m.id) && m.timestamp && oldestFreshTs && m.timestamp < oldestFreshTs
+              );
+              return [...keptOlder, ...recent];
+            });
+            setInitialLoading(false);
+            const stick = firstLoadRef.current || isNearBottomRef.current;
+            const animated = !firstLoadRef.current;
+            firstLoadRef.current = false;
+            if (stick) {
+              setTimeout(() => listRef.current?.scrollToEnd({ animated }), 60);
+            }
+            markChatRead(id, uid);
+          },
+          (cursor, hasMore) => {
+            oldestCursorRef.current = cursor;
+            hasMoreOlderRef.current = hasMore;
           }
-          markChatRead(id, uid);
-        },
-        (cursor, hasMore) => {
-          oldestCursorRef.current = cursor;
-          hasMoreOlderRef.current = hasMore;
-        }
-      );
+        );
+      } catch (err) {
+        if (cancelled) return;
+        console.warn('ChatScreen: failed to open conversation', err);
+        setInitialLoading(false);
+        Alert.alert('Could not open chat', 'Something went wrong opening this conversation. Please try again.');
+        navigation.goBack();
+      }
     })();
 
     return () => {
@@ -282,7 +405,116 @@ export default function ChatScreen({ navigation, route }) {
     if (recordId) navigation.navigate('CreateWorkRecord', { recordId });
   };
 
-  const attachmentsComingSoon = () => Alert.alert('Coming soon', 'Attachments will be available in a future update.');
+  // ── Attachments ─────────────────────────────────────────────────────────
+  const sendAttachment = async (type, asset) => {
+    if (!myUid) return;
+    const localId = `pending_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const fileName = asset.name || asset.fileName || (type === 'image' ? `Photo_${Date.now()}.jpg` : 'File');
+    const fileSize = asset.size ?? asset.fileSize ?? null;
+    const mimeType = asset.mimeType || '';
+
+    // Demo conversations only ever update local state — never Firestore/Storage.
+    if (conversation.isDemo) {
+      setMessages(prev => [...prev, {
+        id: `demo_local_${Date.now()}`, type, uri: asset.uri, fileName, fileSize, mimeType,
+        sender: myUid, timestamp: new Date(),
+      }]);
+      isNearBottomRef.current = true;
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
+      return;
+    }
+
+    if (!chatId) return;
+    isNearBottomRef.current = true;
+    setPendingAttachments(prev => [...prev, {
+      id: localId, type, uri: asset.uri, fileName, fileSize, mimeType,
+      sender: myUid, timestamp: new Date(), __status: 'uploading',
+    }]);
+    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
+
+    try {
+      await sendAttachmentMessage(chatId, myUid, conversation.uid, { type, uri: asset.uri, fileName, fileSize, mimeType });
+      setPendingAttachments(prev => prev.filter(p => p.id !== localId));
+    } catch (err) {
+      console.warn('ChatScreen: attachment send failed', err);
+      setPendingAttachments(prev => prev.map(p => (p.id === localId ? { ...p, __status: 'error' } : p)));
+    }
+  };
+
+  const retryAttachment = async (localId) => {
+    const item = pendingAttachments.find(p => p.id === localId);
+    if (!item || !chatId) return;
+    setPendingAttachments(prev => prev.map(p => (p.id === localId ? { ...p, __status: 'uploading' } : p)));
+    try {
+      await sendAttachmentMessage(chatId, myUid, conversation.uid, {
+        type: item.type, uri: item.uri, fileName: item.fileName, fileSize: item.fileSize, mimeType: item.mimeType,
+      });
+      setPendingAttachments(prev => prev.filter(p => p.id !== localId));
+    } catch (err) {
+      console.warn('ChatScreen: attachment retry failed', err);
+      setPendingAttachments(prev => prev.map(p => (p.id === localId ? { ...p, __status: 'error' } : p)));
+    }
+  };
+
+  const handlePickPhotoLibrary = async () => {
+    setAttachSheetOpen(false);
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Photo access needed', 'Please allow photo library access to attach images.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        quality: 0.7,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      for (const asset of result.assets) {
+        // eslint-disable-next-line no-await-in-loop
+        await sendAttachment('image', asset);
+      }
+    } catch (_) {
+      Alert.alert('Could not open photo library', 'Please try again.');
+    }
+  };
+
+  const handlePickCamera = async () => {
+    setAttachSheetOpen(false);
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Camera access needed', 'Please allow camera access to take a photo.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
+      if (result.canceled || !result.assets?.[0]) return;
+      await sendAttachment('image', result.assets[0]);
+    } catch (_) {
+      Alert.alert('Could not open camera', 'Please try again.');
+    }
+  };
+
+  const handlePickDocument = async () => {
+    setAttachSheetOpen(false);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+      if (result.canceled || !result.assets?.[0]) return;
+      await sendAttachment('file', result.assets[0]);
+    } catch (_) {
+      Alert.alert('Could not open document picker', 'Please try again.');
+    }
+  };
+
+  const openFile = async (uri) => {
+    try {
+      const supported = await Linking.canOpenURL(uri);
+      if (!supported) { Alert.alert('Could not open file', 'No app available to open this file.'); return; }
+      await Linking.openURL(uri);
+    } catch (_) {
+      Alert.alert('Could not open file', 'Please try again.');
+    }
+  };
 
   const otherReadAt = conversation.isDemo
     ? demoLastReadByOther
@@ -291,7 +523,17 @@ export default function ChatScreen({ navigation, route }) {
   const photoUri = otherProfile?.photoUri || conversation.photoUri || null;
   const verified = !!otherProfile?.verified;
 
-  const listData = useMemo(() => buildListData(messages), [messages]);
+  // Pending (still-uploading/failed) attachments are appended after synced
+  // messages so they show at the bottom while sending, same as a normal send.
+  const combinedMessages = useMemo(() => [...messages, ...pendingAttachments], [messages, pendingAttachments]);
+  const listData = useMemo(() => buildListData(combinedMessages), [combinedMessages]);
+
+  const openImageViewer = (item) => {
+    const imgs = combinedMessages.filter(m => m.type === 'image' && m.uri && m.__status !== 'error');
+    const idx = imgs.findIndex(m => m.id === item.id);
+    setViewer({ visible: true, photos: imgs.map(m => m.uri), index: idx >= 0 ? idx : 0 });
+  };
+  const closeViewer = () => setViewer(v => ({ ...v, visible: false }));
 
   return (
     <View style={cs.screen}>
@@ -351,6 +593,28 @@ export default function ChatScreen({ navigation, route }) {
               if (item.type === 'work_record') {
                 return <WorkRecordCard item={item} isSent={isSent} onPress={() => openWorkRecord(item.workRecordId)} />;
               }
+              if (item.type === 'image') {
+                return (
+                  <ImageBubble
+                    item={item}
+                    isSent={isSent}
+                    isRead={isRead}
+                    onPress={() => openImageViewer(item)}
+                    onRetry={() => retryAttachment(item.id)}
+                  />
+                );
+              }
+              if (item.type === 'file') {
+                return (
+                  <FileBubble
+                    item={item}
+                    isSent={isSent}
+                    isRead={isRead}
+                    onPress={() => openFile(item.uri)}
+                    onRetry={() => retryAttachment(item.id)}
+                  />
+                );
+              }
               return <MessageBubble item={item} isSent={isSent} isRead={isRead} />;
             }}
             showsVerticalScrollIndicator={false}
@@ -371,8 +635,8 @@ export default function ChatScreen({ navigation, route }) {
         )}
 
         {/* ── Input bar ── */}
-        <View style={cs.inputBar}>
-          <TouchableOpacity style={cs.plusBtn} onPress={attachmentsComingSoon} activeOpacity={0.7}>
+        <View style={[cs.inputBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+          <TouchableOpacity style={cs.plusBtn} onPress={() => setAttachSheetOpen(true)} activeOpacity={0.7}>
             <Text style={cs.plusIcon}>+</Text>
           </TouchableOpacity>
           <View style={cs.inputWrap}>
@@ -385,9 +649,6 @@ export default function ChatScreen({ navigation, route }) {
               multiline
               maxLength={1000}
             />
-            <TouchableOpacity style={cs.paperclipBtn} onPress={attachmentsComingSoon} activeOpacity={0.7}>
-              <Text style={cs.paperclipIcon}>📎</Text>
-            </TouchableOpacity>
           </View>
           <TouchableOpacity
             style={[cs.sendBtn, !inputText.trim() && cs.sendBtnDisabled]}
@@ -399,6 +660,22 @@ export default function ChatScreen({ navigation, route }) {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      <AttachmentSheet
+        visible={attachSheetOpen}
+        onClose={() => setAttachSheetOpen(false)}
+        onPhotoLibrary={handlePickPhotoLibrary}
+        onCamera={handlePickCamera}
+        onDocument={handlePickDocument}
+        insets={insets}
+      />
+
+      <PhotoViewer
+        visible={viewer.visible}
+        photos={viewer.photos}
+        initialIndex={viewer.index}
+        onClose={closeViewer}
+      />
     </View>
   );
 }
@@ -479,6 +756,57 @@ const cs = injectFonts({
   },
   wrBtnText: { fontSize: 12, fontWeight: '700', color: DARK },
 
+  // ── Image message bubble
+  imageBubble: { padding: 4, maxWidth: '65%' },
+  imageWrap: {
+    width: 200, height: 200, borderRadius: 12, overflow: 'hidden', backgroundColor: FILL,
+  },
+  image: { width: '100%', height: '100%' },
+  imageOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center',
+  },
+  imageRetryText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+
+  // ── File message bubble
+  fileBubble: { minWidth: 190 },
+  fileRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  fileIconWrap: {
+    width: 36, height: 36, borderRadius: 10, backgroundColor: FILL,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  fileIcon: { fontSize: 17 },
+  fileName: { fontSize: 13, fontWeight: '700', color: DARK },
+  fileSize: { fontSize: 11, color: LIGHT, fontWeight: '500', marginTop: 2 },
+  retryInlineText: { fontSize: 10, fontWeight: '700', color: '#B00020', marginLeft: 4 },
+
+  // ── Attachment sheet
+  sheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    paddingHorizontal: 20, paddingTop: 10,
+  },
+  sheetHandle: {
+    width: 40, height: 4, borderRadius: 2, backgroundColor: BORDER,
+    alignSelf: 'center', marginBottom: 14,
+  },
+  sheetTitle: { fontSize: 15, fontWeight: '700', color: DARK, marginBottom: 10 },
+  sheetRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingVertical: 12, borderTopWidth: 1, borderTopColor: BORDER,
+  },
+  sheetIconWrap: {
+    width: 40, height: 40, borderRadius: 20, backgroundColor: FILL,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  sheetIconText: { fontSize: 18 },
+  sheetLabel: { fontSize: 14, fontWeight: '600', color: DARK },
+  sheetCancelBtn: {
+    marginTop: 12, height: 46, borderRadius: 12, backgroundColor: FILL,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  sheetCancelText: { fontSize: 14, fontWeight: '700', color: DARK },
+
   // ── Empty state
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
   emptyIcon: { fontSize: 40, marginBottom: 10, opacity: 0.6 },
@@ -489,7 +817,6 @@ const cs = injectFonts({
   inputBar: {
     flexDirection: 'row', alignItems: 'flex-end', gap: 8,
     backgroundColor: '#FFFFFF', paddingHorizontal: 12, paddingTop: 10,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 14,
     borderTopWidth: 1, borderTopColor: BORDER,
   },
   plusBtn: {
@@ -507,8 +834,6 @@ const cs = injectFonts({
     flex: 1, fontSize: 14, color: DARK, fontWeight: '500',
     paddingVertical: 4, maxHeight: 100,
   },
-  paperclipBtn: { paddingHorizontal: 4, paddingVertical: 6 },
-  paperclipIcon: { fontSize: 16 },
   sendBtn: {
     width: 40, height: 40, borderRadius: 20, backgroundColor: DARK,
     alignItems: 'center', justifyContent: 'center', flexShrink: 0,

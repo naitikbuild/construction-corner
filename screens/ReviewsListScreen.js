@@ -43,7 +43,7 @@ function ReviewCard({ review }) {
             <Text style={styles.authorName} numberOfLines={2}>{review.author}</Text>
             {review.verified && (
               <View style={styles.verifiedBadge}>
-                <Text style={styles.verifiedBadgeText}>✓ Verified</Text>
+                <Text style={styles.verifiedBadgeText}>✓</Text>
               </View>
             )}
           </View>
@@ -296,9 +296,10 @@ const styles = injectFonts({
   authorNameRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 3 },
   authorName: { fontSize: 14, fontWeight: '800', color: TEXT, flexShrink: 1, lineHeight: 17 },
   verifiedBadge: {
-    backgroundColor: GREEN_LIGHT, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
+    width: 16, height: 16, borderRadius: 8,
+    backgroundColor: '#1877F2', alignItems: 'center', justifyContent: 'center',
   },
-  verifiedBadgeText: { fontSize: 10, fontWeight: '700', color: GREEN },
+  verifiedBadgeText: { fontSize: 9, fontWeight: '900', color: '#FFFFFF' },
   authorRole: { fontSize: 11, color: MUTED },
   reviewDate: { fontSize: 11, color: MUTED, fontWeight: '500' },
 

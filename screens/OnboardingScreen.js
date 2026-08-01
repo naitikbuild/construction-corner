@@ -11,13 +11,8 @@ import { BLUE, BLUE_DIM } from '../constants/colors';
 const SLIDES = [
   {
     emoji: '👷',
-    title: 'Find Contractors\n& Professionals',
+    title: 'Find Sub Contractors\n& Professionals',
     sub: 'Connect with verified architects, engineers, contractors and 50+ construction professionals across India.',
-  },
-  {
-    emoji: '🏭',
-    title: 'Source Materials\nat Best Price',
-    sub: 'Compare prices from 1000+ verified suppliers for cement, steel, tiles, RMC and all construction materials.',
   },
   {
     emoji: '📈',

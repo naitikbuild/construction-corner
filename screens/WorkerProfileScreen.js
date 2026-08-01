@@ -2,70 +2,79 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, Alert, ActivityIndicator, Linking,
-  Image, Animated,
+  Image, Animated, Switch,
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import PhotoViewer from '../components/PhotoViewer';
+import ProjectDetailModal from '../components/ProjectDetailModal';
+import AllProjectsModal from '../components/AllProjectsModal';
 import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
 import { useToast } from '../hooks/useToast';
 import { getProfile, recordProfileView, updateProfile } from '../services/userService';
 import { getTotalVerifiedAmount, getVerifiedWork } from '../services/workService';
-import { createChat } from '../services/chatService';
-import { toggleBookmark, isBookmarked } from '../services/bookmarkService';
+import { getProviderWorkRecords, workRecordToProject, workRecordToVerifiedWork, getClientReviews, WORK_RECORD_STATUS } from '../services/workRecordService';
+import ClientReviewsSection from '../components/ClientReviewsSection';
 import { auth } from '../config/firebase';
-import { formatAmountIndian } from '../utils/format';
+import { formatAmountIndian, formatJoinedDate } from '../utils/format';
 
-function AvailabilityChip({ available, isOwn }) {
+function AvailabilityChip({ available }) {
   return available ? (
     <View style={s.chipAvail}>
       <View style={s.chipDot} />
       <Text style={s.chipAvailText}>Available now</Text>
-      {isOwn && <Text style={s.chipToggleIcon}>⇄</Text>}
     </View>
   ) : (
     <View style={s.chipUnavail}>
       <Text style={s.chipUnavailText}>Not available</Text>
-      {isOwn && <Text style={[s.chipToggleIcon, s.chipToggleIconMuted]}>⇄</Text>}
     </View>
   );
 }
 
 // ─── VERIFIED PROJECTS list ─────────────────────────────────────────────────
-function ProjectsList({ projects = [], onViewPhoto }) {
+// Category + amount reads better than location for scanning a list —
+// "Residential · ₹18.5L" tells a client type + scale at a glance.
+function projectSubline(p) {
+  return [p.category, p.value ? formatAmountIndian(p.value) : null].filter(Boolean).join(' · ');
+}
+
+const PROJECTS_PREVIEW_COUNT = 3;
+
+function ProjectsList({ projects = [], onOpenProject }) {
   if (projects.length === 0) {
     return <Text style={s.placeholder}>Add your projects</Text>;
   }
+  const visible = projects.slice(0, PROJECTS_PREVIEW_COUNT);
   return (
     <View>
-      {projects.map((p, i) => (
-        <View key={i} style={[pj.row, i > 0 && pj.rowBorder]}>
-          <TouchableOpacity
-            style={pj.thumb}
-            activeOpacity={p.photoUri ? 0.8 : 1}
-            disabled={!p.photoUri}
-            onPress={() => onViewPhoto(p.photoUri)}
-          >
+      {visible.map((p, i) => (
+        <TouchableOpacity
+          key={i}
+          style={[pj.row, i > 0 && pj.rowBorder]}
+          activeOpacity={0.7}
+          onPress={() => onOpenProject(p)}
+        >
+          <View style={pj.thumb}>
             {p.photoUri ? (
               <Image source={{ uri: p.photoUri }} style={pj.thumbImg} resizeMode="cover" />
             ) : (
               <Text style={pj.thumbIcon}>🏗️</Text>
             )}
-          </TouchableOpacity>
+          </View>
           <View style={pj.info}>
             <Text style={pj.name} numberOfLines={1}>{p.name || 'Untitled project'}</Text>
-            <Text style={pj.meta} numberOfLines={1}>
-              {[p.location, p.value ? formatAmountIndian(p.value) : null].filter(Boolean).join(' · ')}
-            </Text>
+            {projectSubline(p) ? <Text style={pj.meta} numberOfLines={1}>{projectSubline(p)}</Text> : null}
           </View>
           <View style={[pj.badge, p.status === 'ongoing' ? pj.badgeOngoing : pj.badgeDone]}>
             <Text style={[pj.badgeText, p.status === 'ongoing' ? pj.badgeTextOngoing : pj.badgeTextDone]}>
               {p.status === 'ongoing' ? 'ONGOING' : 'DONE'}
             </Text>
           </View>
-        </View>
+          <Text style={pj.chevron}>›</Text>
+        </TouchableOpacity>
       ))}
     </View>
   );
@@ -89,6 +98,7 @@ const pj = injectFonts({
   badgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
   badgeTextOngoing: { color: '#B26A00' },
   badgeTextDone: { color: '#1E874B' },
+  chevron: { fontSize: 18, color: '#B5B5B5', marginLeft: 2 },
 });
 
 // Slot size is measured from the grid container's ACTUAL laid-out width via
@@ -197,11 +207,14 @@ export default function WorkerProfileScreen({ navigation, route }) {
   const [worker, setWorker] = useState(null);
   const [verifiedAmt, setVerifiedAmt] = useState(0);
   const [verifiedWork, setVerifiedWork] = useState([]);
+  const [realProjects, setRealProjects] = useState([]);
+  const [clientReviews, setClientReviews] = useState([]);
   const [myUid, setMyUid] = useState(null);
-  const [bookmarked, setBookmarked] = useState(false);
   const [viewer, setViewer] = useState({ visible: false, photos: [], index: 0 });
-  const [hasToggledAvailability, setHasToggledAvailability] = useState(false);
+  const [projectDetail, setProjectDetail] = useState(null);
+  const [allProjectsOpen, setAllProjectsOpen] = useState(false);
   const { headerAnimatedStyle, headerHeight, onHeaderLayout, onScroll } = useAutoHideHeader();
+  const insets = useSafeAreaInsets();
   const { toastMessage, toastOpacity, showToast } = useToast();
 
   const openViewer = (photos, index = 0) => setViewer({ visible: true, photos, index });
@@ -209,7 +222,13 @@ export default function WorkerProfileScreen({ navigation, route }) {
 
   const load = useCallback(async () => {
     try {
-      const me = await AsyncStorage.getItem('uid');
+      // Prefer the live Firebase Auth uid over the cached AsyncStorage copy —
+      // the two can drift (e.g. a stale 'uid' left from an earlier session),
+      // and comparing viewUid against a stale "me" silently breaks owner
+      // detection even when this really is the signed-in user's own profile.
+      // Guests have no auth.currentUser, so they fall back to the cache.
+      const cachedUid = await AsyncStorage.getItem('uid');
+      const me = auth.currentUser?.uid || cachedUid;
       const uid = viewUid || me;
       setMyUid(me);
 
@@ -217,7 +236,6 @@ export default function WorkerProfileScreen({ navigation, route }) {
 
       if (uid !== me) {
         recordProfileView(uid, me).catch(() => {});
-        isBookmarked(me, uid).then(v => setBookmarked(v)).catch(() => {});
       }
 
       // Try Firestore first
@@ -234,16 +252,35 @@ export default function WorkerProfileScreen({ navigation, route }) {
 
       setWorker(profile);
 
-      // Verified totals — only meaningful for real Firebase users (and demo profiles)
+      // Verified totals — only meaningful for real Firebase users (and demo profiles).
+      // Demo profiles keep reading their fixture data (demoVerifiedAmount/
+      // demoVerifiedWork/projects in demoData.js) via the legacy workService
+      // calls, which already special-case demo uids. Real accounts instead
+      // read their own `work_records` — only 'confirmed' ones count toward
+      // verified totals; 'locked_pending_confirmation' ones still show up in
+      // VERIFIED PROJECTS (as ONGOING) but don't count yet.
       if (uid && !uid.startsWith('guest_')) {
         try {
-          const [amt, works] = await Promise.all([
-            getTotalVerifiedAmount(uid),
-            getVerifiedWork(uid),
-          ]);
-          setVerifiedAmt(amt || 0);
-          setVerifiedWork(works || []);
+          if (profile?.isDemo) {
+            const [amt, works] = await Promise.all([
+              getTotalVerifiedAmount(uid),
+              getVerifiedWork(uid),
+            ]);
+            setVerifiedAmt(amt || 0);
+            setVerifiedWork(works || []);
+            setRealProjects([]);
+          } else {
+            const records = await getProviderWorkRecords(uid);
+            const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.CONFIRMED);
+            setVerifiedAmt(confirmed.reduce((sum, r) => sum + (r.contractValue || 0), 0));
+            setVerifiedWork(confirmed.map(workRecordToVerifiedWork));
+            setRealProjects(records.map(workRecordToProject));
+          }
         } catch (_) {}
+        // Reviews received AS A CLIENT (from providers this person has
+        // hired) — a separate reputation from the VERIFIED WORK above,
+        // which is reviews received AS A PROVIDER.
+        try { setClientReviews(await getClientReviews(uid)); } catch (_) {}
       }
     } catch (_) {}
     finally { setLoading(false); }
@@ -269,26 +306,31 @@ export default function WorkerProfileScreen({ navigation, route }) {
     Linking.openURL(`tel:+91${phone}`).catch(() => Alert.alert('Could not open dialler.'));
   };
 
-  const handleChat = async () => {
+  const handleChat = () => {
     if (!viewUid || viewUid === myUid) { Alert.alert('This is your own profile'); return; }
-    try {
-      const myName = await AsyncStorage.getItem('userName') || 'Me';
-      const chatId = await createChat(
-        { uid: myUid, name: myName },
-        { uid: viewUid, name: worker?.name || 'Worker' }
+    if (!myUid || myUid.startsWith('guest_')) {
+      Alert.alert(
+        'Sign in to chat',
+        'Create a free account or sign in to start chatting with providers.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Sign In', onPress: () => navigation.navigate('Login') },
+        ]
       );
-      navigation.navigate('Chat', {
-        conversation: {
-          id: chatId,
-          uid: viewUid,
-          name: worker?.name || 'Worker',
-          role: worker?.workerSkill || 'Worker',
-          emoji: '👤',
-          avatarBg: '#F2F2F2',
-          online: false,
-        },
-      });
-    } catch (_) { Alert.alert('Error', 'Could not open chat.'); }
+      return;
+    }
+    // ChatScreen creates the chat itself from conversation.uid — no need to
+    // pre-create it here (that redundant call was the thing failing silently).
+    navigation.navigate('Chat', {
+      conversation: {
+        uid: viewUid,
+        name: worker?.name || 'Worker',
+        role: worker?.workerSkill || 'Worker',
+        emoji: '👤',
+        avatarBg: '#F2F2F2',
+        online: false,
+      },
+    });
   };
 
   const handleEnquiry = () => {
@@ -301,20 +343,6 @@ export default function WorkerProfileScreen({ navigation, route }) {
       services: skills,
       profileType: 'worker',
     });
-  };
-
-  const handleBookmark = async () => {
-    if (!myUid || !viewUid || viewUid === myUid) return;
-    try {
-      const saved = await toggleBookmark(myUid, {
-        uid: viewUid,
-        name: worker?.name || 'Worker',
-        profileType: 'worker',
-        category: worker?.workerSkill || '',
-        city: worker?.city || '',
-      });
-      setBookmarked(saved);
-    } catch (_) {}
   };
 
   const handleOpenSettings = () => navigation.navigate('Settings');
@@ -342,10 +370,8 @@ export default function WorkerProfileScreen({ navigation, route }) {
     }
   };
 
-  const handleToggleAvailability = () => {
-    const nextAvailable = !(worker?.available !== false);
+  const handleToggleAvailability = (nextAvailable) => {
     persistOwnProfileChange({ available: nextAvailable });
-    setHasToggledAvailability(true);
     showToast(nextAvailable ? "You're now available" : "You're now marked busy");
   };
 
@@ -356,7 +382,7 @@ export default function WorkerProfileScreen({ navigation, route }) {
       return null;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
@@ -415,10 +441,9 @@ export default function WorkerProfileScreen({ navigation, route }) {
                        ? worker.workerSkills
                        : worker?.workerSkill ? [worker.workerSkill] : [];
   const primarySkill = worker?.primarySkill || skills[0] || 'Add your skill';
-  const workerTypeLabel = worker?.workerType === 'unskilled' ? 'Unskilled' : (worker?.workerType === 'skilled' ? 'Skilled' : '');
   const skillTags  = worker?.skillTags?.length > 0 ? worker.skillTags : skills.slice(1);
   const experience = worker?.workerExperience || worker?.experience || null;
-  const heroTypeTradeParts = [workerTypeLabel, primarySkill, experience ? `${experience} yrs exp` : null].filter(Boolean);
+  const heroTypeTradeParts = [primarySkill, experience ? `${experience} yrs exp` : null].filter(Boolean);
   const area       = worker?.area   || '';
   const city       = worker?.city   || '';
   const pincode    = worker?.pincode || '';
@@ -426,7 +451,8 @@ export default function WorkerProfileScreen({ navigation, route }) {
   const available  = worker?.available !== false;
   const nativePlace = [worker?.nativePlaceCity, worker?.nativePlaceState].filter(Boolean).join(', ');
   const link       = worker?.link || '';
-  const projects   = worker?.projects || [];
+  const joinedText = formatJoinedDate(worker?.createdAt);
+  const projects   = worker?.isDemo ? (worker?.projects || []) : realProjects;
 
   // Rating, job count and reviews come only from real completed (verified) work.
   const ratedWork  = verifiedWork.filter(w => w.rating && w.rating > 0);
@@ -454,18 +480,18 @@ export default function WorkerProfileScreen({ navigation, route }) {
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
       {/* ── 1. TOP NAV (auto-hides on scroll) ─────────────────────────────── */}
-      <Animated.View style={[s.nav, s.navFloating, headerAnimatedStyle]} onLayout={onHeaderLayout}>
+      <Animated.View style={[s.nav, s.navFloating, { paddingTop: insets.top + 8 }, headerAnimatedStyle]} onLayout={onHeaderLayout}>
         <TouchableOpacity style={s.navBtn} onPress={() => navigation.goBack()}>
           <Text style={s.navBack}>←</Text>
         </TouchableOpacity>
         <Text style={s.navTitle}>Profile</Text>
-        <TouchableOpacity
-          style={s.navBtn}
-          onPress={isOwn ? handleOpenSettings : handleBookmark}
-          activeOpacity={0.7}
-        >
-          <Text style={s.navShare}>{isOwn ? '⚙️' : (bookmarked ? '🔖' : '☆')}</Text>
-        </TouchableOpacity>
+        {isOwn ? (
+          <TouchableOpacity style={s.navBtn} onPress={handleOpenSettings} activeOpacity={0.7}>
+            <Text style={s.navShare}>⚙️</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={[s.navBtn, { backgroundColor: 'transparent' }]} />
+        )}
       </Animated.View>
 
       <ScrollView
@@ -505,7 +531,7 @@ export default function WorkerProfileScreen({ navigation, route }) {
             </View>
           </View>
 
-          {/* ── 2.25 WORKER TYPE + TRADE + EXPERIENCE ────────────────────── */}
+          {/* ── 2.25 TRADE + EXPERIENCE ──────────────────────────────────── */}
           {heroTypeTradeParts.length > 0 && (
             <Text style={s.heroTypeTradeLine} numberOfLines={1}>
               {heroTypeTradeParts.map((part, i) => (
@@ -521,16 +547,24 @@ export default function WorkerProfileScreen({ navigation, route }) {
           <Text style={s.heroLoc} numberOfLines={1}>
             {locationShort ? `📍 ${locationShort}` : '📍 Add your area'}
           </Text>
-          <Text style={s.heroNative} numberOfLines={1}>
-            {nativePlace ? `🏠 ${nativePlace}` : '🏠 Add native place'}
-          </Text>
+          {nativePlace ? (
+            <Text style={s.heroNative} numberOfLines={1}>🏠 {nativePlace}</Text>
+          ) : null}
 
           {/* ── 3. STATUS CHIPS ─────────────────────────────────────────── */}
           <View style={s.chipsRow}>
             {isOwn ? (
-              <TouchableOpacity onPress={handleToggleAvailability} activeOpacity={0.6}>
-                <AvailabilityChip available={available} isOwn />
-              </TouchableOpacity>
+              <View style={s.availToggleRow}>
+                <Text style={[s.availToggleLabel, !available && s.availToggleLabelMuted]}>
+                  {available ? 'Available now' : 'Not available'}
+                </Text>
+                <Switch
+                  value={available}
+                  onValueChange={handleToggleAvailability}
+                  trackColor={{ false: '#E5E5E5', true: GREEN_LIGHT }}
+                  thumbColor={available ? GREEN : '#FFFFFF'}
+                />
+              </View>
             ) : (
               <AvailabilityChip available={available} />
             )}
@@ -546,27 +580,25 @@ export default function WorkerProfileScreen({ navigation, route }) {
             </TouchableOpacity>
           ) : null}
 
-          {isOwn && !hasToggledAvailability && (
-            <Text style={s.availHint}>Tap to change</Text>
-          )}
-
           {link ? (
             <TouchableOpacity onPress={handleOpenLink} activeOpacity={0.7}>
               <Text style={s.linkText} numberOfLines={1}>🔗 {link}</Text>
             </TouchableOpacity>
           ) : null}
 
+          {joinedText ? <Text style={s.joinedText}>{joinedText}</Text> : null}
+
           <View style={s.divider} />
 
           {/* ── 4. VERIFIED WORK ────────────────────────────────────────── */}
           <View style={s.verHeader}>
-            <Text style={s.verLabel}>✓ VERIFIED WORK</Text>
+            <Text style={s.verLabel}>✓ {isOwn ? 'COMPLETED JOBS' : 'VERIFIED WORK'}</Text>
             {isOwn && <Text style={s.verNote}>Verified from completed jobs — cannot be edited</Text>}
           </View>
           <View style={s.verStats}>
             <View style={s.verStat}>
               <Text style={s.verStatAmt}>{amtStr}</Text>
-              <Text style={s.verStatLbl}>Earned</Text>
+              <Text style={s.verStatLbl}>Revenue</Text>
             </View>
             <View style={s.verStatSep} />
             <View style={s.verStat}>
@@ -618,16 +650,53 @@ export default function WorkerProfileScreen({ navigation, route }) {
                 <TouchableOpacity style={s.enquiryBtn} onPress={handleEnquiry} activeOpacity={0.85}>
                   <Text style={s.enquiryBtnText} numberOfLines={1}>📋 Enquiry</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={s.bookmarkBtn} onPress={handleBookmark} activeOpacity={0.85}>
-                  <Text style={s.bookmarkIcon}>{bookmarked ? '🔖' : '☆'}</Text>
-                </TouchableOpacity>
               </>
             )}
           </View>
 
           <View style={s.divider} />
 
-          {/* ── 5. ABOUT ────────────────────────────────────────────────── */}
+          {/* ── 5. VERIFIED PROJECTS ─────────────────────────────────────── */}
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>
+              PROJECTS{jobsCount > 0 ? ` (${jobsCount})` : ''}
+            </Text>
+            <View style={s.sectionHeadRight}>
+              {projects.length > 0 && (
+                <TouchableOpacity onPress={() => setAllProjectsOpen(true)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={s.viewAllLink}>View all</Text>
+                </TouchableOpacity>
+              )}
+              {isOwn && (
+                <TouchableOpacity onPress={() => navigation.navigate('MyWorkRecords')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={s.viewAllLink}>My Work Records</Text>
+                </TouchableOpacity>
+              )}
+              {isOwn && (
+                <TouchableOpacity onPress={() => handleEditSection('projects')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={s.editPencil}>✏️</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+          <ProjectsList projects={projects} onOpenProject={setProjectDetail} />
+
+          <View style={s.divider} />
+
+          {/* ── 6. GALLERY ───────────────────────────────────────────────── */}
+          <WorkPhotoGrid
+            photos={worker?.workPhotos}
+            isOwn={isOwn}
+            onAdd={handleAddPhoto}
+            onReplace={handleReplacePhoto}
+            onRemove={handleRemovePhoto}
+            onEditSection={() => handleEditSection('work')}
+            onView={(i) => openViewer(worker?.workPhotos || [], i)}
+          />
+
+          <View style={s.divider} />
+
+          {/* ── 7. ABOUT ────────────────────────────────────────────────── */}
           <View style={s.sectionHeadRow}>
             <Text style={[s.sLabel, { marginBottom: 0 }]}>ABOUT</Text>
             {isOwn && (
@@ -639,32 +708,6 @@ export default function WorkerProfileScreen({ navigation, route }) {
           <Text style={about ? s.aboutText : s.placeholder}>
             {about || 'Add a short bio to attract more clients'}
           </Text>
-
-          <View style={s.divider} />
-
-          {/* ── 6. VERIFIED PROJECTS ─────────────────────────────────────── */}
-          <View style={s.sectionHeadRow}>
-            <Text style={[s.sLabel, { marginBottom: 0 }]}>VERIFIED PROJECTS</Text>
-            {isOwn && (
-              <TouchableOpacity onPress={() => handleEditSection('projects')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Text style={s.editPencil}>✏️</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-          <ProjectsList projects={projects} onViewPhoto={(uri) => uri && openViewer([uri])} />
-
-          <View style={s.divider} />
-
-          {/* ── 7. GALLERY ───────────────────────────────────────────────── */}
-          <WorkPhotoGrid
-            photos={worker?.workPhotos}
-            isOwn={isOwn}
-            onAdd={handleAddPhoto}
-            onReplace={handleReplacePhoto}
-            onRemove={handleRemovePhoto}
-            onEditSection={() => handleEditSection('work')}
-            onView={(i) => openViewer(worker?.workPhotos || [], i)}
-          />
 
           <View style={s.divider} />
 
@@ -734,6 +777,12 @@ export default function WorkerProfileScreen({ navigation, route }) {
             ))
           )}
 
+          <View style={s.divider} />
+
+          {/* ── 10. REVIEWS AS A CLIENT ─────────────────────────────────── */}
+          <Text style={s.sLabel}>REVIEWS AS A CLIENT</Text>
+          <ClientReviewsSection reviews={clientReviews} />
+
         </View>
 
       </ScrollView>
@@ -743,6 +792,21 @@ export default function WorkerProfileScreen({ navigation, route }) {
         photos={viewer.photos}
         initialIndex={viewer.index}
         onClose={closeViewer}
+      />
+
+      <AllProjectsModal
+        visible={allProjectsOpen}
+        projects={projects}
+        verifiedCount={jobsCount}
+        onClose={() => setAllProjectsOpen(false)}
+        onOpenProject={setProjectDetail}
+      />
+
+      <ProjectDetailModal
+        visible={!!projectDetail}
+        project={projectDetail}
+        onClose={() => setProjectDetail(null)}
+        onViewPhoto={(photos, index) => openViewer(photos, index)}
       />
 
       {toastMessage ? (
@@ -766,6 +830,7 @@ const MID            = '#737373';
 const LIGHT          = '#8E8E8E';
 const FAINT          = '#B5B5B5';
 const STAR           = '#FFB830';
+const LINK_BLUE      = '#1877F2';
 
 const s = injectFonts({
   screen: { flex: 1, backgroundColor: BG },
@@ -774,7 +839,7 @@ const s = injectFonts({
   // ── TOP NAV
   nav: {
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 14, paddingTop: 52, paddingBottom: 12,
+    paddingHorizontal: 14, paddingBottom: 12,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1, borderBottomColor: BORDER,
   },
@@ -816,10 +881,10 @@ const s = injectFonts({
   avatarEditIcon: { fontSize: 10 },
   heroInfo: { flex: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 3 },
-  heroName: { fontSize: 18, fontWeight: '700', color: DARK, flexShrink: 1, flex: 1, lineHeight: 22 },
+  heroName: { fontSize: 18, fontWeight: '700', color: DARK, flexShrink: 1, lineHeight: 22 },
   verifiedBadge: {
     width: 18, height: 18, borderRadius: 9,
-    backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: LINK_BLUE, alignItems: 'center', justifyContent: 'center',
   },
   verifiedText: { fontSize: 10, color: '#fff', fontWeight: '900' },
   heroTypeTradeLine: { fontSize: 15, fontWeight: '700', color: DARK, marginBottom: 8 },
@@ -844,10 +909,13 @@ const s = injectFonts({
     paddingHorizontal: 10, paddingVertical: 5,
   },
   chipUnavailText: { fontSize: 12, fontWeight: '600', color: LIGHT },
-  chipToggleIcon: { fontSize: 11, fontWeight: '700', color: GREEN, marginLeft: 2 },
-  chipToggleIconMuted: { color: LIGHT },
-  availHint: { fontSize: 10, color: FAINT, fontWeight: '500', marginTop: 4 },
+  availToggleRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+  },
+  availToggleLabel: { fontSize: 13, fontWeight: '600', color: GREEN },
+  availToggleLabelMuted: { color: LIGHT },
   linkText: { fontSize: 12, fontWeight: '600', color: '#1877F2', marginTop: 8 },
+  joinedText: { fontSize: 11, fontWeight: '400', color: LIGHT, marginTop: 6 },
 
   // ── VERIFIED WORK
   verHeader: {
@@ -869,6 +937,8 @@ const s = injectFonts({
     letterSpacing: 1, marginBottom: 12,
   },
   sectionHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  sectionHeadRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  viewAllLink: { fontSize: 12, fontWeight: '700', color: GREEN },
   editPencil: { fontSize: 13 },
 
   // ── SKILLS
@@ -939,13 +1009,6 @@ const s = injectFonts({
     backgroundColor: '#FFFFFF',
   },
   enquiryBtnText: { color: DARK, fontWeight: '600', fontSize: 12 },
-  bookmarkBtn: {
-    width: 44, height: 50, borderRadius: 14,
-    borderWidth: 1.5, borderColor: BORDER,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  bookmarkIcon: { fontSize: 18 },
   editProfileBtn: {
     flex: 1, height: 50, borderRadius: 14,
     backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: BORDER,

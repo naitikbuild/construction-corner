@@ -7,6 +7,9 @@ import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { getVerifiedWork } from '../services/workService';
+import { getProviderWorkRecords, WORK_RECORD_STATUS } from '../services/workRecordService';
+import { isDemoUid } from '../demoData';
+import { auth } from '../config/firebase';
 const ORANGE = '#262626';
 const GREEN = '#22A559';
 const GREEN_LIGHT = '#EAF7EF';
@@ -16,26 +19,23 @@ const CARD = '#FFFFFF';
 const TEXT = '#262626';
 const MUTED = '#737373';
 
-const WORK_JOBS = [
-  { id: 1, type: 'RCC Slab Work', location: 'Bopal, Ahmedabad', date: '04 Apr 2026', amount: 20000, year: '2026', customer: 'Naitik R.' },
-  { id: 2, type: 'Brick Masonry', location: 'Satellite, Ahmedabad', date: '18 Mar 2026', amount: 15000, year: '2026', customer: 'Rahul M.' },
-  { id: 3, type: 'Plastering', location: 'Vejalpur, Ahmedabad', date: '05 Mar 2026', amount: 8000, year: '2026', customer: 'Priya S.' },
-  { id: 4, type: 'Tile Flooring', location: 'Maninagar, Ahmedabad', date: '12 Feb 2026', amount: 12000, year: '2026', customer: 'Suresh P.' },
-  { id: 5, type: 'Waterproofing', location: 'Naroda, Ahmedabad', date: '28 Jan 2026', amount: 9500, year: '2026', customer: 'Ankit V.' },
-  { id: 6, type: 'Foundation Work', location: 'Gandhinagar', date: '10 Dec 2025', amount: 45000, year: '2025', customer: 'Kiran B.' },
-  { id: 7, type: 'Column Casting', location: 'Chandkheda', date: '22 Nov 2025', amount: 18000, year: '2025', customer: 'Mohit J.' },
-  { id: 8, type: 'RCC Beam Work', location: 'Gota, Ahmedabad', date: '08 Nov 2025', amount: 22000, year: '2025', customer: 'Dimple S.' },
-  { id: 9, type: 'Shuttering', location: 'Nikol, Ahmedabad', date: '14 Oct 2025', amount: 11000, year: '2025', customer: 'Rakesh T.' },
-  { id: 10, type: 'Plinth Beam', location: 'Vatva, Ahmedabad', date: '02 Sep 2025', amount: 16500, year: '2025', customer: 'Neha K.' },
-  { id: 11, type: 'Staircase Work', location: 'Thaltej, Ahmedabad', date: '05 Jul 2024', amount: 24000, year: '2024', customer: 'Sanjay M.' },
-  { id: 12, type: 'Roof Casting', location: 'New Ranip', date: '19 May 2024', amount: 38000, year: '2024', customer: 'Patel B.' },
-];
-
-const TOTAL_AMOUNT = 482000;
-const TOTAL_JOBS = 47;
-const TOTAL_COMMISSION = 4820;
-
 const FILTERS = ['All', '2026', '2025', '2024'];
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function toJsDate(v) {
+  if (!v) return null;
+  if (typeof v.toDate === 'function') return v.toDate();
+  if (v instanceof Date) return v;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function formatDate(v) {
+  const d = toJsDate(v);
+  if (!d) return null;
+  return `${String(d.getDate()).padStart(2, '0')} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
 
 const WORK_ICONS = {
   'RCC': '🏗️', 'Brick': '🧱', 'Plaster': '🪣', 'Tile': '🔳',
@@ -53,37 +53,66 @@ function getIcon(type) {
 export default function WorkHistoryScreen({ navigation, route }) {
   const viewUid = route?.params?.uid ?? null;
   const [activeFilter, setActiveFilter] = useState('All');
-  const [workJobs, setWorkJobs] = useState(WORK_JOBS);
+  const [workJobs, setWorkJobs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [totalAmount, setTotalAmount] = useState(TOTAL_AMOUNT);
-  const [totalJobs, setTotalJobs] = useState(TOTAL_JOBS);
+  const [totalAmount, setTotalAmount] = useState(0);
+  const [totalJobs, setTotalJobs] = useState(0);
+  const [avgRating, setAvgRating] = useState(null);
 
   useEffect(() => {
     loadWork();
   }, []);
 
+  // Demo profiles keep their fixture data (getVerifiedWork already
+  // special-cases demo uids). Real accounts read CONFIRMED work_records —
+  // the same source the provider's own profile now uses — never the old
+  // hardcoded sample jobs. Guests have no real records, so they land on the
+  // empty state.
   const loadWork = async () => {
     try {
-      const uid = viewUid || await AsyncStorage.getItem('uid');
-      if (!uid) return;
-      const works = await getVerifiedWork(uid);
-      if (works.length > 0) {
-        const mapped = works.map((w, i) => ({
+      const cachedUid = await AsyncStorage.getItem('uid');
+      const uid = viewUid || auth.currentUser?.uid || cachedUid;
+      if (!uid) { setLoading(false); return; }
+
+      let mapped = [];
+      if (isDemoUid(uid)) {
+        const works = await getVerifiedWork(uid);
+        mapped = works.map((w, i) => ({
           id: w.id || i,
-          type: w.workType || w.description?.split(' ').slice(0, 3).join(' ') || 'Construction Work',
+          type: w.workType || 'Construction Work',
           location: w.location || 'India',
           date: w.date || new Date().toLocaleDateString('en-IN'),
           amount: Number(w.amount) || 0,
           year: String(new Date(w.verifiedAt?.seconds ? w.verifiedAt.seconds * 1000 : Date.now()).getFullYear()),
           customer: w.customerName || 'Customer',
+          rating: Number(w.rating) || 0,
         }));
-        setWorkJobs(mapped);
-        const total = mapped.reduce((s, j) => s + j.amount, 0);
-        setTotalAmount(total);
-        setTotalJobs(mapped.length);
+      } else if (!uid.startsWith('guest_')) {
+        const records = await getProviderWorkRecords(uid);
+        const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.CONFIRMED);
+        mapped = confirmed.map(r => ({
+          id: r.id,
+          type: r.projectName || 'Construction Work',
+          location: r.location || 'India',
+          date: formatDate(r.confirmedAt) || new Date().toLocaleDateString('en-IN'),
+          amount: Number(r.contractValue) || 0,
+          year: String(toJsDate(r.confirmedAt)?.getFullYear() || new Date().getFullYear()),
+          customer: r.clientName || 'Client',
+          rating: Number(r.rating) || 0,
+        }));
       }
+
+      setWorkJobs(mapped);
+      const total = mapped.reduce((s, j) => s + j.amount, 0);
+      setTotalAmount(total);
+      setTotalJobs(mapped.length);
+      const rated = mapped.filter(j => j.rating > 0);
+      setAvgRating(rated.length > 0 ? (rated.reduce((s, j) => s + j.rating, 0) / rated.length).toFixed(1) : null);
     } catch (_) {
-      // Keep sample data on error
+      setWorkJobs([]);
+      setTotalAmount(0);
+      setTotalJobs(0);
+      setAvgRating(null);
     } finally {
       setLoading(false);
     }
@@ -133,13 +162,8 @@ export default function WorkHistoryScreen({ navigation, route }) {
             </View>
             <View style={styles.totalStatDiv} />
             <View style={styles.totalStat}>
-              <Text style={styles.totalStatVal}>4.8 ⭐</Text>
+              <Text style={styles.totalStatVal}>{avgRating ? `${avgRating} ⭐` : '—'}</Text>
               <Text style={styles.totalStatKey}>Avg Rating</Text>
-            </View>
-            <View style={styles.totalStatDiv} />
-            <View style={styles.totalStat}>
-              <Text style={styles.totalStatVal}>3 yrs</Text>
-              <Text style={styles.totalStatKey}>Work History</Text>
             </View>
           </View>
 
@@ -173,42 +197,34 @@ export default function WorkHistoryScreen({ navigation, route }) {
         )}
 
         {/* JOB LIST */}
-        <View style={styles.jobList}>
-          {filtered.map((job, i) => (
-            <View key={job.id} style={styles.jobCard}>
-              <View style={styles.jobIconBox}>
-                <Text style={styles.jobIcon}>{getIcon(job.type)}</Text>
-              </View>
-              <View style={styles.jobInfo}>
-                <Text style={styles.jobType}>{job.type}</Text>
-                <Text style={styles.jobLocation}>📍 {job.location}</Text>
-                <Text style={styles.jobDate}>🗓️ {job.date} · by {job.customer}</Text>
-              </View>
-              <View style={styles.jobRight}>
-                <Text style={styles.jobAmount}>₹{job.amount.toLocaleString('en-IN')}</Text>
-                <View style={styles.verifiedBadge}>
-                  <Text style={styles.verifiedBadgeText}>✓ Verified</Text>
+        {!loading && workJobs.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyIcon}>🧾</Text>
+            <Text style={styles.emptyText}>No work history yet</Text>
+            <Text style={styles.emptySub}>Confirmed work records will show up here once a client confirms them.</Text>
+          </View>
+        ) : (
+          <View style={styles.jobList}>
+            {filtered.map((job, i) => (
+              <View key={job.id} style={styles.jobCard}>
+                <View style={styles.jobIconBox}>
+                  <Text style={styles.jobIcon}>{getIcon(job.type)}</Text>
+                </View>
+                <View style={styles.jobInfo}>
+                  <Text style={styles.jobType}>{job.type}</Text>
+                  <Text style={styles.jobLocation}>📍 {job.location}</Text>
+                  <Text style={styles.jobDate}>🗓️ {job.date} · by {job.customer}</Text>
+                </View>
+                <View style={styles.jobRight}>
+                  <Text style={styles.jobAmount}>₹{job.amount.toLocaleString('en-IN')}</Text>
+                  <View style={styles.verifiedBadge}>
+                    <Text style={styles.verifiedBadgeText}>✓ Verified</Text>
+                  </View>
                 </View>
               </View>
-            </View>
-          ))}
-        </View>
-
-        {/* COMMISSION FOOTER */}
-        <View style={styles.commissionFooter}>
-          <View style={styles.commFootRow}>
-            <View>
-              <Text style={styles.commFootLabel}>Total Commission Paid to App</Text>
-              <Text style={styles.commFootSub}>Supports the ConstructionCorner platform</Text>
-            </View>
-            <Text style={styles.commFootAmount}>₹{TOTAL_COMMISSION.toLocaleString('en-IN')}</Text>
+            ))}
           </View>
-          <View style={styles.commFootNote}>
-            <Text style={styles.commFootNoteText}>
-              💡 1% commission per job · Paid via UPI · All transactions verified
-            </Text>
-          </View>
-        </View>
+        )}
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -288,6 +304,12 @@ const styles = injectFonts({
   filteredAmount: { fontSize: 18, fontWeight: '800', color: GREEN_DARK },
   filteredCount: { fontSize: 12, color: GREEN_DARK, fontWeight: '700' },
 
+  // EMPTY STATE
+  emptyState: { alignItems: 'center', paddingHorizontal: 32, paddingVertical: 40, gap: 8 },
+  emptyIcon: { fontSize: 40, opacity: 0.6 },
+  emptyText: { fontSize: 15, fontWeight: '700', color: TEXT },
+  emptySub: { fontSize: 12, color: MUTED, textAlign: 'center', lineHeight: 18 },
+
   // JOB LIST
   jobList: { paddingHorizontal: 16, gap: 10 },
   jobCard: {
@@ -312,17 +334,4 @@ const styles = injectFonts({
     borderRadius: 6, borderWidth: 1, borderColor: '#2ECC7155',
   },
   verifiedBadgeText: { fontSize: 10, color: GREEN_DARK, fontWeight: '800' },
-
-  // COMMISSION FOOTER
-  commissionFooter: {
-    margin: 16, marginTop: 24, padding: 18,
-    backgroundColor: '#FFF3E0', borderRadius: 16,
-    borderWidth: 1, borderColor: '#FFE0C4',
-  },
-  commFootRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  commFootLabel: { fontSize: 13, fontWeight: '800', color: TEXT, marginBottom: 3 },
-  commFootSub: { fontSize: 11, color: MUTED },
-  commFootAmount: { fontSize: 22, fontWeight: '800', color: ORANGE },
-  commFootNote: { paddingTop: 10, borderTopWidth: 1, borderTopColor: '#FFE0C4' },
-  commFootNoteText: { fontSize: 11, color: ORANGE, fontWeight: '600' },
 });

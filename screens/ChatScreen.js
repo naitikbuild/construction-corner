@@ -15,6 +15,7 @@ import {
 } from '../services/chatService';
 import PhotoViewer from '../components/PhotoViewer';
 import { formatAmountIndian, formatFileSize } from '../utils/format';
+import { getCurrentUid } from '../utils/session';
 import { DEMO_MODE } from '../config/demoMode';
 import { DEMO_CHATS } from '../demoData';
 
@@ -36,6 +37,7 @@ const PROFILE_SCREEN = {
   professional: 'ProfessionalProfile',
   supplier: 'SupplierProfile',
   business: 'BusinessProfile',
+  personal: 'PersonalProfile',
 };
 
 function formatBubbleTime(date) {
@@ -261,7 +263,10 @@ export default function ChatScreen({ navigation, route }) {
     let cancelled = false;
 
     (async () => {
-      const uid = await AsyncStorage.getItem('uid');
+      // Prefer the live Firebase auth uid over the cached AsyncStorage copy —
+      // see utils/session.js. A stale cache here misattributes sent messages
+      // and read receipts to the wrong uid.
+      const uid = await getCurrentUid();
       if (!uid) { setInitialLoading(false); return; }
       setMyUid(uid);
 
@@ -402,7 +407,10 @@ export default function ChatScreen({ navigation, route }) {
   };
 
   const openWorkRecord = (recordId) => {
-    if (recordId) navigation.navigate('CreateWorkRecord', { recordId });
+    // push, not navigate — guarantees a fresh CreateWorkRecordScreen mount for
+    // this exact recordId instead of reusing a stale instance already on the
+    // stack (which would show/edit whatever record was open before).
+    if (recordId) navigation.push('CreateWorkRecord', { recordId });
   };
 
   // ── Attachments ─────────────────────────────────────────────────────────

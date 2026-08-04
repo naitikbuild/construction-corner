@@ -3,11 +3,11 @@ import {
   View, Text, ScrollView, TouchableOpacity, Image,
   StatusBar, Alert, ActivityIndicator,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { injectFonts } from '../theme/typography';
 import PhotoViewer from '../components/PhotoViewer';
+import { getCurrentUid } from '../utils/session';
 import { getProfile } from '../services/userService';
 import { getWorkRecord, disputeWorkRecord, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { sendNotification } from '../services/notificationService';
@@ -78,7 +78,10 @@ export default function ClientWorkRecordReviewScreen({ navigation, route }) {
   const load = useCallback(async () => {
     if (!recordId) { setLoading(false); return; }
     try {
-      const me = await AsyncStorage.getItem('uid');
+      // Prefer the live Firebase Auth uid over the cached AsyncStorage copy —
+      // a stale cache here would misidentify the client (blocking the real
+      // client from reviewing, or attributing a dispute to the wrong uid).
+      const me = await getCurrentUid();
       setMyUid(me);
       const rec = await getWorkRecord(recordId);
       setRecord(rec);
@@ -180,7 +183,7 @@ export default function ClientWorkRecordReviewScreen({ navigation, route }) {
     );
   }
 
-  const isPending = record.status === WORK_RECORD_STATUS.LOCKED_PENDING_CONFIRMATION;
+  const isPending = record.status === WORK_RECORD_STATUS.SENT_TO_CLIENT;
   const isConfirmed = record.status === WORK_RECORD_STATUS.CONFIRMED;
   const isDisputed = record.status === WORK_RECORD_STATUS.DISPUTED;
 
@@ -199,7 +202,7 @@ export default function ClientWorkRecordReviewScreen({ navigation, route }) {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
         <View style={s.banner}>
           <Text style={s.bannerText}>
-            🔒 Locked by {record.lockedByName || providerName} on {formatDate(record.lockedAt) || '—'} — read only
+            📤 Sent by {record.lockedByName || providerName} on {formatDate(record.lockedAt) || '—'} for your review
           </Text>
         </View>
 

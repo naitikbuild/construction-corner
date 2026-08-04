@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getCurrentUid } from '../utils/session';
 import { getProfile } from '../services/userService';
 import { submitEnquiry } from '../services/enquiryService';
 import {
@@ -167,7 +168,7 @@ export default function EnquiryScreen({ navigation, route }) {
   useEffect(() => {
     (async () => {
       try {
-        const uid = await AsyncStorage.getItem('uid');
+        const uid = await getCurrentUid();
         let cachedName = await AsyncStorage.getItem('userName');
         let cachedPhone = await AsyncStorage.getItem('phone');
         if (uid) {
@@ -205,7 +206,7 @@ export default function EnquiryScreen({ navigation, route }) {
 
     setSubmitting(true);
     try {
-      const clientId = await AsyncStorage.getItem('uid');
+      const clientId = await getCurrentUid();
       if (!clientId) throw new Error('No session found. Please restart the app.');
 
       const { chatId } = await submitEnquiry({

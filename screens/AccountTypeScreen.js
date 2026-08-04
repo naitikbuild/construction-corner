@@ -5,7 +5,8 @@ import {
 import { injectFonts } from '../theme/typography';
 import { BLUE, CONCRETE_BORDER, CONCRETE_TEXT } from '../constants/colors';
 
-export default function AccountTypeScreen({ navigation }) {
+export default function AccountTypeScreen({ navigation, route }) {
+  const redirectTo = route?.params?.redirectTo ?? null;
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
@@ -20,7 +21,7 @@ export default function AccountTypeScreen({ navigation }) {
         {/* Personal */}
         <TouchableOpacity
           style={[styles.card, styles.cardPersonal]}
-          onPress={() => navigation.push('Login', { role: 'personal', profileType: 'personal' })}
+          onPress={() => navigation.push('Login', { role: 'personal', profileType: 'personal', redirectTo })}
           activeOpacity={0.82}
         >
           <Text style={styles.cardEmoji}>🏠</Text>
@@ -36,7 +37,7 @@ export default function AccountTypeScreen({ navigation }) {
         {/* Business */}
         <TouchableOpacity
           style={[styles.card, styles.cardBusiness]}
-          onPress={() => navigation.push('BusinessType')}
+          onPress={() => navigation.push('BusinessType', { redirectTo })}
           activeOpacity={0.82}
         >
           <Text style={styles.cardEmoji}>🏢</Text>

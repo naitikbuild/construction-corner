@@ -20,7 +20,18 @@ export default function LoginScreen({ navigation, route }) {
   const accountTypeParam = route?.params?.accountType ?? null;
   const roleParam = route?.params?.role ?? null;
   const profileTypeParam = route?.params?.profileType ?? null;
-  const [screen, setScreen] = useState((accountTypeParam || roleParam) ? 'login' : 'splash');
+  // Where to land after a successful sign in/up — set by the login gate
+  // (utils/authGate.js) when a not-signed-in user tapped a provider profile
+  // (or their own profile tab) while browsing. Forwarded through every step
+  // of account-type selection and profile setup, all the way to
+  // routeAfterAuth below.
+  const redirectToParam = route?.params?.redirectTo ?? null;
+  // initialScreen lets callers skip straight past the splash/onboarding
+  // slides (only relevant on a fresh install) — the login gate always passes
+  // this, since the user is already inside the app and just needs to
+  // authenticate or pick an account type, not see the welcome screens again.
+  const initialScreenParam = route?.params?.initialScreen ?? null;
+  const [screen, setScreen] = useState(initialScreenParam || ((accountTypeParam || roleParam) ? 'login' : 'splash'));
   const [accountType, setAccountType] = useState(accountTypeParam);
 
   // Phone OTP state
@@ -43,6 +54,10 @@ export default function LoginScreen({ navigation, route }) {
 
   useEffect(() => {
     const onBack = () => {
+      // Reached via the login gate (utils/authGate.js) while browsing —
+      // there's no onboarding/splash to fall back through, just dismiss
+      // back to whatever the user was looking at.
+      if (initialScreenParam) { navigation.goBack(); return true; }
       if (screen === 'login' && (accountTypeParam || roleParam)) { navigation.goBack(); return true; }
       if (screen === 'login') { setScreen('accountType'); setOtpSent(false); setOtp(''); setPhone(''); return true; }
       if (screen === 'accountType') { setScreen('splash'); return true; }
@@ -78,12 +93,16 @@ export default function LoginScreen({ navigation, route }) {
     await AsyncStorage.setItem('uid', uid);
     const profile = await getProfile(uid);
     if (profile && profile.role) {
-      navigation.replace('Home');
+      // Already a complete account — if this login was triggered by the
+      // gate (tapping a provider profile while signed out), land right back
+      // on that profile instead of Home.
+      if (redirectToParam?.screen) navigation.replace(redirectToParam.screen, redirectToParam.params);
+      else navigation.replace('Home');
     } else if (roleParam === 'personal' || profileTypeParam === 'personal' || accountTypeParam === 'personal') {
       // Personal users get a minimal profile setup instead of the worker/business wizard
-      navigation.replace('PersonalProfileSetup', { phone: phoneNum });
+      navigation.replace('PersonalProfileSetup', { phone: phoneNum, redirectTo: redirectToParam });
     } else if (roleParam) {
-      navigation.replace('EditProfile', { role: roleParam, profileType: profileTypeParam, phone: phoneNum });
+      navigation.replace('EditProfile', { role: roleParam, profileType: profileTypeParam, phone: phoneNum, redirectTo: redirectToParam });
     } else {
       // No profile, no role yet — show account type picker
       setScreen('accountType');
@@ -159,19 +178,6 @@ export default function LoginScreen({ navigation, route }) {
       Alert.alert('Auth Error', msg);
     } finally {
       setLoading(false);
-    }
-  };
-
-  // ─── Skip for now ─────────────────────────────────────────────────────────
-  const handleSkipForNow = async () => {
-    const guestId = 'guest_' + Date.now();
-    await AsyncStorage.setItem('uid', guestId);
-    if (roleParam === 'personal' || profileTypeParam === 'personal') {
-      navigation.replace('PersonalProfileSetup');
-    } else if (roleParam && profileTypeParam) {
-      navigation.replace('EditProfile', { role: roleParam, profileType: profileTypeParam });
-    } else {
-      navigation.replace('Home');
     }
   };
 
@@ -264,9 +270,9 @@ export default function LoginScreen({ navigation, route }) {
           disabled={!accountType}
           onPress={() => {
             if (accountType === 'personal') {
-              navigation.replace('Login', { role: 'personal', profileType: 'personal' });
+              navigation.replace('Login', { role: 'personal', profileType: 'personal', redirectTo: redirectToParam });
             } else {
-              navigation.replace('AccountType');
+              navigation.replace('AccountType', { redirectTo: redirectToParam });
             }
           }}
         >
@@ -282,7 +288,7 @@ export default function LoginScreen({ navigation, route }) {
     <SafeAreaView style={{ flex: 1 }}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       <TouchableOpacity style={styles.backBtn} onPress={() => {
-        if (roleParam) { navigation.goBack(); return; }
+        if (initialScreenParam || roleParam) { navigation.goBack(); return; }
         setScreen('accountType'); setOtpSent(false); setOtp(''); setPhone('');
       }}>
         <Text style={styles.backBtnText}>← Back</Text>
@@ -426,10 +432,7 @@ export default function LoginScreen({ navigation, route }) {
         <Text style={styles.termsLink}>Privacy Policy</Text>
       </Text>
 
-      {/* Skip for now */}
-      <TouchableOpacity style={styles.skipForNowBtn} onPress={handleSkipForNow}>
-        <Text style={styles.skipForNowText}>Skip for now</Text>
-      </TouchableOpacity>
+      <View style={{ height: 24 }} />
       </ScrollView>
     </SafeAreaView>
     </KeyboardAvoidingView>
@@ -505,12 +508,4 @@ const styles = injectFonts({
 
   termsText: { fontSize: 11, color: '#aaa', textAlign: 'center', lineHeight: 18, marginTop: 20, paddingHorizontal: 24 },
   termsLink: { color: '#FF6B2B', fontWeight: '700' },
-
-  skipForNowBtn: {
-    alignSelf: 'center', marginTop: 16, marginBottom: 8,
-    paddingVertical: 12, paddingHorizontal: 32,
-    borderRadius: 12, borderWidth: 1.5, borderColor: '#EFEFEF',
-    backgroundColor: '#F5F5F0',
-  },
-  skipForNowText: { fontSize: 14, fontWeight: '700', color: '#666666' },
 });

@@ -10,6 +10,7 @@ import { signOut, deleteUser } from 'firebase/auth';
 import { auth, db } from '../config/firebase';
 import { doc, deleteDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { getProfile, updateProfile } from '../services/userService';
+import { getCurrentUid } from '../utils/session';
 
 const APP_VERSION = '1.0.0';
 const SUPPORT_EMAIL = 'support@constructioncorner.in';
@@ -125,7 +126,7 @@ export default function SettingsScreen({ navigation }) {
 
   const load = async () => {
     try {
-      const storedUid = await AsyncStorage.getItem('uid');
+      const storedUid = await getCurrentUid();
       if (!storedUid) { setLoading(false); return; }
       setUid(storedUid);
 
@@ -229,7 +230,7 @@ export default function SettingsScreen({ navigation }) {
           onPress: async () => {
             try { if (auth.currentUser) await signOut(auth); } catch (_) {}
             await AsyncStorage.clear();
-            navigation.reset({ index: 0, routes: [{ name: 'AccountType' }] });
+            navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
           },
         },
       ]
@@ -268,14 +269,14 @@ export default function SettingsScreen({ navigation }) {
         await deleteUser(auth.currentUser);
       }
       await AsyncStorage.clear();
-      navigation.reset({ index: 0, routes: [{ name: 'AccountType' }] });
+      navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
     } catch (err) {
       if (err.code === 'auth/requires-recent-login') {
         Alert.alert('Re-login Required', 'For security, please sign out and sign in again before deleting your account.');
         return;
       }
       await AsyncStorage.clear();
-      navigation.reset({ index: 0, routes: [{ name: 'AccountType' }] });
+      navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
     }
   };
 

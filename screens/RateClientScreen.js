@@ -4,9 +4,9 @@ import {
   StatusBar, TextInput, Alert, ActivityIndicator,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { injectFonts } from '../theme/typography';
+import { getCurrentUid } from '../utils/session';
 import { getProfile } from '../services/userService';
 import { getWorkRecord, rateClient, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { sendNotification } from '../services/notificationService';
@@ -80,7 +80,10 @@ export default function RateClientScreen({ navigation, route }) {
   const load = useCallback(async () => {
     if (!recordId) { setLoading(false); return; }
     try {
-      const me = await AsyncStorage.getItem('uid');
+      // Prefer the live Firebase Auth uid over the cached AsyncStorage copy —
+      // a stale cache here would misidentify the provider and write the
+      // wrong uid into ratedBy.
+      const me = await getCurrentUid();
       setMyUid(me);
       const rec = await getWorkRecord(recordId);
       setRecord(rec);

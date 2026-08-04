@@ -2,9 +2,12 @@ import { useState, useEffect } from 'react';
 import { View, ActivityIndicator, BackHandler } from 'react-native';
 import { useFonts, Poppins_400Regular, Poppins_500Medium, Poppins_600SemiBold, Poppins_700Bold } from '@expo-google-fonts/poppins';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { onAuthStateChanged } from 'firebase/auth';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+
+import { auth } from './config/firebase';
 
 // Auth & Onboarding
 import LoginScreen from './screens/LoginScreen';
@@ -34,15 +37,14 @@ import SupplierProfileScreen from './screens/SupplierProfileScreen';
 import BusinessProfileScreen from './screens/BusinessProfileScreen';
 
 // User Features
-import MyDashboardScreen from './screens/MyDashboardScreen';
 import PersonalProfileScreen from './screens/PersonalProfileScreen';
 import SettingsScreen from './screens/SettingsScreen';
 
 // Verified Work System — legacy pending_work/verified_work flow. Still used
-// by MyDashboardScreen (Pending Confirmations), SettingsScreen (Work
-// History), and ReviewsListScreen; MarkWorkComplete and LeaveReview were the
-// only fully-orphaned pieces, removed once Business/Supplier moved to
-// work_records (see workRecordService.js).
+// by NotificationsScreen ('work_confirm' taps → ConfirmWork), SettingsScreen
+// (Work History), and ReviewsListScreen; MarkWorkComplete and LeaveReview
+// were the only fully-orphaned pieces, removed once Business/Supplier moved
+// to work_records (see workRecordService.js).
 import ConfirmWorkScreen from './screens/ConfirmWorkScreen';
 import WorkHistoryScreen from './screens/WorkHistoryScreen';
 import CommissionWalletScreen from './screens/CommissionWalletScreen';
@@ -72,26 +74,45 @@ export default function App() {
     Poppins_700Bold,
   });
 
+  // Firebase auth is the source of truth for whether there's a session — not
+  // AsyncStorage's cached 'uid' alone. auth.currentUser is null for a brief
+  // "rehydration window" right after launch while Firebase restores the
+  // persisted session, so the initial route must wait for the FIRST
+  // onAuthStateChanged callback (whether it resolves to a user or not)
+  // instead of deciding immediately from the cache. The listener stays
+  // subscribed for the app's lifetime after that so AsyncStorage's 'uid'
+  // never drifts from the live Firebase uid — every subsequent sign-in
+  // re-syncs it here too.
   useEffect(() => {
-    determineInitialRoute();
-  }, []);
+    let decidedInitialRoute = false;
 
-  const determineInitialRoute = async () => {
-    try {
-      const uid = await AsyncStorage.getItem('uid');
-      const hasSeenOnboarding = await AsyncStorage.getItem('hasSeenOnboarding');
-
-      if (uid) {
-        setInitialRoute('Home');
-      } else if (!hasSeenOnboarding) {
-        setInitialRoute('Login'); // LoginScreen handles onboarding internally
-      } else {
-        setInitialRoute('AccountType');
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      try {
+        if (user) {
+          // Live Firebase session — keep the cache in sync and always treat
+          // this as signed in, regardless of what the cache held before.
+          await AsyncStorage.setItem('uid', user.uid);
+          if (!decidedInitialRoute) setInitialRoute('Home');
+        } else if (!decidedInitialRoute) {
+          // No live Firebase user — the app is browse-first, so this is NOT
+          // a reason to block on account creation. Once the welcome/
+          // onboarding screens have been seen, every subsequent launch goes
+          // straight to Home; account type / sign in only ever come up when
+          // the user taps something that actually needs an account (see
+          // utils/authGate.js's requireSignIn, used when opening a full
+          // provider profile).
+          const hasSeenOnboarding = await AsyncStorage.getItem('hasSeenOnboarding');
+          setInitialRoute(hasSeenOnboarding ? 'Home' : 'Login');
+        }
+      } catch (_) {
+        if (!decidedInitialRoute) setInitialRoute('Home');
+      } finally {
+        decidedInitialRoute = true;
       }
-    } catch (_) {
-      setInitialRoute('AccountType');
-    }
-  };
+    });
+
+    return unsubscribe;
+  }, []);
 
   if (!initialRoute || !fontsLoaded) {
     return (
@@ -136,7 +157,6 @@ export default function App() {
         <Stack.Screen name="BusinessProfile" component={BusinessProfileScreen} />
 
         {/* User Features */}
-        <Stack.Screen name="MyDashboard" component={MyDashboardScreen} />
         <Stack.Screen name="PersonalProfile" component={PersonalProfileScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
 

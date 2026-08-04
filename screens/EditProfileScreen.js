@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { saveProfile, getProfile } from '../services/userService';
 import { auth } from '../config/firebase';
+import { getCurrentUid } from '../utils/session';
 import {
   SOLO_WORKER_CATEGORIES,
   CONTRACTOR_CATEGORIES,
@@ -416,9 +417,11 @@ function ProgressBar({ step, total, labels }) {
 
 function Step1({ data, setData, profileType }) {
   const isCompany = profileType === 'business' || profileType === 'supplier';
-  // Contractor, Solo Worker and Professional skip the manual area/city/state fields and
-  // cover photo / languages, using GPS auto-detect for current location instead.
-  const usesGpsLocation = profileType === 'contractor' || profileType === 'worker' || profileType === 'professional';
+  // Contractor, Solo Worker, Professional and Personal skip the manual
+  // area/city/state fields and cover photo / languages, using GPS auto-detect
+  // for current location instead. Personal profiles are kept minimal (name,
+  // photo, location only) — no cover photo, no languages, no provider fields.
+  const usesGpsLocation = profileType === 'contractor' || profileType === 'worker' || profileType === 'professional' || profileType === 'personal';
 
   const pickProfilePhoto = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -1665,6 +1668,7 @@ export default function EditProfileScreen({ navigation, route }) {
   const profileType = route?.params?.profileType || null;
   const roleParam = route?.params?.role || '';
   const focusSection = route?.params?.focusSection || null;
+  const redirectTo = route?.params?.redirectTo || null;
 
   // When coming from BusinessTypeScreen: 3 steps (Basic → Details → Review)
   // Original flow: 4 steps (Basic → Role → Details → Review)
@@ -1754,7 +1758,7 @@ export default function EditProfileScreen({ navigation, route }) {
   useEffect(() => {
     (async () => {
       try {
-        const uid = await AsyncStorage.getItem('uid');
+        const uid = await getCurrentUid();
         if (!uid) { setProfileLoading(false); return; }
         let existing = null;
         try { existing = await getProfile(uid); } catch (_) {}
@@ -1822,7 +1826,7 @@ export default function EditProfileScreen({ navigation, route }) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const uid = await AsyncStorage.getItem('uid');
+      const uid = await getCurrentUid();
       if (!uid) throw new Error('No session found. Please restart the app.');
 
       const pt = (profileType || data.role || '').toLowerCase();
@@ -1913,6 +1917,10 @@ export default function EditProfileScreen({ navigation, route }) {
           [{
             text: 'View Profile',
             onPress: () => {
+              // If this signup was reached via the login gate (tapping a
+              // provider profile while signed out), land on that profile now
+              // instead of the provider's own brand-new one.
+              if (redirectTo?.screen) { navigation.replace(redirectTo.screen, redirectTo.params); return; }
               const dest = PROFILE_DEST[pt] || 'Home';
               navigation.replace(dest, { uid });
             },

@@ -13,6 +13,7 @@ import PhotoViewer from '../components/PhotoViewer';
 import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
 
 import { auth } from '../config/firebase';
+import { getCurrentUid } from '../utils/session';
 import { getProfile } from '../services/userService';
 import { getWorkByCustomer } from '../services/workService';
 import { getClientReviews } from '../services/workRecordService';
@@ -66,11 +67,10 @@ export default function PersonalProfileScreen({ navigation }) {
   const load = useCallback(async () => {
     try {
       // Prefer the live Firebase Auth uid over the cached AsyncStorage copy —
-      // see WorkerProfileScreen.js's load() for why these can drift. This
-      // screen is always a self-view (no visitor mode), so a stale cached uid
-      // here means loading the wrong profile entirely, not just a UI mode bug.
-      const cachedUid = await AsyncStorage.getItem('uid');
-      const me = auth.currentUser?.uid || cachedUid;
+      // see utils/session.js's getCurrentUid. This screen is always a
+      // self-view (no visitor mode), so a stale cached uid here means loading
+      // the wrong profile entirely, not just a UI mode bug.
+      const me = await getCurrentUid();
       if (!me) { setLoading(false); return; }
       setMyUid(me);
 
@@ -113,7 +113,7 @@ export default function PersonalProfileScreen({ navigation }) {
               await signOut(auth);
               await AsyncStorage.clear();
             } catch (_) {}
-            navigation.reset({ index: 0, routes: [{ name: 'AccountType' }] });
+            navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
           },
         },
       ]
@@ -214,7 +214,7 @@ export default function PersonalProfileScreen({ navigation }) {
 
       <BottomNav
         navigation={navigation}
-        active="MyDashboard"
+        active="Profile"
         onProfilePress={() => navigation.navigate('PersonalProfile', { uid: myUid })}
       />
 

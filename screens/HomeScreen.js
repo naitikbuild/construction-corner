@@ -7,6 +7,8 @@ import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNav from '../components/BottomNav';
 import { auth } from '../config/firebase';
+import { getCurrentUid } from '../utils/session';
+import { openMyProfile } from '../utils/profileNav';
 import { getProfile } from '../services/userService';
 import { startVoiceSearch } from '../services/voiceSearchService';
 import {
@@ -15,15 +17,6 @@ import {
   PROFESSIONAL_CATEGORIES,
   CATEGORY_ICONS,
 } from '../constants/categories';
-
-const PROFILE_SCREEN_MAP = {
-  worker: 'WorkerProfile',
-  contractor: 'ContractorProfile',
-  professional: 'ProfessionalProfile',
-  business: 'BusinessProfile',
-  supplier: 'SupplierProfile',
-  personal: 'PersonalProfile',
-};
 
 // Cosmetic icon per category — purely a display helper, not a data source.
 // Category lists themselves live in constants/categories.js.
@@ -193,7 +186,7 @@ export default function HomeScreen({ navigation }) {
   // the greeting/location row was removed.
   const loadUserInfo = async () => {
     try {
-      const uid = await AsyncStorage.getItem('uid');
+      const uid = await getCurrentUid();
       if (!uid) return;
       let profile = null;
       if (auth.currentUser) {
@@ -207,26 +200,7 @@ export default function HomeScreen({ navigation }) {
     } catch (_) {}
   };
 
-  const handleProfilePress = async () => {
-    try {
-      const user = auth.currentUser;
-      let uid, profile;
-      if (user) {
-        uid = user.uid;
-        profile = await getProfile(uid);
-      } else {
-        uid = await AsyncStorage.getItem('uid');
-        if (!uid) { navigation.navigate('AccountType'); return; }
-        const local = await AsyncStorage.getItem('localProfile');
-        if (!local) { navigation.navigate('AccountType'); return; }
-        profile = JSON.parse(local);
-      }
-      const screen = PROFILE_SCREEN_MAP[profile?.profileType] || 'MyDashboard';
-      navigation.navigate(screen, { uid });
-    } catch (_) {
-      navigation.navigate('MyDashboard');
-    }
-  };
+  const handleProfilePress = () => openMyProfile(navigation);
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />

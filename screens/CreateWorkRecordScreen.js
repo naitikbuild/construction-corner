@@ -9,6 +9,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { injectFonts } from '../theme/typography';
 import PhotoViewer from '../components/PhotoViewer';
+import { getCurrentUid } from '../utils/session';
 import { searchUsers, getProfile } from '../services/userService';
 import { createWorkRecord, updateWorkRecord, getWorkRecord, lockWorkRecord, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { sendNotification } from '../services/notificationService';
@@ -282,8 +283,9 @@ function CalendarModal({ visible, title, value, onSelect, onClose }) {
   );
 }
 
-// ── Lock confirmation — locking is irreversible, so this is the one gate
-// before the record becomes permanently read-only.
+// ── Send-to-client confirmation. This does NOT lock the record — the
+// provider can keep editing every field right up until the client confirms;
+// the record only truly locks once the client acts (see WORK_RECORD_STATUS).
 function LockConfirmModal({ visible, clientName, labourCharge, onCancel, onConfirm, locking }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={locking ? undefined : onCancel}>
@@ -291,18 +293,18 @@ function LockConfirmModal({ visible, clientName, labourCharge, onCancel, onConfi
         <TouchableOpacity style={s.lockSheet} activeOpacity={1} onPress={() => {}}>
           <Text style={s.lockTitle}>Mark work as completed?</Text>
           <Text style={s.lockBody}>
-            This permanently locks the record — you won't be able to edit it after. Only do this once the work is finished. {clientName} will then view it and rate your work.
+            This sends the record to {clientName} to review and confirm. You can still edit every field until they confirm — nothing locks yet.
           </Text>
           <View style={s.lockInfoBox}>
-            <Text style={s.lockInfoLine}>✓ Record is locked — no further edits</Text>
-            <Text style={s.lockInfoLine}>✓ Adds {formatINR(labourCharge)} to your verified work</Text>
+            <Text style={s.lockInfoLine}>✓ {clientName} is notified to review & rate this work</Text>
+            <Text style={s.lockInfoLine}>✓ Still fully editable — {formatINR(labourCharge)} counts toward verified work only once they confirm</Text>
           </View>
           <View style={s.lockActionsRow}>
             <TouchableOpacity style={s.lockNotYetBtn} onPress={onCancel} activeOpacity={0.85} disabled={locking}>
               <Text style={s.lockNotYetBtnText}>Not yet</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[s.lockConfirmBtn, locking && s.btnDisabled]} onPress={onConfirm} activeOpacity={0.85} disabled={locking}>
-              {locking ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.lockConfirmBtnText}>🔒 Complete & lock</Text>}
+              {locking ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.lockConfirmBtnText}>✔ Complete & send</Text>}
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -349,15 +351,67 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
 
-  // Once locked (pending confirmation, confirmed, or disputed) a record is
-  // permanently read-only for the provider — only 'draft' is editable.
-  const isLocked = status !== WORK_RECORD_STATUS.DRAFT;
+  // Editability follows the lifecycle: 'draft' and 'sent_to_client' are both
+  // fully editable — sending to the client is NOT a lock, the provider can
+  // still fix any field until the client confirms. Once confirmed, every
+  // field locks EXCEPT the work amount, which stays open as a correction
+  // "bucket" until commission is paid ('completed_paid') — 'disputed' is
+  // also fully read-only.
+  const isDraft = status === WORK_RECORD_STATUS.DRAFT;
+  const isSentToClient = status === WORK_RECORD_STATUS.SENT_TO_CLIENT;
+  const isConfirmed = status === WORK_RECORD_STATUS.CONFIRMED;
+  const isFullyEditable = isDraft || isSentToClient;
+  const fieldsLocked = !isFullyEditable;
+  const amountLocked = fieldsLocked && !isConfirmed;
 
   const { toastMessage, toastOpacity, showToast } = useToast();
 
+  // ── Auto-hide header on scroll — the bottom action bar is NEVER part of
+  // this, it stays outside the ScrollView and always pinned. headerAnim runs
+  // 1 (shown) → 0 (hidden); height is only interpolated once headerHeight is
+  // measured off the header's real (safe-area-aware) layout, so the very
+  // first render keeps its natural auto height with no flicker/jump.
+  const headerAnim = useRef(new Animated.Value(1)).current;
+  const [headerHeight, setHeaderHeight] = useState(0);
+  const headerVisible = useRef(true);
+  const lastScrollY = useRef(0);
+  const SCROLL_HIDE_THRESHOLD = 12;
+
+  const setHeaderVisible = (visible) => {
+    if (headerVisible.current === visible) return;
+    headerVisible.current = visible;
+    Animated.timing(headerAnim, {
+      toValue: visible ? 1 : 0,
+      duration: 200,
+      useNativeDriver: false,
+    }).start();
+  };
+
+  const handleScroll = (e) => {
+    const y = e.nativeEvent.contentOffset.y;
+    if (y <= 0) {
+      setHeaderVisible(true);
+      lastScrollY.current = y;
+      return;
+    }
+    const diff = y - lastScrollY.current;
+    if (diff > SCROLL_HIDE_THRESHOLD) {
+      setHeaderVisible(false);
+      lastScrollY.current = y;
+    } else if (diff < -SCROLL_HIDE_THRESHOLD) {
+      setHeaderVisible(true);
+      lastScrollY.current = y;
+    }
+  };
+
   useEffect(() => {
     (async () => {
-      const uid = await AsyncStorage.getItem('uid');
+      // Prefer the live Firebase auth uid — a cached AsyncStorage 'uid' can go
+      // stale (e.g. across account switches on the same device) and diverge
+      // from what every reader (MyWorkRecordsScreen, WorkHistoryScreen, the
+      // profile screens) resolves, which made saved records invisible. See
+      // utils/session.js's getCurrentUid — the one shared resolver.
+      const uid = await getCurrentUid();
       setProviderId(uid);
 
       let cachedName = await AsyncStorage.getItem('userName');
@@ -496,7 +550,16 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
     setSaving(true);
     try {
       await persist();
-      showToast('Draft saved — find it in My Work Records');
+      const message = isDraft
+        ? 'Draft saved — find it in My Work Records'
+        : isConfirmed
+          ? 'Amount updated — find it in My Work Records'
+          : 'Changes saved — find it in My Work Records';
+      showToast(message);
+      // Brief pause so the toast is actually visible before the screen
+      // navigates away (this screen unmounts on navigate, taking the toast
+      // with it) — then land on the list so the save is never a dead end.
+      setTimeout(() => navigation.navigate('MyWorkRecords'), 700);
     } catch (err) {
       Alert.alert('Could Not Save', err.message || 'Something went wrong. Please try again.');
     } finally {
@@ -540,18 +603,18 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
         });
       } catch (_) {}
 
-      setStatus(WORK_RECORD_STATUS.LOCKED_PENDING_CONFIRMATION);
+      setStatus(WORK_RECORD_STATUS.SENT_TO_CLIENT);
       setLockedAt(new Date());
       setLockedByName(nameForLock);
       setLockModalOpen(false);
 
       Alert.alert(
-        'Work Record Locked ✅',
-        `${client.name || client.companyName || 'The client'} has been notified to review it.`,
-        [{ text: 'OK', onPress: () => navigation.replace('CreateWorkRecord', { recordId: id }) }]
+        'Sent to Client ✅',
+        `${client.name || client.companyName || 'The client'} has been notified to review it. You can still edit the details until they confirm.`,
+        [{ text: 'OK', onPress: () => navigation.navigate('MyWorkRecords') }]
       );
     } catch (err) {
-      Alert.alert('Could Not Lock', err.message || 'Something went wrong. Please try again.');
+      Alert.alert('Could Not Send', err.message || 'Something went wrong. Please try again.');
     } finally {
       setLocking(false);
     }
@@ -561,13 +624,24 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
     <KeyboardAvoidingView style={s.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      <View style={s.header}>
-        <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()}>
-          <Text style={s.backBtnText}>←</Text>
-        </TouchableOpacity>
-        <Text style={s.headerTitle}>New Work Record</Text>
-        <View style={{ width: 36 }} />
-      </View>
+      <Animated.View
+        style={[
+          s.headerWrap,
+          { opacity: headerAnim },
+          headerHeight ? { height: headerAnim.interpolate({ inputRange: [0, 1], outputRange: [0, headerHeight] }) } : null,
+        ]}
+      >
+        <View
+          style={[s.header, { paddingTop: insets.top + 10 }]}
+          onLayout={(e) => { if (!headerHeight) setHeaderHeight(e.nativeEvent.layout.height); }}
+        >
+          <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()}>
+            <Text style={s.backBtnText}>←</Text>
+          </TouchableOpacity>
+          <Text style={s.headerTitle}>New Work Record</Text>
+          <View style={{ width: 36 }} />
+        </View>
+      </Animated.View>
 
       {loading ? (
         <View style={s.center}>
@@ -578,17 +652,31 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
           <Text style={s.emptyStateText}>This work record could not be found.</Text>
         </View>
       ) : (
-        <ScrollView style={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          style={s.scroll}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+        >
 
-          {isLocked ? (
+          {isDraft ? (
+            <View style={s.banner}>
+              <Text style={s.bannerText}>✏️ Editable anytime — update these details, then mark complete once the work is done.</Text>
+            </View>
+          ) : isSentToClient ? (
+            <View style={s.banner}>
+              <Text style={s.bannerText}>📤 Sent to {client?.name || client?.companyName || 'the client'} for confirmation — still fully editable until they confirm.</Text>
+            </View>
+          ) : isConfirmed ? (
+            <View style={s.confirmedBanner}>
+              <Text style={s.confirmedBannerText}>✓ Confirmed by the client — details are locked. The amount stays editable below until commission is paid.</Text>
+            </View>
+          ) : (
             <View style={s.lockedBanner}>
               <Text style={s.lockedBannerText}>
                 🔒 Locked by {lockedByName || 'provider'} on {lockedAt ? formatDate(lockedAt) : '—'} — read only
               </Text>
-            </View>
-          ) : (
-            <View style={s.banner}>
-              <Text style={s.bannerText}>✏️ Editable anytime — update these details until the work is completed. Locking happens only on completion.</Text>
             </View>
           )}
 
@@ -616,7 +704,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
           )}
 
           <Field label="Agreed with client" required error={errors.client}>
-            {isLocked ? (
+            {fieldsLocked ? (
               <View style={[s.clientField, s.readOnlyField]}>
                 <View style={s.clientAvatar}>
                   {client?.photoUri ? (
@@ -661,7 +749,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
           </Field>
 
           <Field label="Project name" required error={errors.projectName}>
-            {isLocked ? (
+            {fieldsLocked ? (
               <View style={s.readOnlyBox}><Text style={s.readOnlyText}>{projectName || '—'}</Text></View>
             ) : (
               <TextInput
@@ -675,7 +763,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
           </Field>
 
           <Field label="Work area">
-            {isLocked ? (
+            {fieldsLocked ? (
               <View style={s.readOnlyBox}><Text style={s.readOnlyText}>{workArea || '—'}</Text></View>
             ) : (
               <TextInput
@@ -689,7 +777,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
           </Field>
 
           <Field label="Project category" required error={errors.category}>
-            {isLocked ? (
+            {fieldsLocked ? (
               <View style={s.readOnlyBox}><Text style={s.readOnlyText}>{category || '—'}</Text></View>
             ) : (
               <View style={s.categoryRow}>
@@ -711,7 +799,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
           </Field>
 
           <Field label="Project location">
-            {isLocked ? (
+            {fieldsLocked ? (
               <View style={s.readOnlyBox}><Text style={s.readOnlyText}>{location || '—'}</Text></View>
             ) : (
               <TextInput
@@ -726,25 +814,25 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
 
           <Field
             label="Type of work"
-            hint={isLocked ? undefined : 'Optional — extra/specific work done on this project, beyond your primary trade. Up to 10.'}
+            hint={fieldsLocked ? undefined : 'Optional — extra/specific work done on this project, beyond your primary trade. Up to 10.'}
           >
             <View style={s.keywordChipsWrap}>
               {keywords.map(k => (
                 <View key={k} style={s.keywordChip}>
                   <Text style={s.keywordChipText}>{k}</Text>
-                  {!isLocked && (
+                  {!fieldsLocked && (
                     <TouchableOpacity onPress={() => handleRemoveKeyword(k)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
                       <Text style={s.keywordChipRemove}>✕</Text>
                     </TouchableOpacity>
                   )}
                 </View>
               ))}
-              {!isLocked && keywords.length < MAX_KEYWORDS && (
+              {!fieldsLocked && keywords.length < MAX_KEYWORDS && (
                 <TouchableOpacity style={s.keywordAddChip} onPress={() => setKeywordPickerOpen(true)} activeOpacity={0.8}>
                   <Text style={s.keywordAddChipText}>+ Add type of work</Text>
                 </TouchableOpacity>
               )}
-              {keywords.length === 0 && isLocked && (
+              {keywords.length === 0 && fieldsLocked && (
                 <Text style={s.readOnlyText}>—</Text>
               )}
             </View>
@@ -754,7 +842,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
             <View style={s.dateRow}>
               <View style={{ flex: 1 }}>
                 <Text style={s.fieldLabel}>Planned start</Text>
-                {isLocked ? (
+                {fieldsLocked ? (
                   <View style={s.readOnlyBox}><Text style={s.readOnlyText}>{plannedStart ? formatDate(plannedStart) : '—'}</Text></View>
                 ) : (
                   <TouchableOpacity style={s.dateField} onPress={() => setStartPickerOpen(true)} activeOpacity={0.8}>
@@ -767,7 +855,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={s.fieldLabel}>Planned finish</Text>
-                {isLocked ? (
+                {fieldsLocked ? (
                   <View style={s.readOnlyBox}><Text style={s.readOnlyText}>{plannedFinish ? formatDate(plannedFinish) : '—'}</Text></View>
                 ) : (
                   <TouchableOpacity style={s.dateField} onPress={() => setFinishPickerOpen(true)} activeOpacity={0.8}>
@@ -782,7 +870,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
           </View>
 
           <Field label="Contract value">
-            {isLocked ? (
+            {amountLocked ? (
               <View style={s.readOnlyBox}><Text style={s.readOnlyText}>{contractValue ? formatINR(contractValue) : '—'}</Text></View>
             ) : (
               <View style={s.inputWithHint}>
@@ -800,7 +888,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
           </Field>
 
           <Field label="Labour charge">
-            {isLocked ? (
+            {amountLocked ? (
               <View style={s.readOnlyBox}><Text style={[s.readOnlyText, s.readOnlyGreen]}>{labourCharge ? formatINR(labourCharge) : '—'}</Text></View>
             ) : (
               <View style={s.inputWithHint}>
@@ -824,7 +912,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
             </View>
             <View style={s.photoGrid}>
               {photos.map((uri, i) => (
-                isLocked ? (
+                fieldsLocked ? (
                   <TouchableOpacity key={i} style={s.photoSlot} onPress={() => { setViewerIndex(i); setViewerOpen(true); }} activeOpacity={0.85}>
                     <Image source={{ uri }} style={s.photoThumb} />
                   </TouchableOpacity>
@@ -837,14 +925,14 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
                   </View>
                 )
               ))}
-              {!isLocked && photos.length < MAX_PHOTOS && (
+              {!fieldsLocked && photos.length < MAX_PHOTOS && (
                 <TouchableOpacity style={s.photoAddBtn} onPress={handleAddPhoto} activeOpacity={0.8}>
                   <Text style={s.photoAddIcon}>📷</Text>
                   <Text style={s.photoAddText}>+ Add</Text>
                 </TouchableOpacity>
               )}
             </View>
-            {!isLocked && (
+            {!fieldsLocked && (
               <Text style={s.fieldHint}>Add up to 20 photos showing the work — progress and finished result.</Text>
             )}
           </View>
@@ -853,17 +941,19 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
         </ScrollView>
       )}
 
-      {!isLocked && recordId && (
+      {isFullyEditable && recordId && (
         <TouchableOpacity
           style={s.viewRecordsLink}
           onPress={() => navigation.navigate('MyWorkRecords')}
           activeOpacity={0.7}
         >
-          <Text style={s.viewRecordsLinkText}>🧾 Saved as draft — View My Work Records →</Text>
+          <Text style={s.viewRecordsLinkText}>
+            {isDraft ? '🧾 Saved as draft — View My Work Records →' : '🧾 Sent to client — View My Work Records →'}
+          </Text>
         </TouchableOpacity>
       )}
 
-      {!isLocked && (
+      {isFullyEditable && (
         <View style={[s.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           <TouchableOpacity
             style={[s.saveBtn, saving && s.btnDisabled]}
@@ -873,13 +963,28 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
           >
             <Text style={s.saveBtnText}>Save details</Text>
           </TouchableOpacity>
+          {isDraft && (
+            <TouchableOpacity
+              style={[s.completeBtn, saving && s.btnDisabled]}
+              onPress={handleMarkCompleted}
+              activeOpacity={0.85}
+              disabled={saving}
+            >
+              {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.completeBtnText}>Mark completed →</Text>}
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {isConfirmed && (
+        <View style={[s.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           <TouchableOpacity
-            style={[s.completeBtn, saving && s.btnDisabled]}
-            onPress={handleMarkCompleted}
+            style={[s.saveBtn, saving && s.btnDisabled]}
+            onPress={handleSaveDetails}
             activeOpacity={0.85}
             disabled={saving}
           >
-            {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.completeBtnText}>Mark completed →</Text>}
+            {saving ? <ActivityIndicator color={DARK} /> : <Text style={s.saveBtnText}>Save amount correction</Text>}
           </TouchableOpacity>
         </View>
       )}
@@ -939,9 +1044,17 @@ const s = injectFonts({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
   emptyStateText: { fontSize: 14, color: LIGHT, fontWeight: '600', textAlign: 'center' },
 
+  // Wraps the header row so its height/opacity can be animated on scroll
+  // (see headerAnim) — overflow hidden keeps the collapsing content from
+  // spilling out. paddingTop on the inner `header` is set inline from
+  // useSafeAreaInsets() so it's the single source of top spacing (no
+  // stacked SafeAreaView + hardcoded padding).
+  headerWrap: {
+    overflow: 'hidden', backgroundColor: '#FFFFFF',
+  },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 14, paddingTop: 52, paddingBottom: 12,
+    paddingHorizontal: 14, paddingBottom: 12,
     backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: BORDER,
   },
   backBtn: {
@@ -964,6 +1077,12 @@ const s = injectFonts({
     borderRadius: 12, backgroundColor: FILL, borderWidth: 1, borderColor: BORDER,
   },
   lockedBannerText: { fontSize: 12, color: MID, fontWeight: '600', lineHeight: 18, flex: 1 },
+
+  confirmedBanner: {
+    flexDirection: 'row', margin: 14, marginBottom: 6, padding: 12,
+    borderRadius: 12, backgroundColor: GREEN_LIGHT, borderWidth: 1, borderColor: '#B7E4C7',
+  },
+  confirmedBannerText: { fontSize: 12, color: GREEN, fontWeight: '600', lineHeight: 18, flex: 1 },
 
   rateClientBtn: {
     margin: 14, marginBottom: 6, padding: 14, borderRadius: 12,

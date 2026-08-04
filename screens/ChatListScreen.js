@@ -3,12 +3,12 @@ import {
   View, Text, TouchableOpacity, FlatList, TextInput, StatusBar,
   ActivityIndicator, Image,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../config/firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { injectFonts } from '../theme/typography';
 import { getProfile } from '../services/userService';
 import { markChatRead } from '../services/chatService';
+import { getCurrentUid } from '../utils/session';
 import { DEMO_MODE } from '../config/demoMode';
 import { DEMO_CHATS } from '../demoData';
 
@@ -130,7 +130,7 @@ export default function ChatListScreen({ navigation }) {
     let cancelled = false;
 
     (async () => {
-      const uid = await AsyncStorage.getItem('uid');
+      const uid = await getCurrentUid();
       if (!uid) { setLoading(false); return; }
       myUidRef.current = uid;
 

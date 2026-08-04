@@ -3,11 +3,16 @@ import { injectFonts } from '../theme/typography';
 
 const ORANGE = '#FF6B2B';
 
+// The Profile tab has no fixed route of its own — which screen it opens
+// depends on who's signed in and what profile type they have (or none yet),
+// so it's always resolved by the caller via onProfilePress (see
+// utils/profileNav.js's openMyProfile). 'Profile' here is a symbolic key
+// used only to match the `active` prop for highlighting, never navigated to.
 const TABS = [
   { icon: '🏠', label: 'Home',    screen: 'Home' },
   { icon: '🔍', label: 'Search',  screen: 'Search' },
   { icon: '💬', label: 'Chat',    screen: 'ChatList' },
-  { icon: '👤', label: 'Profile', screen: 'MyDashboard' },
+  { icon: '👤', label: 'Profile', screen: 'Profile' },
 ];
 
 export default function BottomNav({ navigation, active, onProfilePress }) {
@@ -16,8 +21,8 @@ export default function BottomNav({ navigation, active, onProfilePress }) {
       {TABS.map(tab => {
         const isActive = active === tab.screen;
         const handlePress = () => {
-          if (tab.label === 'Profile' && onProfilePress) {
-            onProfilePress();
+          if (tab.label === 'Profile') {
+            onProfilePress?.();
           } else {
             navigation.navigate(tab.screen);
           }

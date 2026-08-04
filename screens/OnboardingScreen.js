@@ -38,7 +38,10 @@ export default function OnboardingScreen({ navigation }) {
 
   const markSeenAndGo = async () => {
     await AsyncStorage.setItem('hasSeenOnboarding', '1').catch(() => {});
-    navigation.replace('AccountType');
+    // Browse-first: onboarding leads straight into the app, not into account
+    // creation — account type / sign in only come up when the user taps
+    // something that needs an account (see utils/authGate.js).
+    navigation.replace('Home');
   };
 
   function next() {

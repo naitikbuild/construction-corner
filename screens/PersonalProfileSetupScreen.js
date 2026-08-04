@@ -6,33 +6,40 @@ import {
 import { injectFonts } from '../theme/typography';
 import { useState, useEffect } from 'react';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { saveProfile, getProfile } from '../services/userService';
 import { auth } from '../config/firebase';
+import { getCurrentUid } from '../utils/session';
 
 const ORANGE = '#FF6B2B';
+const GREEN = '#22A559';
 const GREY_BG = '#F5F5F0';
 const BORDER = '#EFEFEF';
 const TEXT_DARK = '#1A1A1A';
 const TEXT_MID = '#666666';
 const TEXT_LIGHT = '#888888';
 
-export default function PersonalProfileSetupScreen({ navigation }) {
+export default function PersonalProfileSetupScreen({ navigation, route }) {
+  const redirectTo = route?.params?.redirectTo ?? null;
   const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [photoUri, setPhotoUri] = useState('');
-  const [area, setArea] = useState('');
   const [city, setCity] = useState('');
+  const [state, setState] = useState('');
   const [pincode, setPincode] = useState('');
+  const [lat, setLat] = useState(null);
+  const [lng, setLng] = useState(null);
+  const [detecting, setDetecting] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [initial, setInitial] = useState({ name: '', photoUri: '', area: '', city: '', pincode: '' });
+  const [initial, setInitial] = useState({ name: '', photoUri: '', city: '', state: '', pincode: '' });
 
   useEffect(() => {
     (async () => {
       try {
-        const uid = await AsyncStorage.getItem('uid');
+        const uid = await getCurrentUid();
         if (!uid) return;
         let p = null;
         try { p = await getProfile(uid); } catch (_) {}
@@ -43,13 +50,15 @@ export default function PersonalProfileSetupScreen({ navigation }) {
         if (p && p.profileType === 'personal') {
           const loaded = {
             name: p.name || '', photoUri: p.photoUri || '',
-            area: p.area || '', city: p.city || '', pincode: p.pincode || '',
+            city: p.city || '', state: p.state || '', pincode: p.pincode || '',
           };
           setName(loaded.name);
           setPhotoUri(loaded.photoUri);
-          setArea(loaded.area);
           setCity(loaded.city);
+          setState(loaded.state);
           setPincode(loaded.pincode);
+          setLat(typeof p.lat === 'number' ? p.lat : null);
+          setLng(typeof p.lng === 'number' ? p.lng : null);
           setInitial(loaded);
         }
       } catch (_) {}
@@ -58,7 +67,7 @@ export default function PersonalProfileSetupScreen({ navigation }) {
 
   const hasUnsavedChanges = () =>
     name !== initial.name || photoUri !== initial.photoUri ||
-    area !== initial.area || city !== initial.city || pincode !== initial.pincode;
+    city !== initial.city || state !== initial.state || pincode !== initial.pincode;
 
   const handleBack = () => {
     if (hasUnsavedChanges()) {
@@ -92,6 +101,41 @@ export default function PersonalProfileSetupScreen({ navigation }) {
     }
   };
 
+  // GPS auto-detect, same pattern as the business/provider profiles
+  // (EditProfileScreen's CurrentLocationField) — reverse-geocodes to
+  // City + State (+ pincode as a bonus) but never blocks: on denied
+  // permission or a failed lookup, the user just falls back to typing
+  // city/state manually below.
+  const detectLocation = async () => {
+    setDetecting(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Location permission denied', 'You can still enter your city and state manually below.');
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const results = await Location.reverseGeocodeAsync({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+      });
+      const place = results?.[0];
+      if (place) {
+        setCity(place.city || place.subregion || place.district || city);
+        setState(place.region || state);
+        setPincode(place.postalCode || pincode);
+        setLat(position.coords.latitude);
+        setLng(position.coords.longitude);
+      } else {
+        Alert.alert('Could not detect location', 'Please enter your city and state manually below.');
+      }
+    } catch (_) {
+      Alert.alert('Location detection failed', 'Please enter your city and state manually below.');
+    } finally {
+      setDetecting(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!name.trim()) {
       Alert.alert('Name required', 'Please enter your name.');
@@ -103,16 +147,37 @@ export default function PersonalProfileSetupScreen({ navigation }) {
     }
     setSaving(true);
     try {
-      const uid = await AsyncStorage.getItem('uid');
+      const uid = await getCurrentUid();
       if (!uid) throw new Error('No session found. Please restart the app.');
 
-      const locationStr = [area.trim(), city.trim()].filter(Boolean).join(', ') + (pincode ? ` — ${pincode}` : '');
+      // Coordinates: GPS-detected ones already live in lat/lng. If the user set
+      // location manually instead (or edited city/state after a detect, which
+      // clears them), approximate coordinates by geocoding the city/state text.
+      // Never blocks saving — falls back to null on any failure.
+      let finalLat = lat;
+      let finalLng = lng;
+      if (finalLat == null && finalLng == null && (city.trim() || state.trim())) {
+        try {
+          const address = [city.trim(), state.trim()].filter(Boolean).join(', ');
+          const geocoded = await Location.geocodeAsync(address);
+          if (geocoded?.[0]) {
+            finalLat = geocoded[0].latitude;
+            finalLng = geocoded[0].longitude;
+          }
+        } catch (_) {
+          // geocoding unavailable/failed — lat/lng stay null
+        }
+      }
+
+      const locationStr = [city.trim(), state.trim()].filter(Boolean).join(', ') + (pincode ? ` — ${pincode}` : '');
       const profileData = {
         name: name.trim(),
         photoUri: photoUri || '',
-        area: area.trim(),
         city: city.trim(),
+        state: state.trim(),
         pincode: pincode.trim(),
+        lat: finalLat,
+        lng: finalLng,
         location: locationStr,
         profileType: 'personal',
         role: 'personal',
@@ -127,7 +192,10 @@ export default function PersonalProfileSetupScreen({ navigation }) {
         await saveProfile(uid, profileData);
       }
 
-      navigation.replace('Home');
+      // If this setup was reached via the login gate (tapping a provider
+      // profile while signed out), land on that profile now instead of Home.
+      if (redirectTo?.screen) navigation.replace(redirectTo.screen, redirectTo.params);
+      else navigation.replace('Home');
     } catch (err) {
       Alert.alert('Save Failed', err.message || 'Could not save profile. Please try again.');
     } finally {
@@ -177,42 +245,56 @@ export default function PersonalProfileSetupScreen({ navigation }) {
           />
         </View>
 
-        {/* Area */}
+        {/* Current Location — GPS auto-detect, confirmable/editable */}
         <View style={styles.fieldWrap}>
-          <Text style={styles.label}>Area / Locality</Text>
-          <TextInput
-            style={styles.input}
-            value={area}
-            onChangeText={setArea}
-            placeholder="e.g. Bopal, Navrangpura"
-            placeholderTextColor={TEXT_LIGHT}
-          />
-        </View>
-
-        {/* City & Pincode */}
-        <View style={styles.locationRow}>
-          <View style={[styles.fieldWrap, { flex: 1 }]}>
-            <Text style={styles.label}>City</Text>
+          <Text style={styles.label}>Current Location</Text>
+          <TouchableOpacity
+            style={styles.detectBtn}
+            onPress={detectLocation}
+            disabled={detecting}
+            activeOpacity={0.8}
+          >
+            {detecting ? (
+              <ActivityIndicator color={GREEN} size="small" />
+            ) : (
+              <Text style={styles.detectBtnText}>
+                {city || state ? '🔄  Re-detect my location' : '📍  Detect my location'}
+              </Text>
+            )}
+          </TouchableOpacity>
+          <View style={[styles.locationRow, { marginTop: 12 }]}>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { flex: 1 }]}
               value={city}
-              onChangeText={setCity}
+              onChangeText={(v) => { setCity(v); setLat(null); setLng(null); }}
               placeholder="City"
               placeholderTextColor={TEXT_LIGHT}
             />
-          </View>
-          <View style={[styles.fieldWrap, { flex: 1 }]}>
-            <Text style={styles.label}>Pincode</Text>
             <TextInput
-              style={styles.input}
-              value={pincode}
-              onChangeText={setPincode}
-              placeholder="6-digit"
+              style={[styles.input, { flex: 1 }]}
+              value={state}
+              onChangeText={(v) => { setState(v); setLat(null); setLng(null); }}
+              placeholder="State"
               placeholderTextColor={TEXT_LIGHT}
-              keyboardType="number-pad"
-              maxLength={6}
             />
           </View>
+          <Text style={styles.locationHint}>
+            Auto-detected from your device — you can edit if it's not quite right
+          </Text>
+        </View>
+
+        {/* Pincode */}
+        <View style={styles.fieldWrap}>
+          <Text style={styles.label}>Pincode</Text>
+          <TextInput
+            style={styles.input}
+            value={pincode}
+            onChangeText={setPincode}
+            placeholder="6-digit"
+            placeholderTextColor={TEXT_LIGHT}
+            keyboardType="number-pad"
+            maxLength={6}
+          />
         </View>
 
         <View style={{ height: 32 }} />
@@ -274,6 +356,13 @@ const styles = injectFonts({
     borderWidth: 1.5, borderColor: BORDER, fontWeight: '500',
   },
   locationRow: { flexDirection: 'row', gap: 12 },
+  detectBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#EAF7EF', borderRadius: 12, paddingVertical: 13,
+    borderWidth: 1.5, borderColor: GREEN, borderStyle: 'dashed',
+  },
+  detectBtnText: { fontSize: 14, fontWeight: '800', color: GREEN },
+  locationHint: { fontSize: 11, color: TEXT_LIGHT, marginTop: 8, fontStyle: 'italic', fontWeight: '500' },
 
   bottomBar: {
     padding: 16,

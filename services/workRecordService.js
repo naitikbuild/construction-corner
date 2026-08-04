@@ -9,19 +9,30 @@ import { isDemoUid } from '../demoData';
 // provider-authored "agreed job" flow. Records start as editable 'draft'
 // docs in `work_records` and move through a fixed lifecycle:
 //
-//   draft                        → editable by the provider only, never shown elsewhere
-//   locked_pending_confirmation  → provider marked it complete; awaiting client confirmation
-//   confirmed                    → client confirmed + rated; counts toward verified totals
-//   disputed                     → client raised an issue instead of confirming
+//   draft            → fully editable by the provider only, never shown elsewhere
+//   sent_to_client   → provider marked it complete and sent it to the client for
+//                      confirmation, but it is NOT locked — the provider can still
+//                      edit every field in case something needs correcting before
+//                      the client confirms
+//   confirmed        → the CLIENT confirmed + rated; counts toward verified totals.
+//                      All fields lock EXCEPT the work amount (contractValue /
+//                      labourCharge), which stays editable — a correction "bucket"
+//                      for mistakes before commission is paid
+//   completed_paid   → commission paid; permanently locked, nothing editable
+//                      (the payment flow itself isn't built yet — this status
+//                      just reserves the end of the amount-editable window)
+//   disputed         → client raised an issue instead of confirming; permanently
+//                      locked, does not count toward verified totals
 //
 // The client reaches 'confirmed' or 'disputed' from ClientWorkRecordReviewScreen
 // (+ RateWorkRecordScreen for confirm) — see confirmWorkRecord/disputeWorkRecord
 // below. Verified totals and the "VERIFIED PROJECTS" stat row must only count
-// 'confirmed' records.
+// 'confirmed' (and, later, 'completed_paid') records.
 export const WORK_RECORD_STATUS = {
   DRAFT: 'draft',
-  LOCKED_PENDING_CONFIRMATION: 'locked_pending_confirmation',
+  SENT_TO_CLIENT: 'sent_to_client',
   CONFIRMED: 'confirmed',
+  COMPLETED_PAID: 'completed_paid',
   DISPUTED: 'disputed',
 };
 export const createWorkRecord = async (providerId, data) => {
@@ -56,14 +67,15 @@ export const updateWorkRecord = async (recordId, data) => {
   });
 };
 
-// Permanently locks a record: saves the latest field edits and flips status
-// to 'locked_pending_confirmation' in one write. Irreversible — there is no
-// unlock path. Does NOT touch verified-work totals; that only happens once a
-// client confirms the record (screen not built yet — see WORK_RECORD_STATUS).
+// Marks a record complete and sends it to the client: saves the latest field
+// edits and flips status to 'sent_to_client' in one write. NOT a hard lock —
+// the provider can keep editing every field (see CreateWorkRecordScreen's
+// editability rules) right up until the client confirms. Does NOT touch
+// verified-work totals; that only happens once a client confirms the record.
 export const lockWorkRecord = async (recordId, data, { lockedBy, lockedByName }) => {
   await updateDoc(doc(db, 'work_records', recordId), {
     ...data,
-    status: WORK_RECORD_STATUS.LOCKED_PENDING_CONFIRMATION,
+    status: WORK_RECORD_STATUS.SENT_TO_CLIENT,
     lockedAt: serverTimestamp(),
     lockedBy,
     lockedByName: lockedByName || '',
@@ -76,8 +88,8 @@ export const getWorkRecord = async (recordId) => {
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 };
 
-// Every non-draft work record for a provider (locked_pending_confirmation,
-// confirmed, disputed) — everything worth showing on their real profile.
+// Every non-draft work record for a provider (sent_to_client, confirmed,
+// completed_paid, disputed) — everything worth showing on their real profile.
 // Drafts are excluded: they're private, in-progress edits the provider
 // hasn't marked complete yet. Demo profiles have no real `work_records`
 // docs — their projects come from the demoData.js fixtures instead — so
@@ -105,9 +117,9 @@ export const getAllProviderWorkRecords = async (providerId) => {
 
 // Maps a work_record doc to the "project" shape ProjectsList/AllProjectsModal/
 // ProjectDetailModal already render (see demoData.js's `projects` fixtures
-// for the same shape). Only a 'confirmed' record is truly DONE; anything
-// still awaiting client action reads as ONGOING — there's no separate
-// "pending confirmation" badge in those shared components yet.
+// for the same shape). Only 'confirmed'/'completed_paid' records are truly
+// DONE; anything still awaiting client action reads as ONGOING — there's no
+// separate "pending confirmation" badge in those shared components yet.
 export const workRecordToProject = (record) => ({
   id: record.id,
   name: record.projectName || '',
@@ -115,7 +127,7 @@ export const workRecordToProject = (record) => ({
   category: record.category || '',
   keywords: record.keywords || [],
   value: record.contractValue || 0,
-  status: record.status === WORK_RECORD_STATUS.CONFIRMED ? 'done' : 'ongoing',
+  status: (record.status === WORK_RECORD_STATUS.CONFIRMED || record.status === WORK_RECORD_STATUS.COMPLETED_PAID) ? 'done' : 'ongoing',
   photoUri: record.photos?.[0] || null,
   clientReview: record.review || '',
   workArea: record.workArea || '',

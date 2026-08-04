@@ -18,7 +18,8 @@ import { getProfile, recordProfileView, updateProfile } from '../services/userSe
 import { getTotalVerifiedAmount, getVerifiedWork } from '../services/workService';
 import { getProviderWorkRecords, workRecordToProject, workRecordToVerifiedWork, getClientReviews, WORK_RECORD_STATUS } from '../services/workRecordService';
 import ClientReviewsSection from '../components/ClientReviewsSection';
-import { auth } from '../config/firebase';
+import { getCurrentUid } from '../utils/session';
+import { auth } from '../config/firebase'; // TEMP DEBUG — for CHAT GATE DEBUG / MYUID SET logging below, remove with the logs
 import { formatAmountIndian, formatJoinedDate } from '../utils/format';
 
 function AvailabilityChip({ available }) {
@@ -226,11 +227,18 @@ export default function WorkerProfileScreen({ navigation, route }) {
       // the two can drift (e.g. a stale 'uid' left from an earlier session),
       // and comparing viewUid against a stale "me" silently breaks owner
       // detection even when this really is the signed-in user's own profile.
-      // Guests have no auth.currentUser, so they fall back to the cache.
-      const cachedUid = await AsyncStorage.getItem('uid');
-      const me = auth.currentUser?.uid || cachedUid;
+      // Guests have no auth.currentUser, so they fall back to the cache
+      // (see utils/session.js's getCurrentUid — the one shared resolver).
+      const me = await getCurrentUid();
       const uid = viewUid || me;
       setMyUid(me);
+
+      // TEMP DEBUG — remove once "Sign in to chat" false-positive is diagnosed
+      console.log('MYUID SET', {
+        authUid: auth.currentUser?.uid ?? 'NULL',
+        cached: await AsyncStorage.getItem('uid'),
+        resolved: me,
+      });
 
       if (!uid) { setLoading(false); return; }
 
@@ -256,8 +264,8 @@ export default function WorkerProfileScreen({ navigation, route }) {
       // Demo profiles keep reading their fixture data (demoVerifiedAmount/
       // demoVerifiedWork/projects in demoData.js) via the legacy workService
       // calls, which already special-case demo uids. Real accounts instead
-      // read their own `work_records` — only 'confirmed' ones count toward
-      // verified totals; 'locked_pending_confirmation' ones still show up in
+      // read their own `work_records` — only 'confirmed'/'completed_paid' ones
+      // count toward verified totals; 'sent_to_client' ones still show up in
       // VERIFIED PROJECTS (as ONGOING) but don't count yet.
       if (uid && !uid.startsWith('guest_')) {
         try {
@@ -271,7 +279,7 @@ export default function WorkerProfileScreen({ navigation, route }) {
             setRealProjects([]);
           } else {
             const records = await getProviderWorkRecords(uid);
-            const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.CONFIRMED);
+            const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.CONFIRMED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
             setVerifiedAmt(confirmed.reduce((sum, r) => sum + (r.contractValue || 0), 0));
             setVerifiedWork(confirmed.map(workRecordToVerifiedWork));
             setRealProjects(records.map(workRecordToProject));
@@ -306,15 +314,24 @@ export default function WorkerProfileScreen({ navigation, route }) {
     Linking.openURL(`tel:+91${phone}`).catch(() => Alert.alert('Could not open dialler.'));
   };
 
-  const handleChat = () => {
+  const handleChat = async () => {
     if (!viewUid || viewUid === myUid) { Alert.alert('This is your own profile'); return; }
+
+    // TEMP DEBUG — remove once "Sign in to chat" false-positive is diagnosed
+    console.log('CHAT GATE DEBUG', {
+      authCurrentUser: auth.currentUser?.uid ?? 'NULL',
+      cachedUid: await AsyncStorage.getItem('uid'),
+      myUid: myUid,
+      viewUid: viewUid,
+    });
+
     if (!myUid || myUid.startsWith('guest_')) {
       Alert.alert(
         'Sign in to chat',
         'Create a free account or sign in to start chatting with providers.',
         [
           { text: 'Not now', style: 'cancel' },
-          { text: 'Sign In', onPress: () => navigation.navigate('Login') },
+          { text: 'Sign In', onPress: () => navigation.navigate('Login', { initialScreen: 'login' }) },
         ]
       );
       return;
@@ -626,7 +643,7 @@ export default function WorkerProfileScreen({ navigation, route }) {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={s.newWorkRecordBtn}
-                  onPress={() => navigation.navigate('CreateWorkRecord')}
+                  onPress={() => navigation.push('CreateWorkRecord')}
                   activeOpacity={0.85}
                 >
                   <Text style={s.newWorkRecordBtnText}>🧾  New Work Record</Text>

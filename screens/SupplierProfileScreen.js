@@ -4,7 +4,6 @@ import {
   StyleSheet, StatusBar, Alert, ActivityIndicator,
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getProfile, recordProfileView } from '../services/userService';
 import {
@@ -14,7 +13,7 @@ import ClientReviewsSection from '../components/ClientReviewsSection';
 import ProjectDetailModal from '../components/ProjectDetailModal';
 import PhotoViewer from '../components/PhotoViewer';
 import { formatAmountIndian } from '../utils/format';
-import { auth } from '../config/firebase';
+import { getCurrentUid } from '../utils/session';
 
 // ─── Orange Gradient Button ───────────────────────────────────────────────────
 function GradBtn({ label, subLabel, onPress }) {
@@ -107,8 +106,14 @@ export default function SupplierProfileScreen({ navigation, route }) {
 
   const loadProfile = async () => {
     try {
-      const uid = viewUid || auth.currentUser?.uid;
-      const me = await AsyncStorage.getItem('uid');
+      // Prefer the live Firebase Auth uid over the cached AsyncStorage copy —
+      // the two can drift (e.g. a stale 'uid' left from an earlier session),
+      // which broke owner detection and made this provider's own saved work
+      // records invisible to their own profile. Guests have no
+      // auth.currentUser, so they fall back to the cache (see utils/session.js's
+      // getCurrentUid — the one shared resolver).
+      const me = await getCurrentUid();
+      const uid = viewUid || me;
       setMyUid(me);
       if (!uid) { setLoading(false); return; }
       if (uid !== me) recordProfileView(uid, me);
@@ -121,7 +126,7 @@ export default function SupplierProfileScreen({ navigation, route }) {
       if (uid && !uid.startsWith('guest_')) {
         try {
           const records = await getProviderWorkRecords(uid);
-          const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.CONFIRMED);
+          const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.CONFIRMED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
           const total = confirmed.reduce((sum, r) => sum + (r.contractValue || 0), 0);
           setVerifiedAmt(total > 0 ? `₹${total.toLocaleString('en-IN')}` : '₹0');
           setVerifiedJobsCount(confirmed.length);
@@ -143,7 +148,7 @@ export default function SupplierProfileScreen({ navigation, route }) {
         'Create a free account or sign in to start chatting with providers.',
         [
           { text: 'Not now', style: 'cancel' },
-          { text: 'Sign In', onPress: () => navigation.navigate('Login') },
+          { text: 'Sign In', onPress: () => navigation.navigate('Login', { initialScreen: 'login' }) },
         ]
       );
       return;
@@ -411,7 +416,7 @@ export default function SupplierProfileScreen({ navigation, route }) {
         {isOwn && (
           <TouchableOpacity
             style={ss.newRecordBtn}
-            onPress={() => navigation.navigate('CreateWorkRecord')}
+            onPress={() => navigation.push('CreateWorkRecord')}
             activeOpacity={0.85}
           >
             <Text style={ss.newRecordBtnText}>🧾 New{'\n'}Work Record</Text>

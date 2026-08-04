@@ -4,10 +4,11 @@ import {
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
 import { useState, useEffect, useRef } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { BLUE } from '../constants/colors';
 import { auth } from '../config/firebase';
+import { getCurrentUid } from '../utils/session';
+import { openMyProfile } from '../utils/profileNav';
 import {
   subscribeNotifications,
   markNotificationRead,
@@ -142,7 +143,7 @@ export default function NotificationsScreen({ navigation }) {
 
   const init = async () => {
     try {
-      const uid = await AsyncStorage.getItem('uid');
+      const uid = await getCurrentUid();
       if (!uid) { setLoading(false); return; }
       uidRef.current = uid;
 
@@ -290,10 +291,10 @@ export default function NotificationsScreen({ navigation }) {
               else if (item.type === 'work_verified') navigation.navigate('WorkHistory');
               else if (item.type === 'work_locked') navigation.navigate('WorkRecordReview', { recordId: item.recordId });
               else if (item.type === 'work_confirmed') navigation.navigate('RateClient', { recordId: item.recordId });
-              else if (item.type === 'work_disputed') navigation.navigate('CreateWorkRecord', { recordId: item.recordId });
+              else if (item.type === 'work_disputed') navigation.push('CreateWorkRecord', { recordId: item.recordId });
               else if (item.type === 'message') navigation.navigate('ChatList');
               else if (item.type === 'job_update' || item.type === 'job_match') navigation.navigate('Home');
-              else if (item.type === 'payment' || item.type === 'review') navigation.navigate('MyDashboard');
+              else if (item.type === 'payment' || item.type === 'review') openMyProfile(navigation);
             }}
             onDelete={() => deleteOne(item.id)}
           />

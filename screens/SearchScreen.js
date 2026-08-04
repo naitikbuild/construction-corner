@@ -4,13 +4,18 @@ import {
   ActivityIndicator, FlatList, Image, Modal, Switch, PanResponder,
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { searchUsers, getAllUsers, getProfile } from '../services/userService';
-import { formatAmountIndian, isRecentJoin } from '../utils/format';
+import { getCurrentUid } from '../utils/session';
+import { formatAmountIndian } from '../utils/format';
+import {
+  SORT_OPTIONS, hasVerifiedWork, ratingNum, hasCoords, haversineKm, compareForSort,
+} from '../utils/ranking';
+import { openProviderProfile } from '../utils/authGate';
 import ProjectDetailModal from '../components/ProjectDetailModal';
 import PhotoViewer from '../components/PhotoViewer';
+import ProviderRow from '../components/ProviderRow';
 
 const GREEN       = '#22A559';
 const GREEN_LIGHT  = '#EAF7EF';
@@ -32,14 +37,6 @@ const PROFILE_SCREEN = {
   professional: 'ProfessionalProfile',
 };
 
-const SORT_OPTIONS = [
-  { key: 'best', label: 'Best match' },
-  { key: 'nearest', label: 'Nearest' },
-  { key: 'revenue', label: 'Highest revenue' },
-  { key: 'rating', label: 'Highest rated' },
-  { key: 'jobs', label: 'Most jobs' },
-];
-
 const PAGE_SIZE = 20;
 
 const DISTANCE_MIN = 1;
@@ -60,85 +57,7 @@ const RATING_OPTIONS = [
   { value: 4.5, label: '★ 4.5+' },
 ];
 
-// No real "next available day" scheduling data exists anywhere in this app —
-// the only availability signal is the boolean `available` flag. Rather than
-// fabricate a fake day, busy providers just show a plain "Busy" label.
-const BUSY_LABEL = 'Busy';
-
 const NEAR_ME_RE = /\bnear me\b/i;
-
-function hasCoords(u) {
-  return typeof u.lat === 'number' && typeof u.lng === 'number';
-}
-
-// Great-circle distance in km between two lat/lng points.
-function haversineKm(lat1, lng1, lat2, lng2) {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function tradeLine(u) {
-  const trade = u.category || u.designation || u.workerSkill || u.contractorType || u.primarySkill || '';
-  const years = u.workerExperience || u.contractorExperience || u.experience || '';
-  return [trade, years ? `${years} yrs` : ''].filter(Boolean).join(' · ');
-}
-
-function verifiedAmountNum(u) {
-  return Number(u.totalVerifiedAmount ?? u.demoVerifiedAmount ?? 0) || 0;
-}
-
-function jobsCountNum(u) {
-  return Number(u.jobsCompleted ?? 0) || 0;
-}
-
-function hasVerifiedWork(u) {
-  return jobsCountNum(u) > 0 || verifiedAmountNum(u) > 0;
-}
-
-function ratingNum(u) {
-  const r = Number(u.rating);
-  return Number.isFinite(r) ? r : 0;
-}
-
-function ratingDisplay(u) {
-  const r = ratingNum(u);
-  return r > 0 ? r.toFixed(1) : '—';
-}
-
-function onTimeNum(u) {
-  const n = parseFloat(u.onTimeRate);
-  return Number.isFinite(n) ? n : -1;
-}
-
-// "Best match" — the default ranking, tuned for construction: verified work
-// (proven, app-confirmed jobs) outranks unverified every time; among verified
-// (or among unverified) providers, higher revenue wins since it reflects
-// consistent, repeat work rather than a single lucky job; then rating, then
-// on-time reliability; available-now providers get a final nudge ahead of
-// otherwise-equal peers. New providers with zero revenue/no verified work
-// still sort in — just toward the bottom — never filtered out.
-function bestMatchCompare(a, b) {
-  const av = hasVerifiedWork(a) ? 1 : 0;
-  const bv = hasVerifiedWork(b) ? 1 : 0;
-  if (av !== bv) return bv - av;
-
-  const arev = verifiedAmountNum(a), brev = verifiedAmountNum(b);
-  if (arev !== brev) return brev - arev;
-
-  const ar = ratingNum(a), br = ratingNum(b);
-  if (ar !== br) return br - ar;
-
-  const aot = onTimeNum(a), bot = onTimeNum(b);
-  if (aot !== bot) return bot - aot;
-
-  const aa = a.available === true ? 1 : 0;
-  const ba = b.available === true ? 1 : 0;
-  return ba - aa;
-}
 
 // ─── Projects tab matching ──────────────────────────────────────────────────
 function norm(s) {
@@ -169,69 +88,6 @@ function projectRecencyMs(project) {
   if (!raw) return 0;
   const d = new Date(raw);
   return Number.isNaN(d.getTime()) ? 0 : d.getTime();
-}
-
-// ─── Result row ───────────────────────────────────────────────────────────────
-function ResultRow({ item, onPress }) {
-  // A provider with zero completed jobs can't have a real on-time % or star
-  // rating yet — always show "—"/"New" for those rather than a stray value
-  // that contradicts the "0 jobs" count next to it.
-  const jobs = jobsCountNum(item);
-  const hasJobs = jobs > 0;
-  // Zero jobs AND joined under a month ago -> show a "New" label instead of
-  // the ₹0 · 0 jobs · — · — stats row. Past the first month with still no
-  // jobs, fall through to the normal (zero) stats row above.
-  const isNew = !hasJobs && isRecentJoin(item.createdAt);
-
-  return (
-    <TouchableOpacity style={s.row} onPress={onPress} activeOpacity={0.7}>
-      <View style={s.thumbWrap}>
-        {item.photoUri ? (
-          <Image source={{ uri: item.photoUri }} style={s.thumbImg} resizeMode="cover" />
-        ) : (
-          <View style={s.thumbPlaceholder}>
-            <Text style={s.thumbPlaceholderIcon}>👤</Text>
-          </View>
-        )}
-      </View>
-
-      <View style={s.rowInfo}>
-        <View style={s.nameRow}>
-          <Text style={s.name} numberOfLines={1}>{item.name || item.companyName || 'Unnamed'}</Text>
-          {item.verified ? (
-            <View style={s.verifiedBadge}><Text style={s.verifiedBadgeText}>✓</Text></View>
-          ) : null}
-        </View>
-        <Text style={s.tradeLine} numberOfLines={1}>{tradeLine(item) || '—'}</Text>
-        {isNew ? (
-          <View style={s.newBadge}>
-            <Text style={s.newBadgeText}>New</Text>
-          </View>
-        ) : (
-          <Text style={s.statsRow} numberOfLines={1}>
-            <Text style={s.statsGreen}>{formatAmountIndian(verifiedAmountNum(item))}</Text>
-            <Text style={s.statsDot}> · </Text>
-            <Text style={s.statsGreen}>{jobs} jobs</Text>
-            <Text style={s.statsDot}> · </Text>
-            <Text style={s.statsGreen}>{hasJobs ? (item.onTimeRate || '—') : '—'}</Text>
-            <Text style={s.statsDot}> · </Text>
-            <Text style={s.statsGreen}>{hasJobs ? `★${ratingDisplay(item)}` : 'New'}</Text>
-          </Text>
-        )}
-      </View>
-
-      <View style={s.rightCol}>
-        {item.available === true ? (
-          <View style={s.availNowRow}>
-            <View style={s.availDot} />
-            <Text style={s.availNowText}>Now</Text>
-          </View>
-        ) : (
-          <Text style={s.availNextText}>{BUSY_LABEL}</Text>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
 }
 
 // ─── Project row (Projects tab) — plain list, no inline photos ─────────────
@@ -459,7 +315,7 @@ export default function SearchScreen({ navigation, route }) {
   useEffect(() => {
     (async () => {
       try {
-        const uid = await AsyncStorage.getItem('uid');
+        const uid = await getCurrentUid();
         if (!uid) return;
         const profile = await getProfile(uid);
         if (profile?.city) setMyCity(profile.city);
@@ -561,24 +417,9 @@ export default function SearchScreen({ navigation, route }) {
     // Distance takes over as the primary sort whenever the searcher explicitly
     // asked for it ("near me" / distance filter, on the default Best match
     // sort — or the Nearest sort picked directly) and their location is known.
-    // Ties (equal/unknown distance) still break using verified + revenue.
+    // Ties (equal/unknown distance) fall back to the shared bestMatchCompare.
     const useDistancePrimary = myCoords && (sortBy === 'nearest' || (sortBy === 'best' && distanceModeActive));
-    const distanceCompare = (a, b) => {
-      if (a.__km != null && b.__km != null && a.__km !== b.__km) return a.__km - b.__km;
-      if (a.__km != null && b.__km == null) return -1;
-      if (a.__km == null && b.__km != null) return 1;
-      const av = hasVerifiedWork(a) ? 1 : 0, bv = hasVerifiedWork(b) ? 1 : 0;
-      if (av !== bv) return bv - av;
-      return verifiedAmountNum(b) - verifiedAmountNum(a);
-    };
-    let withinTierCompare;
-    if (useDistancePrimary) withinTierCompare = distanceCompare;
-    else if (sortBy === 'best') withinTierCompare = bestMatchCompare;
-    else if (sortBy === 'revenue') withinTierCompare = (a, b) => verifiedAmountNum(b) - verifiedAmountNum(a);
-    else if (sortBy === 'rating') withinTierCompare = (a, b) => ratingNum(b) - ratingNum(a);
-    else if (sortBy === 'jobs') withinTierCompare = (a, b) => jobsCountNum(b) - jobsCountNum(a);
-    // 'nearest' with no resolved location yet — keep fetch order until it resolves
-    else withinTierCompare = () => 0;
+    const withinTierCompare = compareForSort(sortBy, { useDistancePrimary });
 
     const sorted = [...list];
     // A provider whose PRIMARY skill/category matched the search query always
@@ -654,7 +495,7 @@ export default function SearchScreen({ navigation, route }) {
 
   const openProfile = (item) => {
     const screen = PROFILE_SCREEN[(item.profileType || '').toLowerCase()];
-    if (item.uid && screen) navigation.navigate(screen, { uid: item.uid });
+    if (item.uid && screen) openProviderProfile(navigation, screen, { uid: item.uid });
   };
 
   const closeViewer = () => setViewer(v => ({ ...v, visible: false }));
@@ -765,7 +606,7 @@ export default function SearchScreen({ navigation, route }) {
               style={{ flex: 1 }}
               data={visible}
               keyExtractor={(item, i) => (item.uid || item.name || 'x') + i}
-              renderItem={({ item }) => <ResultRow item={item} onPress={() => openProfile(item)} />}
+              renderItem={({ item }) => <ProviderRow item={item} onPress={() => openProfile(item)} />}
               ItemSeparatorComponent={() => <View style={s.rowSep} />}
               onEndReached={() => setVisibleCount(v => Math.min(v + PAGE_SIZE, sortedFiltered.length))}
               onEndReachedThreshold={0.4}
@@ -939,34 +780,14 @@ const s = injectFonts({
   emptyIcon: { fontSize: 40, marginBottom: 10, opacity: 0.5 },
   emptyTitle: { fontSize: 14, fontWeight: '600', color: MID },
 
-  // ── Result row — kept compact so ~6-7 rows fit on one screen
-  row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 9 },
+  // ── Row separator — shared by the provider-row FlatList (ProviderRow, see
+  // components/ProviderRow.js) and the project-row FlatList below.
   rowSep: { height: 1, backgroundColor: BORDER, marginLeft: 16 },
-  thumbWrap: { width: 46, height: 46, borderRadius: 10, overflow: 'hidden', flexShrink: 0 },
-  thumbImg: { width: '100%', height: '100%' },
-  thumbPlaceholder: {
-    width: '100%', height: '100%', backgroundColor: FILL,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  thumbPlaceholderIcon: { fontSize: 18, opacity: 0.4 },
-
-  rowInfo: { flex: 1, minWidth: 0 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  name: { fontSize: 13, fontWeight: '700', color: DARK, flexShrink: 1 },
   verifiedBadge: {
     width: 14, height: 14, borderRadius: 7, backgroundColor: LINK_BLUE,
     alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
   verifiedBadgeText: { fontSize: 8, color: '#FFFFFF', fontWeight: '900' },
-  tradeLine: { fontSize: 11, color: LIGHT, fontWeight: '500', marginTop: 1 },
-  statsRow: { fontSize: 11, fontWeight: '700', marginTop: 3 },
-  statsGreen: { color: GREEN },
-  statsDot: { color: LIGHT, fontWeight: '500' },
-  newBadge: {
-    alignSelf: 'flex-start', backgroundColor: GREEN_LIGHT, borderRadius: 6,
-    paddingHorizontal: 7, paddingVertical: 2, marginTop: 3,
-  },
-  newBadgeText: { fontSize: 10, fontWeight: '700', color: GREEN },
 
   // ── Project row (Projects tab)
   projectRow: { paddingHorizontal: 16, paddingVertical: 13 },
@@ -979,12 +800,6 @@ const s = injectFonts({
     paddingHorizontal: 7, paddingVertical: 2, marginTop: 6,
   },
   projectKeywordChipText: { fontSize: 11, fontWeight: '600', color: MID },
-
-  rightCol: { alignItems: 'flex-end', gap: 6, flexShrink: 0 },
-  availNowRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  availDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: GREEN },
-  availNowText: { fontSize: 11, fontWeight: '700', color: GREEN },
-  availNextText: { fontSize: 11, fontWeight: '600', color: LIGHT },
 
   // ── Sort sheet
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', paddingHorizontal: 20 },

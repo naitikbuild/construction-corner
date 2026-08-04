@@ -4,10 +4,10 @@ import {
   StatusBar, TextInput, Alert, ActivityIndicator,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { injectFonts } from '../theme/typography';
+import { getCurrentUid } from '../utils/session';
 import { getProfile } from '../services/userService';
 import { getWorkRecord, confirmWorkRecord, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { sendNotification } from '../services/notificationService';
@@ -82,7 +82,10 @@ export default function RateWorkRecordScreen({ navigation, route }) {
   const load = useCallback(async () => {
     if (!recordId) { setLoading(false); return; }
     try {
-      const me = await AsyncStorage.getItem('uid');
+      // Prefer the live Firebase Auth uid over the cached AsyncStorage copy —
+      // a stale cache here would misidentify the client and write the wrong
+      // uid into confirmedBy.
+      const me = await getCurrentUid();
       setMyUid(me);
       const rec = await getWorkRecord(recordId);
       setRecord(rec);

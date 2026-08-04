@@ -3,12 +3,11 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StatusBar, ActivityIndicator,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { injectFonts } from '../theme/typography';
 import { getAllProviderWorkRecords, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { formatAmountIndian } from '../utils/format';
-import { auth } from '../config/firebase';
+import { getCurrentUid } from '../utils/session';
 
 const DARK   = '#262626';
 const GREEN  = '#22A559';
@@ -40,24 +39,28 @@ function formatDate(v) {
 
 // The most relevant timestamp for a record's current status.
 function recordDate(r) {
-  if (r.status === WORK_RECORD_STATUS.CONFIRMED) return r.confirmedAt;
+  if (r.status === WORK_RECORD_STATUS.CONFIRMED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID) return r.confirmedAt;
   if (r.status === WORK_RECORD_STATUS.DISPUTED) return r.disputedAt;
-  if (r.status === WORK_RECORD_STATUS.LOCKED_PENDING_CONFIRMATION) return r.lockedAt;
+  if (r.status === WORK_RECORD_STATUS.SENT_TO_CLIENT) return r.lockedAt;
   return r.updatedAt || r.createdAt;
 }
 
 const STATUS_META = {
   [WORK_RECORD_STATUS.DRAFT]: { label: 'DRAFT', color: MID, bg: FILL },
-  [WORK_RECORD_STATUS.LOCKED_PENDING_CONFIRMATION]: { label: 'AWAITING CONFIRMATION', color: AMBER_TEXT, bg: AMBER_BG },
+  [WORK_RECORD_STATUS.SENT_TO_CLIENT]: { label: 'AWAITING CONFIRMATION', color: AMBER_TEXT, bg: AMBER_BG },
   [WORK_RECORD_STATUS.CONFIRMED]: { label: 'COMPLETED', color: GREEN, bg: GREEN_LIGHT },
+  [WORK_RECORD_STATUS.COMPLETED_PAID]: { label: 'COMPLETED', color: GREEN, bg: GREEN_LIGHT },
   [WORK_RECORD_STATUS.DISPUTED]: { label: 'DISPUTED', color: ALERT, bg: '#FDEAEA' },
 };
 
+// Each section groups one or more raw statuses under one header — CONFIRMED
+// and COMPLETED_PAID both read as "COMPLETED" here, they just differ in
+// whether the amount is still correctable (see CreateWorkRecordScreen).
 const SECTIONS = [
-  { status: WORK_RECORD_STATUS.DRAFT, title: 'DRAFTS', sub: 'In progress, not yet completed' },
-  { status: WORK_RECORD_STATUS.LOCKED_PENDING_CONFIRMATION, title: 'AWAITING CONFIRMATION', sub: 'Locked, waiting for client to confirm & rate' },
-  { status: WORK_RECORD_STATUS.CONFIRMED, title: 'COMPLETED', sub: 'Verified' },
-  { status: WORK_RECORD_STATUS.DISPUTED, title: 'DISPUTED', sub: '' },
+  { key: 'drafts', statuses: [WORK_RECORD_STATUS.DRAFT], title: 'DRAFTS', sub: 'In progress, not yet completed' },
+  { key: 'awaiting', statuses: [WORK_RECORD_STATUS.SENT_TO_CLIENT], title: 'AWAITING CONFIRMATION', sub: 'Sent to client — still editable until they confirm' },
+  { key: 'completed', statuses: [WORK_RECORD_STATUS.CONFIRMED, WORK_RECORD_STATUS.COMPLETED_PAID], title: 'COMPLETED', sub: 'Verified' },
+  { key: 'disputed', statuses: [WORK_RECORD_STATUS.DISPUTED], title: 'DISPUTED', sub: '' },
 ];
 
 function RecordRow({ record, onPress }) {
@@ -91,8 +94,7 @@ export default function MyWorkRecordsScreen({ navigation }) {
 
   const load = useCallback(async () => {
     try {
-      const cachedUid = await AsyncStorage.getItem('uid');
-      const uid = auth.currentUser?.uid || cachedUid;
+      const uid = await getCurrentUid();
       if (!uid || uid.startsWith('guest_')) {
         setRecords([]);
         return;
@@ -108,12 +110,17 @@ export default function MyWorkRecordsScreen({ navigation }) {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  // push (not navigate) so re-opening a record from this list always mounts a
+  // fresh CreateWorkRecordScreen instance for that exact recordId — reusing an
+  // existing stack instance via navigate() would keep stale form state/recordId
+  // from whatever record was open before, which is what caused a provider's
+  // second saved record to silently overwrite their first.
   const openRecord = (record) => {
-    navigation.navigate('CreateWorkRecord', { recordId: record.id });
+    navigation.push('CreateWorkRecord', { recordId: record.id });
   };
 
   const sections = SECTIONS
-    .map(sec => ({ ...sec, records: records.filter(r => r.status === sec.status) }))
+    .map(sec => ({ ...sec, records: records.filter(r => sec.statuses.includes(r.status)) }))
     .filter(sec => sec.records.length > 0);
 
   return (
@@ -138,7 +145,7 @@ export default function MyWorkRecordsScreen({ navigation }) {
           <Text style={s.emptyText}>No work records yet</Text>
           <TouchableOpacity
             style={s.emptyBtn}
-            onPress={() => navigation.navigate('CreateWorkRecord')}
+            onPress={() => navigation.push('CreateWorkRecord')}
             activeOpacity={0.85}
           >
             <Text style={s.emptyBtnText}>Create work record</Text>
@@ -147,7 +154,7 @@ export default function MyWorkRecordsScreen({ navigation }) {
       ) : (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
           {sections.map(sec => (
-            <View key={sec.status} style={s.section}>
+            <View key={sec.key} style={s.section}>
               <View style={s.sectionHead}>
                 <Text style={s.sectionTitle}>{sec.title} ({sec.records.length})</Text>
                 {sec.sub ? <Text style={s.sectionSub}>{sec.sub}</Text> : null}

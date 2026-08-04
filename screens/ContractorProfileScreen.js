@@ -19,7 +19,7 @@ import { getVerifiedWork, getTotalVerifiedAmount } from '../services/workService
 import { getProviderWorkRecords, workRecordToProject, workRecordToVerifiedWork, getClientReviews, WORK_RECORD_STATUS } from '../services/workRecordService';
 import ClientReviewsSection from '../components/ClientReviewsSection';
 import { formatAmountIndian, formatJoinedDate } from '../utils/format';
-import { auth } from '../config/firebase';
+import { getCurrentUid } from '../utils/session';
 
 
 // ─── Status pill (Taking new projects / Not taking projects) ───────────────
@@ -299,9 +299,9 @@ export default function ContractorProfileScreen({ navigation, route }) {
       // the two can drift (e.g. a stale 'uid' left from an earlier session),
       // and comparing viewUid against a stale "me" silently breaks owner
       // detection even when this really is the signed-in user's own profile.
-      // Guests have no auth.currentUser, so they fall back to the cache.
-      const cachedUid = await AsyncStorage.getItem('uid');
-      const me = auth.currentUser?.uid || cachedUid;
+      // Guests have no auth.currentUser, so they fall back to the cache
+      // (see utils/session.js's getCurrentUid — the one shared resolver).
+      const me = await getCurrentUid();
       const uid = viewUid || me;
       setMyUid(me);
 
@@ -328,8 +328,8 @@ export default function ContractorProfileScreen({ navigation, route }) {
       // Verified totals — only meaningful for real Firebase users (and demo profiles).
       // Demo profiles keep reading their fixture data via the legacy workService
       // calls (already special-cased for demo uids). Real accounts read their
-      // own `work_records` — only 'confirmed' records count toward verified
-      // totals; 'locked_pending_confirmation' ones still show in VERIFIED
+      // own `work_records` — only 'confirmed'/'completed_paid' records count
+      // toward verified totals; 'sent_to_client' ones still show in VERIFIED
       // PROJECTS (as ONGOING) but don't count yet.
       if (uid && !uid.startsWith('guest_')) {
         try {
@@ -343,7 +343,7 @@ export default function ContractorProfileScreen({ navigation, route }) {
             setRealProjects([]);
           } else {
             const records = await getProviderWorkRecords(uid);
-            const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.CONFIRMED);
+            const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.CONFIRMED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
             setVerifiedAmt(confirmed.reduce((sum, r) => sum + (r.contractValue || 0), 0));
             setVerifiedWork(confirmed.map(workRecordToVerifiedWork));
             setRealProjects(records.map(workRecordToProject));
@@ -376,7 +376,7 @@ export default function ContractorProfileScreen({ navigation, route }) {
         'Create a free account or sign in to start chatting with providers.',
         [
           { text: 'Not now', style: 'cancel' },
-          { text: 'Sign In', onPress: () => navigation.navigate('Login') },
+          { text: 'Sign In', onPress: () => navigation.navigate('Login', { initialScreen: 'login' }) },
         ]
       );
       return;
@@ -712,7 +712,7 @@ export default function ContractorProfileScreen({ navigation, route }) {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={s.newWorkRecordBtn}
-                  onPress={() => navigation.navigate('CreateWorkRecord')}
+                  onPress={() => navigation.push('CreateWorkRecord')}
                   activeOpacity={0.85}
                 >
                   <Text style={s.newWorkRecordBtnText}>🧾  New Work Record</Text>

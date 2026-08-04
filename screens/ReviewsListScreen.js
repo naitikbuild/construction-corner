@@ -4,7 +4,7 @@ import {
   StyleSheet, StatusBar, ActivityIndicator,
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getCurrentUid } from '../utils/session';
 import { getVerifiedWork } from '../services/workService';
 
 const GREEN       = '#4CAF50';
@@ -96,7 +96,7 @@ export default function ReviewsListScreen({ navigation, route }) {
   const loadReviews = async () => {
     setLoading(true);
     try {
-      const uid = viewUid || await AsyncStorage.getItem('uid');
+      const uid = viewUid || (await getCurrentUid());
       if (!uid) { setLoading(false); return; }
 
       const works = await getVerifiedWork(uid);

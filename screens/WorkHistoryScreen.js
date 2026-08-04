@@ -1,15 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, ActivityIndicator,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { injectFonts } from '../theme/typography';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { getVerifiedWork } from '../services/workService';
 import { getProviderWorkRecords, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { isDemoUid } from '../demoData';
-import { auth } from '../config/firebase';
+import { getCurrentUid } from '../utils/session';
 const ORANGE = '#262626';
 const GREEN = '#22A559';
 const GREEN_LIGHT = '#EAF7EF';
@@ -59,19 +59,14 @@ export default function WorkHistoryScreen({ navigation, route }) {
   const [totalJobs, setTotalJobs] = useState(0);
   const [avgRating, setAvgRating] = useState(null);
 
-  useEffect(() => {
-    loadWork();
-  }, []);
-
   // Demo profiles keep their fixture data (getVerifiedWork already
   // special-cases demo uids). Real accounts read CONFIRMED work_records —
   // the same source the provider's own profile now uses — never the old
   // hardcoded sample jobs. Guests have no real records, so they land on the
   // empty state.
-  const loadWork = async () => {
+  const loadWork = useCallback(async () => {
     try {
-      const cachedUid = await AsyncStorage.getItem('uid');
-      const uid = viewUid || auth.currentUser?.uid || cachedUid;
+      const uid = viewUid || (await getCurrentUid());
       if (!uid) { setLoading(false); return; }
 
       let mapped = [];
@@ -89,7 +84,7 @@ export default function WorkHistoryScreen({ navigation, route }) {
         }));
       } else if (!uid.startsWith('guest_')) {
         const records = await getProviderWorkRecords(uid);
-        const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.CONFIRMED);
+        const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.CONFIRMED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
         mapped = confirmed.map(r => ({
           id: r.id,
           type: r.projectName || 'Construction Work',
@@ -116,7 +111,9 @@ export default function WorkHistoryScreen({ navigation, route }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [viewUid]);
+
+  useFocusEffect(useCallback(() => { loadWork(); }, [loadWork]));
 
   const filtered = activeFilter === 'All'
     ? workJobs

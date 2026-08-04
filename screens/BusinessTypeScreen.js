@@ -31,7 +31,8 @@ const BUSINESS_TYPES = [
   },
 ];
 
-export default function BusinessTypeScreen({ navigation }) {
+export default function BusinessTypeScreen({ navigation, route }) {
+  const redirectTo = route?.params?.redirectTo ?? null;
   // Scoped to when this screen is actually focused (not just mounted) so it
   // can't be intercepted by — or itself linger and intercept for — another
   // screen's hardware-back listener left over deeper in the stack.
@@ -64,7 +65,7 @@ export default function BusinessTypeScreen({ navigation }) {
           <TouchableOpacity
             key={type.key}
             style={styles.card}
-            onPress={() => navigation.push('Login', { role: type.key, profileType: type.profileType })}
+            onPress={() => navigation.push('Login', { role: type.key, profileType: type.profileType, redirectTo })}
             activeOpacity={0.82}
           >
             <Text style={styles.cardEmoji}>{type.emoji}</Text>

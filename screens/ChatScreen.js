@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, TextInput, StatusBar,
   KeyboardAvoidingView, Platform, Image, Alert, Modal, Linking, ActivityIndicator,
@@ -6,6 +6,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { injectFonts } from '../theme/typography';
 import { getProfile } from '../services/userService';
@@ -354,6 +355,19 @@ export default function ChatScreen({ navigation, route }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Belt-and-suspenders: also re-mark read whenever this screen regains
+  // focus (e.g. coming back from the other participant's profile without a
+  // fresh mount), on top of marking read on initial open and on every
+  // incoming message above — this screen being on-screen should never leave
+  // a conversation showing as unread.
+  useFocusEffect(
+    useCallback(() => {
+      if (chatIdRef.current && myUid) {
+        markChatRead(chatIdRef.current, myUid);
+      }
+    }, [myUid])
+  );
 
   const loadOlder = async () => {
     if (loadingOlderRef.current || !hasMoreOlderRef.current || !chatIdRef.current || !oldestCursorRef.current) return;

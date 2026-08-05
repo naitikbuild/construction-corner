@@ -268,15 +268,28 @@ export default function SettingsScreen({ navigation }) {
       if (auth.currentUser) {
         await deleteUser(auth.currentUser);
       }
+      // deleteUser already drops the Firebase session, but sign out
+      // explicitly too so there's no ambiguity, then wipe every cached key
+      // (uid, localProfile, userName, hasSeenOnboarding, ...) — not just
+      // 'uid' — so nothing about this account lingers on the device.
+      await signOut(auth).catch(() => {});
       await AsyncStorage.clear();
-      navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+      // navigation.reset (not navigate) so the deleted account's screens are
+      // fully gone from the stack — back button can't return into the app.
+      // 'Login' is the app's actual first screen for this exact state: with
+      // no live Firebase user and 'hasSeenOnboarding' just cleared above,
+      // it's exactly what App.js's own initial-route logic would pick on a
+      // fresh launch (see App.js's onAuthStateChanged effect) — it shows the
+      // welcome splash → onboarding flow, not the signed-in Home screen.
+      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
     } catch (err) {
       if (err.code === 'auth/requires-recent-login') {
         Alert.alert('Re-login Required', 'For security, please sign out and sign in again before deleting your account.');
         return;
       }
+      await signOut(auth).catch(() => {});
       await AsyncStorage.clear();
-      navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
     }
   };
 

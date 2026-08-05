@@ -158,7 +158,9 @@ export default function BusinessProfileScreen({ navigation, route }) {
     }
     // ChatScreen creates the chat itself from conversation.uid — no need to
     // pre-create it here (that redundant call was the thing failing silently).
-    navigation.navigate('Chat', {
+    // push, not navigate — guarantees a fresh ChatScreen mount for this
+    // conversation instead of reusing a stale instance already on the stack.
+    navigation.push('Chat', {
       conversation: {
         uid: viewUid,
         name: liveProfile?.companyName || liveProfile?.name || 'Company',

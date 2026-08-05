@@ -28,11 +28,13 @@ export default function LoginScreen({ navigation, route }) {
   const redirectToParam = route?.params?.redirectTo ?? null;
   // initialScreen lets callers skip straight past the splash/onboarding
   // slides (only relevant on a fresh install) — the login gate always passes
-  // this, since the user is already inside the app and just needs to
-  // authenticate or pick an account type, not see the welcome screens again.
+  // this ('login'), since the user is already inside the app and just needs
+  // to authenticate, not see the welcome screens again. Account-type
+  // selection lives entirely in the standalone AccountTypeScreen now (see
+  // utils/authGate.js's "Sign Up" target) — this screen never shows that
+  // choice itself.
   const initialScreenParam = route?.params?.initialScreen ?? null;
   const [screen, setScreen] = useState(initialScreenParam || ((accountTypeParam || roleParam) ? 'login' : 'splash'));
-  const [accountType, setAccountType] = useState(accountTypeParam);
 
   // Phone OTP state
   const [phone, setPhone] = useState('');
@@ -59,8 +61,6 @@ export default function LoginScreen({ navigation, route }) {
       // back to whatever the user was looking at.
       if (initialScreenParam) { navigation.goBack(); return true; }
       if (screen === 'login' && (accountTypeParam || roleParam)) { navigation.goBack(); return true; }
-      if (screen === 'login') { setScreen('accountType'); setOtpSent(false); setOtp(''); setPhone(''); return true; }
-      if (screen === 'accountType') { setScreen('splash'); return true; }
       Alert.alert(
         'Exit App?',
         'Are you sure you want to exit Construction Corner?',
@@ -104,8 +104,10 @@ export default function LoginScreen({ navigation, route }) {
     } else if (roleParam) {
       navigation.replace('EditProfile', { role: roleParam, profileType: profileTypeParam, phone: phoneNum, redirectTo: redirectToParam });
     } else {
-      // No profile, no role yet — show account type picker
-      setScreen('accountType');
+      // No profile, no role yet (e.g. signed in via a bare "Sign In" with no
+      // prior account-type selection) — send them to the standalone
+      // AccountType screen instead of picking a type inline here.
+      navigation.replace('AccountType', { redirectTo: redirectToParam });
     }
   };
 
@@ -230,67 +232,12 @@ export default function LoginScreen({ navigation, route }) {
     );
   }
 
-  // ─── ACCOUNT TYPE SELECTION ───────────────────────────────────────────────
-  if (screen === 'accountType') {
-    return (
-      <SafeAreaView style={styles.page}>
-        <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-        <View style={styles.pageHeader}>
-          <Text style={styles.pageTitle}>What are you{'\n'}looking for?</Text>
-          <Text style={styles.pageSub}>Choose how you'd like to use Construction Corner</Text>
-        </View>
-        <View style={styles.accountCards}>
-          <TouchableOpacity
-            style={[styles.accountCard, styles.accountCardPersonal, accountType === 'personal' && styles.accountCardPersonalSelected]}
-            onPress={() => setAccountType('personal')}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.accountCardEmoji}>🏠</Text>
-            <Text style={[styles.accountCardTitle, { color: '#111' }]}>Personal</Text>
-            <Text style={[styles.accountCardSub, { color: '#6B6560' }]}>Find professionals for all your construction needs</Text>
-            {accountType === 'personal' && <View style={styles.checkBadge}><Text style={styles.checkBadgeText}>✓</Text></View>}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.accountCard, styles.accountCardBusiness]}
-            onPress={() => setAccountType('business')}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.accountCardEmoji}>🏢</Text>
-            <Text style={[styles.accountCardTitle, { color: '#fff' }]}>Business</Text>
-            <Text style={[styles.accountCardSub, { color: 'rgba(255,255,255,0.8)' }]}>Grow your business and expand your network</Text>
-            {accountType === 'business' && (
-              <View style={[styles.checkBadge, { backgroundColor: '#fff' }]}>
-                <Text style={[styles.checkBadgeText, { color: BLUE }]}>✓</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-        <TouchableOpacity
-          style={[styles.primaryBtn, !accountType && styles.primaryBtnDisabled, styles.primaryBtnBottom]}
-          disabled={!accountType}
-          onPress={() => {
-            if (accountType === 'personal') {
-              navigation.replace('Login', { role: 'personal', profileType: 'personal', redirectTo: redirectToParam });
-            } else {
-              navigation.replace('AccountType', { redirectTo: redirectToParam });
-            }
-          }}
-        >
-          <Text style={styles.primaryBtnText}>Continue →</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
-    );
-  }
-
   // ─── LOGIN ────────────────────────────────────────────────────────────────
   return (
     <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <SafeAreaView style={{ flex: 1 }}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      <TouchableOpacity style={styles.backBtn} onPress={() => {
-        if (initialScreenParam || roleParam) { navigation.goBack(); return; }
-        setScreen('accountType'); setOtpSent(false); setOtp(''); setPhone('');
-      }}>
+      <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
         <Text style={styles.backBtnText}>← Back</Text>
       </TouchableOpacity>
 
@@ -442,7 +389,6 @@ export default function LoginScreen({ navigation, route }) {
 const styles = injectFonts({
   primaryBtn: { backgroundColor: '#FF6B2B', paddingVertical: 16, borderRadius: 14, alignItems: 'center', marginHorizontal: 24, marginTop: 12 },
   primaryBtnDisabled: { backgroundColor: '#FFCBA8' },
-  primaryBtnBottom: { marginTop: 'auto', marginBottom: 16 },
   primaryBtnText: { fontSize: 16, fontWeight: '700', color: '#fff' },
 
   splash: { flex: 1, backgroundColor: '#F5F5F0', alignItems: 'center', justifyContent: 'center', padding: 24 },
@@ -464,20 +410,8 @@ const styles = injectFonts({
   dotActive: { width: 24, backgroundColor: '#FF6B2B' },
 
   page: { flex: 1, backgroundColor: '#F5F5F0' },
-  pageHeader: { paddingHorizontal: 24, paddingTop: 40, marginBottom: 32 },
   pageTitle: { fontSize: 28, fontWeight: '800', color: '#1A1A1A', marginBottom: 8, lineHeight: 36 },
   pageSub: { fontSize: 14, color: '#666666', lineHeight: 21 },
-
-  accountCards: { paddingHorizontal: 24, gap: 16 },
-  accountCard: { borderRadius: 20, padding: 28, alignItems: 'center', position: 'relative' },
-  accountCardPersonal: { backgroundColor: '#FFFFFF', borderWidth: 2, borderColor: '#EFEFEF' },
-  accountCardPersonalSelected: { borderColor: '#FF6B2B', backgroundColor: '#FFF3E0' },
-  accountCardBusiness: { backgroundColor: '#1A1A2E' },
-  accountCardEmoji: { fontSize: 52, marginBottom: 12 },
-  accountCardTitle: { fontSize: 20, fontWeight: '800', marginBottom: 8 },
-  accountCardSub: { fontSize: 13, lineHeight: 20, textAlign: 'center' },
-  checkBadge: { position: 'absolute', top: 14, right: 14, width: 22, height: 22, borderRadius: 11, backgroundColor: '#FF6B2B', alignItems: 'center', justifyContent: 'center' },
-  checkBadgeText: { fontSize: 11, fontWeight: '900', color: '#fff' },
 
   backBtn: { paddingHorizontal: 24, paddingTop: 20, paddingBottom: 4 },
   backBtnText: { fontSize: 14, fontWeight: '700', color: '#FF6B2B' },

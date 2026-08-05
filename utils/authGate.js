@@ -29,7 +29,7 @@ export function requireSignIn(navigation, { screen, params, title, message } = {
       },
       {
         text: 'Sign Up',
-        onPress: () => navigation.navigate('Login', { initialScreen: 'accountType', redirectTo }),
+        onPress: () => navigation.navigate('AccountType', { redirectTo }),
       },
     ]
   );

@@ -1,7 +1,7 @@
 import { db, storage } from '../config/firebase';
 import {
   collection, addDoc, query, orderBy, limit, startAfter,
-  onSnapshot, doc, setDoc, getDoc, updateDoc, serverTimestamp, getDocs, increment,
+  onSnapshot, doc, setDoc, getDoc, updateDoc, serverTimestamp, getDocs, increment, deleteField,
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
@@ -28,9 +28,14 @@ export const sendMessage = async (chatId, message, senderUid, recipientUid) => {
     lastMessage: message,
     lastMessageAt: serverTimestamp(),
     lastMessageSenderId: senderUid,
+    // New activity un-hides the conversation for whichever side had deleted
+    // it (see deleteChatForUser) — a deleted conversation should never
+    // silently swallow new messages.
+    [`deletedFor.${senderUid}`]: deleteField(),
   };
   if (recipientUid) {
     update[`unreadCount.${recipientUid}`] = increment(1);
+    update[`deletedFor.${recipientUid}`] = deleteField();
   }
   await updateDoc(doc(db, 'chats', chatId), update).catch(() => {});
 };
@@ -52,9 +57,11 @@ export const sendWorkRecordMessage = async (chatId, senderUid, recipientUid, rec
     lastMessage: '📄 Work record shared',
     lastMessageAt: serverTimestamp(),
     lastMessageSenderId: senderUid,
+    [`deletedFor.${senderUid}`]: deleteField(),
   };
   if (recipientUid) {
     update[`unreadCount.${recipientUid}`] = increment(1);
+    update[`deletedFor.${recipientUid}`] = deleteField();
   }
   await updateDoc(doc(db, 'chats', chatId), update).catch(() => {});
 };
@@ -97,9 +104,11 @@ export const sendAttachmentMessage = async (chatId, senderUid, recipientUid, att
     lastMessage: preview,
     lastMessageAt: serverTimestamp(),
     lastMessageSenderId: senderUid,
+    [`deletedFor.${senderUid}`]: deleteField(),
   };
   if (recipientUid) {
     update[`unreadCount.${recipientUid}`] = increment(1);
+    update[`deletedFor.${recipientUid}`] = deleteField();
   }
   await updateDoc(doc(db, 'chats', chatId), update).catch(() => {});
 };
@@ -113,6 +122,20 @@ export const markChatRead = async (chatId, uid) => {
   await updateDoc(doc(db, 'chats', chatId), {
     [`unreadCount.${uid}`]: 0,
     [`lastReadAt.${uid}`]: serverTimestamp(),
+  }).catch(() => {});
+};
+
+// Hides a conversation from just this user's Messages list — never touches
+// the shared chat doc's messages or the other participant's own copy of it,
+// so their view is completely unaffected (they can still message the same
+// chatId normally). Reappears automatically for this user the moment either
+// side sends a new message (see sendMessage/sendWorkRecordMessage/
+// sendAttachmentMessage clearing deletedFor on send) — deleting only hides,
+// it never causes a message to be silently lost.
+export const deleteChatForUser = async (chatId, uid) => {
+  if (!chatId || !uid) return;
+  await updateDoc(doc(db, 'chats', chatId), {
+    [`deletedFor.${uid}`]: true,
   }).catch(() => {});
 };
 

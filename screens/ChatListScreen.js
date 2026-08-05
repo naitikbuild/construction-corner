@@ -1,13 +1,13 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, TextInput, StatusBar,
-  ActivityIndicator, Image,
+  ActivityIndicator, Image, Alert,
 } from 'react-native';
 import { db } from '../config/firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { injectFonts } from '../theme/typography';
 import { getProfile } from '../services/userService';
-import { markChatRead } from '../services/chatService';
+import { markChatRead, deleteChatForUser } from '../services/chatService';
 import { getCurrentUid } from '../utils/session';
 import { DEMO_MODE } from '../config/demoMode';
 import { DEMO_CHATS } from '../demoData';
@@ -76,7 +76,7 @@ function demoChatToRow(chat) {
 }
 
 // ─── Conversation row ────────────────────────────────────────────────────────
-function ConversationRow({ item, onPress }) {
+function ConversationRow({ item, onPress, onDelete }) {
   const hasUnread = item.unread > 0;
   return (
     <TouchableOpacity style={s.row} onPress={onPress} activeOpacity={0.7}>
@@ -113,6 +113,20 @@ function ConversationRow({ item, onPress }) {
           <Text style={[s.ticks, item.read && s.ticksRead]}>✓✓</Text>
         ) : null}
       </View>
+
+      {/* Demo conversations are static fixtures, not real Firestore chats —
+          nothing to delete there. A plainly visible icon (not a hidden swipe
+          gesture) since this app's users skew less tech-savvy. */}
+      {!item.isDemo && (
+        <TouchableOpacity
+          style={s.deleteBtn}
+          onPress={onDelete}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          activeOpacity={0.6}
+        >
+          <Text style={s.deleteBtnIcon}>🗑️</Text>
+        </TouchableOpacity>
+      )}
     </TouchableOpacity>
   );
 }
@@ -137,7 +151,12 @@ export default function ChatListScreen({ navigation }) {
       const q = query(collection(db, 'chats'), where('participants', 'array-contains', uid));
       unsubRef.current = onSnapshot(q, async (snap) => {
         if (cancelled) return;
-        const docs = snap.docs.map(d => ({ id: d.id, data: d.data() }));
+        // Deleting a conversation (see deleteChatForUser) only hides it for
+        // whoever deleted it — filtered out here, client-side, rather than
+        // touching the shared doc or the other participant's copy of it.
+        const docs = snap.docs
+          .map(d => ({ id: d.id, data: d.data() }))
+          .filter(({ data }) => !data.deletedFor?.[uid]);
 
         const otherUids = docs
           .map(({ data }) => (data.participants || []).find(p => p !== uid))
@@ -204,12 +223,37 @@ export default function ChatListScreen({ navigation }) {
     );
   }, [search, conversations]);
 
+  const handleDeleteConversation = (item) => {
+    Alert.alert(
+      'Delete this conversation?',
+      `This removes it from your Messages list. ${item.name || 'They'} won't be notified and can still message you.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            // Optimistic — the live Firestore listener above will confirm
+            // (or restore, if the write somehow fails) this on its own, but
+            // removing it from state immediately keeps the list feeling
+            // instant regardless of network conditions.
+            setConversations(prev => prev.filter(c => c.id !== item.id));
+            deleteChatForUser(item.id, myUidRef.current);
+          },
+        },
+      ]
+    );
+  };
+
   const openChat = (item) => {
     // Demo conversations are client-side only — never write to Firestore
     // for them, and pass through the fields ChatScreen needs to render them
     // without any Firestore reads either.
     if (item.isDemo) {
-      navigation.navigate('Chat', {
+      // push, not navigate — guarantees a fresh ChatScreen mount for this
+      // exact conversation instead of reusing a stale instance already on
+      // the stack (which would keep showing/marking-read the wrong chat).
+      navigation.push('Chat', {
         conversation: {
           id: item.id,
           uid: item.uid,
@@ -230,7 +274,7 @@ export default function ChatListScreen({ navigation }) {
     if (item.unread > 0 && myUidRef.current) {
       markChatRead(item.id, myUidRef.current);
     }
-    navigation.navigate('Chat', {
+    navigation.push('Chat', {
       conversation: {
         id: item.id,
         uid: item.uid,
@@ -291,7 +335,13 @@ export default function ChatListScreen({ navigation }) {
           style={{ flex: 1 }}
           data={filtered}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <ConversationRow item={item} onPress={() => openChat(item)} />}
+          renderItem={({ item }) => (
+            <ConversationRow
+              item={item}
+              onPress={() => openChat(item)}
+              onDelete={() => handleDeleteConversation(item)}
+            />
+          )}
           ItemSeparatorComponent={() => <View style={s.separator} />}
           ListEmptyComponent={() => (
             conversations.length === 0 ? (
@@ -403,6 +453,12 @@ const s = injectFonts({
   unreadBadgeText: { fontSize: 11, fontWeight: '800', color: '#FFFFFF' },
   ticks: { fontSize: 13, color: LIGHT, fontWeight: '700' },
   ticksRead: { color: GREEN },
+
+  deleteBtn: {
+    width: 32, height: 32, borderRadius: 16, backgroundColor: FILL,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  deleteBtnIcon: { fontSize: 15 },
 
   // ── Empty
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 6 },

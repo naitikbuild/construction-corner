@@ -1,6 +1,6 @@
 import { db, storage } from '../config/firebase';
 import {
-  collection, addDoc, query, orderBy, limit, startAfter,
+  collection, addDoc, query, where, orderBy, limit, startAfter,
   onSnapshot, doc, setDoc, getDoc, updateDoc, serverTimestamp, getDocs, increment, deleteField,
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -191,6 +191,26 @@ export const getUserChats = async (userId) => {
       return data.participants && data.participants.includes(userId);
     })
     .map(d => ({ id: d.id, ...d.data() }));
+};
+
+// Live total of unread messages across every chat this user is in — powers
+// the Chat tab's badge (see BottomNav). Sums each chat's
+// unreadCount.{uid} (kept in sync by sendMessage/sendWorkRecordMessage/
+// sendAttachmentMessage on send and markChatRead on open), skipping chats
+// this user deleted (see deleteChatForUser) since those don't show in their
+// list either. Fires again on every relevant change — new message, chat
+// opened/marked read, conversation deleted — so it always matches what
+// ChatListScreen itself would compute.
+export const subscribeUnreadMessageCount = (uid, callback) => {
+  const q = query(collection(db, 'chats'), where('participants', 'array-contains', uid));
+  return onSnapshot(q, (snap) => {
+    const total = snap.docs.reduce((sum, d) => {
+      const data = d.data();
+      if (data.deletedFor?.[uid]) return sum;
+      return sum + Number(data.unreadCount?.[uid] || 0);
+    }, 0);
+    callback(total);
+  }, () => callback(0));
 };
 
 export const createChat = async (user1, user2) => {

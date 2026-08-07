@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { signOut, deleteUser } from 'firebase/auth';
+import { signOut, deleteUser, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { auth, db } from '../config/firebase';
 import { doc, deleteDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { getProfile, updateProfile } from '../services/userService';
@@ -17,7 +17,7 @@ const SUPPORT_EMAIL = 'support@constructioncorner.in';
 const SUPPORT_WHATSAPP = 'https://wa.me/919876543210?text=Hi%2C%20I%20need%20help%20with%20Construction%20Corner%20app';
 
 // ─── Text input modal (Change phone / Change email / Report a problem) ───────
-function InputModal({ visible, title, placeholder, value, onChangeText, onClose, onSave, multiline, keyboardType }) {
+function InputModal({ visible, title, placeholder, value, onChangeText, onClose, onSave, multiline, keyboardType, secureTextEntry, saveLabel, busy }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={m.overlay}>
@@ -31,14 +31,15 @@ function InputModal({ visible, title, placeholder, value, onChangeText, onClose,
             placeholderTextColor="#8E8E8E"
             multiline={multiline}
             keyboardType={keyboardType || 'default'}
+            secureTextEntry={secureTextEntry}
             autoFocus
           />
           <View style={m.btnRow}>
-            <TouchableOpacity style={m.cancelBtn} onPress={onClose}>
+            <TouchableOpacity style={m.cancelBtn} onPress={onClose} disabled={busy}>
               <Text style={m.cancelBtnText}>Cancel</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={m.saveBtn} onPress={onSave}>
-              <Text style={m.saveBtnText}>Save</Text>
+            <TouchableOpacity style={m.saveBtn} onPress={onSave} disabled={busy}>
+              {busy ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={m.saveBtnText}>{saveLabel || 'Save'}</Text>}
             </TouchableOpacity>
           </View>
         </View>
@@ -121,6 +122,9 @@ export default function SettingsScreen({ navigation }) {
   const [emailInput, setEmailInput] = useState('');
   const [reportModal, setReportModal] = useState(false);
   const [reportInput, setReportInput] = useState('');
+  const [reauthModal, setReauthModal] = useState(false);
+  const [reauthPassword, setReauthPassword] = useState('');
+  const [reauthBusy, setReauthBusy] = useState(false);
 
   useEffect(() => { load(); }, []);
 
@@ -216,6 +220,7 @@ export default function SettingsScreen({ navigation }) {
   const goMyWorkRecords = () => navigation.navigate('MyWorkRecords');
   const goMyReviews = () => navigation.navigate('ReviewsList', { uid });
   const goMyBookings = () => navigation.navigate('PersonalProfile');
+  const goClientReviews = () => navigation.navigate('ClientReviews');
 
   // ── Sign out ───────────────────────────────────────────────────────────────
   const handleSignOut = () => {
@@ -260,37 +265,96 @@ export default function SettingsScreen({ navigation }) {
     );
   };
 
+  // deleteUser already drops the Firebase session, but sign out explicitly
+  // too so there's no ambiguity, then wipe every cached key (uid,
+  // localProfile, userName, hasSeenOnboarding, ...) — not just 'uid' — so
+  // nothing about this account lingers on the device.
+  // navigation.reset (not navigate) so the deleted account's screens are
+  // fully gone from the stack — back button can't return into the app.
+  // 'Login' is the app's actual first screen for this exact state: with no
+  // live Firebase user and 'hasSeenOnboarding' just cleared above, it's
+  // exactly what App.js's own initial-route logic would pick on a fresh
+  // launch (see App.js's onAuthStateChanged effect) — it shows the welcome
+  // splash → onboarding flow, not the signed-in Home screen.
+  const finishLocalCleanup = async () => {
+    await signOut(auth).catch(() => {});
+    await AsyncStorage.clear();
+    navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+  };
+
   const performDelete = async () => {
+    const user = auth.currentUser;
     try {
+      // Firestore data goes first and is best-effort (own try/catch) — a
+      // user doc that's already missing shouldn't block account deletion.
       if (uid && !isGuest) {
         try { await deleteDoc(doc(db, 'users', uid)); } catch (_) {}
       }
-      if (auth.currentUser) {
-        await deleteUser(auth.currentUser);
+      if (user) {
+        await deleteUser(user);
       }
-      // deleteUser already drops the Firebase session, but sign out
-      // explicitly too so there's no ambiguity, then wipe every cached key
-      // (uid, localProfile, userName, hasSeenOnboarding, ...) — not just
-      // 'uid' — so nothing about this account lingers on the device.
-      await signOut(auth).catch(() => {});
-      await AsyncStorage.clear();
-      // navigation.reset (not navigate) so the deleted account's screens are
-      // fully gone from the stack — back button can't return into the app.
-      // 'Login' is the app's actual first screen for this exact state: with
-      // no live Firebase user and 'hasSeenOnboarding' just cleared above,
-      // it's exactly what App.js's own initial-route logic would pick on a
-      // fresh launch (see App.js's onAuthStateChanged effect) — it shows the
-      // welcome splash → onboarding flow, not the signed-in Home screen.
-      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+      await finishLocalCleanup();
     } catch (err) {
       if (err.code === 'auth/requires-recent-login') {
-        Alert.alert('Re-login Required', 'For security, please sign out and sign in again before deleting your account.');
+        // Firestore data is already gone at this point — the Auth account
+        // must still be removed too, otherwise the email/phone stays
+        // "already registered" forever. Password accounts can recover in
+        // place via reauthenticateWithCredential; anything else (phone
+        // sign-in) falls back to asking for a fresh login.
+        const hasPassword = user?.providerData?.some(p => p.providerId === 'password');
+        if (hasPassword) {
+          setReauthPassword('');
+          setReauthModal(true);
+        } else {
+          Alert.alert(
+            'Re-login Required',
+            'Your data has been deleted. For security, please sign out, sign in again, then delete your account once more to finish removing it.'
+          );
+          await finishLocalCleanup();
+        }
         return;
       }
-      await signOut(auth).catch(() => {});
-      await AsyncStorage.clear();
-      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+      Alert.alert('Delete Failed', 'Something went wrong while deleting your account. Please try again.');
     }
+  };
+
+  // ── Delete account: reauth retry (password accounts only) ────────────────
+  const submitReauthDelete = async () => {
+    const password = reauthPassword.trim();
+    if (!password) return;
+    const user = auth.currentUser;
+    if (!user?.email) { setReauthModal(false); return; }
+    setReauthBusy(true);
+    try {
+      const credential = EmailAuthProvider.credential(user.email, password);
+      await reauthenticateWithCredential(user, credential);
+      await deleteUser(user);
+      setReauthBusy(false);
+      setReauthModal(false);
+      setReauthPassword('');
+      await finishLocalCleanup();
+    } catch (err) {
+      setReauthBusy(false);
+      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        Alert.alert('Incorrect Password', 'Please enter your current password to confirm account deletion.');
+      } else {
+        Alert.alert('Could Not Verify', 'Something went wrong confirming your identity. Please try again.');
+      }
+    }
+  };
+
+  const cancelReauthDelete = async () => {
+    setReauthModal(false);
+    setReauthPassword('');
+    // The Firestore doc is already deleted by this point (performDelete ran
+    // it before hitting requires-recent-login) — leaving the user signed in
+    // with no profile would be a worse, silently-broken state than telling
+    // them plainly and finishing the local sign-out.
+    Alert.alert(
+      'Account Data Deleted',
+      'Your profile and data have been removed. To finish removing your account, sign in again and delete it once more.'
+    );
+    await finishLocalCleanup();
   };
 
   if (loading) {
@@ -327,6 +391,7 @@ export default function SettingsScreen({ navigation }) {
             {/* MY BOOKINGS */}
             <Group title="MY BOOKINGS">
               <Row label="My Bookings" subtitle="View the services you've hired" onPress={goMyBookings} />
+              <Row label="Reviews as a Client" subtitle="What providers you've hired said about you" onPress={goClientReviews} />
             </Group>
 
             {/* NOTIFICATIONS */}
@@ -374,6 +439,7 @@ export default function SettingsScreen({ navigation }) {
               <Row label="Work History" subtitle="View your verified work history" onPress={goWorkHistory} />
               <Row label="My Work Records" subtitle="Drafts, awaiting confirmation & completed" onPress={goMyWorkRecords} />
               <Row label="My Reviews" onPress={goMyReviews} />
+              <Row label="Reviews as a Client" subtitle="What providers you've hired said about you" onPress={goClientReviews} />
             </Group>
 
             {/* NOTIFICATIONS */}
@@ -467,6 +533,18 @@ export default function SettingsScreen({ navigation }) {
         onClose={() => setReportModal(false)}
         onSave={submitReport}
         multiline
+      />
+      <InputModal
+        visible={reauthModal}
+        title="Confirm Your Password"
+        placeholder="Current password"
+        value={reauthPassword}
+        onChangeText={setReauthPassword}
+        onClose={cancelReauthDelete}
+        onSave={submitReauthDelete}
+        secureTextEntry
+        saveLabel="Delete Account"
+        busy={reauthBusy}
       />
     </View>
   );

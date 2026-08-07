@@ -32,8 +32,8 @@ const TIMELINE_OPTIONS = ['Urgent', 'This week', 'This month', 'Flexible'];
 // related work in the same request. Pulled from the central categories file
 // so it stays in sync when categories are added later.
 const WORK_TYPE_GROUPS = [
-  { key: 'workers', label: 'SOLO WORKERS', options: SOLO_WORKER_CATEGORIES },
-  { key: 'contractors', label: 'SUB CONTRACTORS', options: CONTRACTOR_CATEGORIES },
+  { key: 'workers', label: 'SKILL EXPERTS', options: SOLO_WORKER_CATEGORIES },
+  { key: 'contractors', label: 'CONTRACTORS', options: CONTRACTOR_CATEGORIES },
   { key: 'professionals', label: 'PROFESSIONALS', options: PROFESSIONAL_CATEGORIES },
 ];
 

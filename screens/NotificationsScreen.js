@@ -53,10 +53,9 @@ function groupByDate(notifications) {
 // ─── Notification Card ────────────────────────────────────────────────────────
 
 function NotifCard({ item, onPress, onDelete }) {
-  const isWorkConfirm = item.type === 'work_confirm';
   return (
     <TouchableOpacity
-      style={[styles.card, item.unread && styles.cardUnread, isWorkConfirm && styles.cardWorkConfirm]}
+      style={[styles.card, item.unread && styles.cardUnread]}
       onPress={onPress}
       activeOpacity={0.75}
     >
@@ -74,11 +73,6 @@ function NotifCard({ item, onPress, onDelete }) {
           <Text style={styles.cardTime}>{item.time}</Text>
         </View>
         <Text style={styles.cardDesc} numberOfLines={2}>{item.description}</Text>
-        {isWorkConfirm && (
-          <View style={styles.confirmCTA}>
-            <Text style={styles.confirmCTAText}>✅  Confirm Now  →</Text>
-          </View>
-        )}
       </View>
 
       {/* Unread dot */}
@@ -100,13 +94,37 @@ function NotifCard({ item, onPress, onDelete }) {
 
 // Works for both a real Firestore notification doc and a guest AsyncStorage
 // item — both share the same { id, type, message, read, createdAt } shape.
+//
+// card.type is always the SAME string as the raw Firestore `type` field for
+// every entry below — the tap-routing switch in renderItem matches on this
+// directly, so a raw type and its typeMap key must never diverge (a past
+// version remapped work_confirmed -> 'work_verified', which made the
+// switch's own 'work_confirmed' branch permanently unreachable).
 function notifToCard(n) {
   const typeMap = {
-    work_confirmation: { icon: '🛡️', iconBg: '#DCFCE7', iconColor: '#15803D', filter: 'Work', type: 'work_confirm' },
-    work_confirmed:   { icon: '✅', iconBg: '#F0FDF4', iconColor: '#15803D', filter: 'Work', type: 'work_verified' },
-    message:          { icon: '🔔', iconBg: '#E0F5FE', iconColor: BLUE, filter: 'Messages', type: 'message' },
+    // Client: provider sent a record, needs to approve the START of the
+    // engagement (first of the two-approval lifecycle — see
+    // workRecordService.js).
+    work_start_request: { icon: '📝', iconBg: '#FFF3E0', iconColor: '#B26A00', filter: 'Work' },
+    // Provider: client approved the start — record is now ongoing.
+    work_started:   { icon: '🟢', iconBg: '#F0FDF4', iconColor: '#15803D', filter: 'Work' },
+    // Provider: client declined the start approval.
+    work_rejected:  { icon: '✕', iconBg: '#FDEAEA', iconColor: '#B00020', filter: 'Work' },
+    // Client: provider marked the work complete, needs to confirm + rate
+    // (second of the two-approval lifecycle).
+    work_completion_request: { icon: '🧾', iconBg: '#FFF3E0', iconColor: '#B26A00', filter: 'Work' },
+    // Provider: client confirmed + rated — provider can rate them back.
+    work_confirmed: { icon: '⭐', iconBg: '#F0FDF4', iconColor: '#15803D', filter: 'Work' },
+    // Provider: client raised an issue instead of confirming.
+    work_disputed:  { icon: '⚑', iconBg: '#FDEAEA', iconColor: '#B00020', filter: 'Work' },
+    // Client: provider rated them back after confirming.
+    client_rated:   { icon: '👍', iconBg: '#F0FDF4', iconColor: '#15803D', filter: 'Work' },
+    // Legacy pending_work/verified_work flow (services/workService.js
+    // confirmWork) — still actively written, so still routed, not removed.
+    work_verified:  { icon: '✅', iconBg: '#F0FDF4', iconColor: '#15803D', filter: 'Work' },
+    message:        { icon: '🔔', iconBg: '#E0F5FE', iconColor: BLUE, filter: 'Messages' },
   };
-  const meta = typeMap[n.type] || { icon: '🔔', iconBg: '#E0F5FE', iconColor: BLUE, filter: 'All', type: 'general' };
+  const meta = typeMap[n.type] || { icon: '🔔', iconBg: '#E0F5FE', iconColor: BLUE, filter: 'All' };
   const ts = n.createdAt ? new Date(n.createdAt) : new Date();
   const diffMins = Math.round((Date.now() - ts.getTime()) / 60000);
   let time = diffMins < 60 ? `${diffMins}m ago`
@@ -115,7 +133,7 @@ function notifToCard(n) {
     : `${Math.round(diffMins / 1440)}d ago`;
   return {
     id: n.id,
-    type: meta.type,
+    type: typeMap[n.type] ? n.type : 'general',
     icon: meta.icon,
     iconBg: meta.iconBg,
     iconColor: meta.iconColor,
@@ -125,6 +143,7 @@ function notifToCard(n) {
     unread: !n.read,
     filter: meta.filter,
     workId: n.workId || null,
+    recordId: n.recordId || null,
   };
 }
 
@@ -287,11 +306,29 @@ export default function NotificationsScreen({ navigation }) {
             item={item}
             onPress={() => {
               markRead(item.id);
-              if (item.type === 'work_confirm') navigation.navigate('ConfirmWork', { workId: item.workId });
-              else if (item.type === 'work_verified') navigation.navigate('WorkHistory');
-              else if (item.type === 'work_locked') navigation.navigate('WorkRecordReview', { recordId: item.recordId });
+              // Client: approve/decline the start of the engagement.
+              if (item.type === 'work_start_request') navigation.navigate('WorkStartApproval', { recordId: item.recordId });
+              // Provider: client approved/declined the start — open their
+              // own record view (now ongoing, or rejected).
+              else if (item.type === 'work_started' || item.type === 'work_rejected') navigation.push('CreateWorkRecord', { recordId: item.recordId });
+              // Client: review the completed record, confirm + rate the
+              // provider (second of the two-approval lifecycle).
+              else if (item.type === 'work_completion_request') navigation.navigate('WorkRecordReview', { recordId: item.recordId });
+              // Provider: client confirmed + rated — rate the client back.
               else if (item.type === 'work_confirmed') navigation.navigate('RateClient', { recordId: item.recordId });
+              // Provider: open their own record view for the disputed record.
+              // push (not navigate) via CreateWorkRecord — it's the provider's
+              // own editable screen, same entry point as opening from
+              // MyWorkRecords (see CreateWorkRecordScreen's load effect).
               else if (item.type === 'work_disputed') navigation.push('CreateWorkRecord', { recordId: item.recordId });
+              // Client: provider rated them back — open the record detail.
+              // CreateWorkRecordScreen auto-redirects a non-owning viewer
+              // (the client) to the read-only WorkRecordReview screen, so
+              // this is a safe universal entry point for either role.
+              else if (item.type === 'client_rated') navigation.push('CreateWorkRecord', { recordId: item.recordId });
+              // Legacy pending_work/verified_work flow — still written by
+              // services/workService.js's confirmWork(), so still routed.
+              else if (item.type === 'work_verified') navigation.navigate('WorkHistory');
               else if (item.type === 'message') navigation.navigate('ChatList');
               else if (item.type === 'job_update' || item.type === 'job_match') navigation.navigate('Home');
               else if (item.type === 'payment' || item.type === 'review') openMyProfile(navigation);
@@ -399,13 +436,6 @@ const styles = injectFonts({
   cardTitleUnread: { fontWeight: '800', color: '#1A202C' },
   cardTime: { fontSize: 11, fontWeight: '600', color: '#A0ADB8', flexShrink: 0 },
   cardDesc: { fontSize: 13, color: '#718096', lineHeight: 19 },
-  cardWorkConfirm: { borderLeftWidth: 3, borderLeftColor: '#4CAF50', backgroundColor: '#F0FDF4' },
-  confirmCTA: {
-    marginTop: 8, alignSelf: 'flex-start',
-    backgroundColor: '#4CAF50', borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 6,
-  },
-  confirmCTAText: { fontSize: 12, fontWeight: '800', color: '#fff' },
   unreadDot: {
     width: 9, height: 9, borderRadius: 5, backgroundColor: BLUE,
     marginTop: 5, flexShrink: 0,

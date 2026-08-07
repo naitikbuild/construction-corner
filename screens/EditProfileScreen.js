@@ -52,7 +52,7 @@ const MATERIALS = [
 const ROLES = [
   { key: 'Professional', icon: '🏛️',   label: 'Professional', sub: 'Architect, Engineer, Designer' },
   { key: 'Worker',       icon: '👷',   label: 'Worker',       sub: 'Mason, Electrician, Plumber' },
-  { key: 'Contractor',   icon: '👷‍♂️', label: 'Sub Contractor',   sub: 'Individual contractor with a crew' },
+  { key: 'Contractor',   icon: '👷‍♂️', label: 'Contractors',   sub: 'Individual contractor with a crew' },
   { key: 'Business',     icon: '🏢',   label: 'Business',     sub: 'Contractor, Developer, Builder' },
   { key: 'Supplier',     icon: '🏭',   label: 'Supplier',     sub: 'Cement, Steel, Tiles, RMC' },
 ];
@@ -1076,11 +1076,11 @@ function Step3Contractor({ data, setData }) {
 
   return (
     <ScrollView style={styles.stepScroll} showsVerticalScrollIndicator={false}>
-      <Text style={styles.stepTitle}>Sub Contractor Details</Text>
+      <Text style={styles.stepTitle}>Contractor Details</Text>
       <Text style={styles.stepSub}>Show clients your crew, trade and track record</Text>
 
       <Dropdown
-        label="Sub Contractor Type / Trade"
+        label="Contractor Type / Trade"
         required
         value={data.contractorType}
         options={CONTRACTOR_CATEGORIES}
@@ -1596,7 +1596,7 @@ function Step4({ data, onEdit, profileType }) {
 
       {/* Contractor */}
       {(pt === 'contractor' || pt === 'Contractor') && (
-        <ReviewCard title="Sub Contractor Details" onEdit={() => onEdit(detailStep)}>
+        <ReviewCard title="Contractor Details" onEdit={() => onEdit(detailStep)}>
           <ReviewRow icon="🏗️" label="Trade" value={data.contractorType} />
           <ReviewRow icon="📅" label="Experience" value={data.contractorExperience ? `${data.contractorExperience} years` : ''} />
           <ReviewRow icon="👥" label="Team Size" value={data.contractorTeamSize} />
@@ -1680,6 +1680,10 @@ export default function EditProfileScreen({ navigation, route }) {
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
   const [profileLoading, setProfileLoading] = useState(true);
+  // False until the prefill effect below finds a saved profile — distinguishes
+  // "editing my existing profile" (found one) from "finishing signup" (found
+  // none), which decides how the final save/skip navigates.
+  const [hasExistingProfile, setHasExistingProfile] = useState(false);
   const [data, setData] = useState({
     phone,
     profileType: profileType || '',
@@ -1770,6 +1774,7 @@ export default function EditProfileScreen({ navigation, route }) {
         }
         if (existing) {
           setData(prev => ({ ...prev, ...existing, phone: prev.phone || existing.phone || '' }));
+          setHasExistingProfile(true);
           if (focusSection) {
             setStep(profileType ? 2 : 3);
           }
@@ -1821,6 +1826,22 @@ export default function EditProfileScreen({ navigation, route }) {
     contractor: 'ContractorProfile',
     business: 'BusinessProfile',
     supplier: 'SupplierProfile',
+  };
+
+  // Editing an existing profile keeps the normal replace() so the screen it
+  // was opened from (Settings, the provider's own profile) stays reachable
+  // via back. Finishing a fresh signup instead collapses the whole
+  // onboarding/role-selection stack (AccountType/BusinessType/Login/this
+  // wizard) so `dest` (Home, or the login gate's intended destination)
+  // becomes the root — back can't walk back into signup screens.
+  const landAfterSignupOrEdit = (dest, params) => {
+    if (hasExistingProfile) {
+      navigation.replace(dest, params);
+    } else if (dest === 'Home') {
+      navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+    } else {
+      navigation.reset({ index: 1, routes: [{ name: 'Home' }, { name: dest, params }] });
+    }
   };
 
   const handleSave = async () => {
@@ -1906,7 +1927,7 @@ export default function EditProfileScreen({ navigation, route }) {
         Alert.alert(
           'Profile Saved! 🎉',
           'Your profile has been saved on this device. Sign up anytime to go live and connect with clients.',
-          [{ text: 'Continue', onPress: () => navigation.replace('Home') }]
+          [{ text: 'Continue', onPress: () => landAfterSignupOrEdit('Home') }]
         );
       } else {
         // Authenticated user — save to Firestore
@@ -1920,9 +1941,9 @@ export default function EditProfileScreen({ navigation, route }) {
               // If this signup was reached via the login gate (tapping a
               // provider profile while signed out), land on that profile now
               // instead of the provider's own brand-new one.
-              if (redirectTo?.screen) { navigation.replace(redirectTo.screen, redirectTo.params); return; }
+              if (redirectTo?.screen) { landAfterSignupOrEdit(redirectTo.screen, redirectTo.params); return; }
               const dest = PROFILE_DEST[pt] || 'Home';
-              navigation.replace(dest, { uid });
+              landAfterSignupOrEdit(dest, { uid });
             },
           }]
         );
@@ -1964,7 +1985,7 @@ export default function EditProfileScreen({ navigation, route }) {
           <Text style={styles.backBtnText}>‹</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{headerTitle()}</Text>
-        <TouchableOpacity onPress={() => navigation.replace('Home')}>
+        <TouchableOpacity onPress={() => landAfterSignupOrEdit('Home')}>
           <Text style={styles.skipBtn}>Later</Text>
         </TouchableOpacity>
       </View>

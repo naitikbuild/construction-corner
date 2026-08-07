@@ -129,8 +129,8 @@ export default function BusinessProfileScreen({ navigation, route }) {
       if (uid && !uid.startsWith('guest_')) {
         try {
           const records = await getProviderWorkRecords(uid);
-          const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.CONFIRMED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
-          const total = confirmed.reduce((sum, r) => sum + (r.contractValue || 0), 0);
+          const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.VERIFIED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
+          const total = confirmed.reduce((sum, r) => sum + (r.labourCharge || 0), 0);
           setVerifiedAmt(total > 0 ? `₹${total.toLocaleString('en-IN')}` : '₹0');
           setVerifiedJobsCount(confirmed.length);
           setRealProjects(records.map(workRecordToProject));

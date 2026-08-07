@@ -84,13 +84,13 @@ export default function WorkHistoryScreen({ navigation, route }) {
         }));
       } else if (!uid.startsWith('guest_')) {
         const records = await getProviderWorkRecords(uid);
-        const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.CONFIRMED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
+        const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.VERIFIED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
         mapped = confirmed.map(r => ({
           id: r.id,
           type: r.projectName || 'Construction Work',
           location: r.location || 'India',
           date: formatDate(r.confirmedAt) || new Date().toLocaleDateString('en-IN'),
-          amount: Number(r.contractValue) || 0,
+          amount: Number(r.labourCharge) || 0,
           year: String(toJsDate(r.confirmedAt)?.getFullYear() || new Date().getFullYear()),
           customer: r.clientName || 'Client',
           rating: Number(r.rating) || 0,

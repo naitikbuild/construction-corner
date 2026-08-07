@@ -6,11 +6,13 @@ import {
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomNav from '../components/BottomNav';
+import UnreadBadge from '../components/UnreadBadge';
 import { auth } from '../config/firebase';
 import { getCurrentUid } from '../utils/session';
 import { openMyProfile } from '../utils/profileNav';
 import { getProfile } from '../services/userService';
 import { startVoiceSearch } from '../services/voiceSearchService';
+import { subscribeNotifications } from '../services/notificationService';
 import {
   SOLO_WORKER_CATEGORIES,
   CONTRACTOR_CATEGORIES,
@@ -127,8 +129,21 @@ export default function HomeScreen({ navigation }) {
   const micPulse = useRef(new Animated.Value(1)).current;
   const stopListeningRef = useRef(null);
 
+  const [unreadCount, setUnreadCount] = useState(0);
+
   useEffect(() => {
     loadUserInfo();
+  }, []);
+
+  // Bell badge — only for real signed-in accounts (guests have no live
+  // Firestore notifications to count). Live count, so it updates the moment
+  // a notification is read/deleted from the Notifications screen too.
+  useEffect(() => {
+    if (!auth.currentUser) return;
+    const unsub = subscribeNotifications(auth.currentUser.uid, (items) => {
+      setUnreadCount(items.filter(n => !n.read).length);
+    });
+    return unsub;
   }, []);
 
   // Stop any in-flight recognition session if the screen unmounts mid-listen.
@@ -244,13 +259,14 @@ export default function HomeScreen({ navigation }) {
           <View style={styles.headerIcons}>
             <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.navigate('Notifications')}>
               <Text style={{ fontSize: 18 }}>🔔</Text>
+              <UnreadBadge count={unreadCount} />
             </TouchableOpacity>
           </View>
         </View>
 
         {/* CONTRACTORS */}
         <ProviderSection
-          title="Sub Contractors"
+          title="Contractors"
           subtitle="Individual contractors with a crew for bigger jobs"
           categories={CONTRACTOR_CATEGORIES}
           profileType="contractor"
@@ -274,9 +290,9 @@ export default function HomeScreen({ navigation }) {
           width={width}
         />
 
-        {/* SOLO WORKERS */}
+        {/* SKILL EXPERTS */}
         <ProviderSection
-          title="Solo Workers"
+          title="Skill Experts"
           subtitle="Independent skilled workers for hire"
           categories={SOLO_WORKER_CATEGORIES}
           profileType="worker"
@@ -322,6 +338,7 @@ const styles = injectFonts({
     width: 36, height: 36, borderRadius: 10,
     backgroundColor: '#FAF9F5',
     alignItems: 'center', justifyContent: 'center',
+    position: 'relative',
   },
   // Search — always visible, pinned below the animated greeting header.
   // No `elevation` here: on Android, elevation promotes a view to its own

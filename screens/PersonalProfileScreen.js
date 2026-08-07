@@ -16,8 +16,6 @@ import { auth } from '../config/firebase';
 import { getCurrentUid } from '../utils/session';
 import { getProfile } from '../services/userService';
 import { getWorkByCustomer } from '../services/workService';
-import { getClientReviews } from '../services/workRecordService';
-import ClientReviewsSection from '../components/ClientReviewsSection';
 import { formatAmountIndian } from '../utils/format';
 
 const DARK = '#262626';
@@ -58,7 +56,6 @@ export default function PersonalProfileScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState(null);
   const [bookings, setBookings] = useState([]);
-  const [clientReviews, setClientReviews] = useState([]);
   const [myUid, setMyUid] = useState(null);
   const [viewerVisible, setViewerVisible] = useState(false);
   const { headerAnimatedStyle, headerHeight, onHeaderLayout, onScroll } = useAutoHideHeader();
@@ -90,8 +87,6 @@ export default function PersonalProfileScreen({ navigation }) {
       } catch (_) {
         setBookings([]);
       }
-
-      try { setClientReviews(await getClientReviews(me)); } catch (_) { setClientReviews([]); }
     } catch (_) {}
     finally { setLoading(false); }
   }, []);
@@ -190,15 +185,6 @@ export default function PersonalProfileScreen({ navigation }) {
 
         {bookings.map(item => <BookingCard key={item.id} item={item} />)}
 
-        {/* Reviews as a client — providers' reviews of this person, from
-            work records where they hired someone. */}
-        <View style={styles.sectionHead}>
-          <Text style={styles.sectionTitle}>Reviews as a Client</Text>
-        </View>
-        <View style={styles.reviewsWrap}>
-          <ClientReviewsSection reviews={clientReviews} />
-        </View>
-
         {/* Settings / Sign Out */}
         <View style={{ height: 12 }} />
         <TouchableOpacity style={styles.settingsRow} onPress={() => navigation.navigate('Settings')}>
@@ -266,10 +252,6 @@ const styles = injectFonts({
   sectionHead: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     marginHorizontal: 16, marginBottom: 12, marginTop: 4,
-  },
-  reviewsWrap: {
-    marginHorizontal: 16, marginBottom: 16, padding: 14, borderRadius: 14,
-    backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: BORDER,
   },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: TEXT_DARK },
   sectionCount: {

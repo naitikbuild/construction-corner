@@ -11,11 +11,12 @@ import { injectFonts } from '../theme/typography';
 import PhotoViewer from '../components/PhotoViewer';
 import { getCurrentUid } from '../utils/session';
 import { searchUsers, getProfile } from '../services/userService';
-import { createWorkRecord, updateWorkRecord, getWorkRecord, lockWorkRecord, WORK_RECORD_STATUS } from '../services/workRecordService';
+import { createWorkRecord, updateWorkRecord, getWorkRecord, sendWorkToClient, markWorkComplete, deleteWorkRecord, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { sendNotification } from '../services/notificationService';
 import { createChat, sendWorkRecordMessage } from '../services/chatService';
 import { useToast } from '../hooks/useToast';
 import { PROJECT_CATEGORIES, WORK_KEYWORDS } from '../constants/categories';
+import { formatAmountIndian } from '../utils/format';
 
 const MAX_KEYWORDS = 10;
 
@@ -43,7 +44,7 @@ function roleLabel(u) {
   const type = (u.profileType || '').toLowerCase();
   if (type === 'personal') return 'Homeowner';
   if (type === 'worker') return u.category || u.workerSkill || u.primarySkill || 'Worker';
-  if (type === 'contractor') return u.category || u.contractorType || 'Sub Contractor';
+  if (type === 'contractor') return u.category || u.contractorType || 'Contractors';
   if (type === 'professional') return u.category || u.designation || 'Professional';
   if (type === 'business' || type === 'supplier') return 'Company';
   return 'User';
@@ -73,9 +74,9 @@ function formatINR(n) {
   return `₹${num.toLocaleString('en-IN')}`;
 }
 
-function Field({ label, required, error, hint, children }) {
+function Field({ label, required, error, hint, children, onLayout }) {
   return (
-    <View style={s.fieldWrap}>
+    <View style={s.fieldWrap} onLayout={onLayout}>
       {label ? (
         <Text style={s.fieldLabel}>
           {label}{required ? <Text style={s.required}> *</Text> : null}
@@ -283,28 +284,41 @@ function CalendarModal({ visible, title, value, onSelect, onClose }) {
   );
 }
 
-// ── Send-to-client confirmation. This does NOT lock the record — the
-// provider can keep editing every field right up until the client confirms;
-// the record only truly locks once the client acts (see WORK_RECORD_STATUS).
-function LockConfirmModal({ visible, clientName, labourCharge, onCancel, onConfirm, locking }) {
+// ── Send-to-client confirmation — shared by BOTH approvals in the
+// two-approval lifecycle: start (draft → pending_start_approval) and
+// completion (ongoing → pending_completion_approval). Neither is a lock —
+// the provider can keep editing every field right through both pending
+// states; nothing locks until the client confirms completion.
+function SendToClientModal({ visible, mode, clientName, labourCharge, onCancel, onConfirm, locking }) {
+  const isCompletion = mode === 'completion';
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={locking ? undefined : onCancel}>
       <TouchableOpacity style={s.modalOverlay} onPress={locking ? undefined : onCancel} activeOpacity={1}>
         <TouchableOpacity style={s.lockSheet} activeOpacity={1} onPress={() => {}}>
-          <Text style={s.lockTitle}>Mark work as completed?</Text>
+          <Text style={s.lockTitle}>
+            {isCompletion ? 'Mark this work as completed?' : `Send this record to ${clientName}?`}
+          </Text>
           <Text style={s.lockBody}>
-            This sends the record to {clientName} to review and confirm. You can still edit every field until they confirm — nothing locks yet.
+            {isCompletion
+              ? `This sends the record to ${clientName} to confirm the work is complete and rate it. You can still edit the details until they confirm.`
+              : `This sends the record to ${clientName} to approve the start of the engagement. You can still edit every field — nothing locks yet.`}
           </Text>
           <View style={s.lockInfoBox}>
-            <Text style={s.lockInfoLine}>✓ {clientName} is notified to review & rate this work</Text>
-            <Text style={s.lockInfoLine}>✓ Still fully editable — {formatINR(labourCharge)} counts toward verified work only once they confirm</Text>
+            <Text style={s.lockInfoLine}>
+              {isCompletion ? `✓ ${clientName} is notified to review & rate this work` : `✓ ${clientName} is notified to approve this work`}
+            </Text>
+            <Text style={s.lockInfoLine}>
+              {isCompletion
+                ? `✓ Once ${clientName} approves, ${formatAmountIndian(labourCharge)} (labour charge) will be added to your verified work records`
+                : `✓ Still fully editable — ${formatINR(labourCharge)} can be corrected any time before you mark it complete`}
+            </Text>
           </View>
           <View style={s.lockActionsRow}>
             <TouchableOpacity style={s.lockNotYetBtn} onPress={onCancel} activeOpacity={0.85} disabled={locking}>
               <Text style={s.lockNotYetBtnText}>Not yet</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[s.lockConfirmBtn, locking && s.btnDisabled]} onPress={onConfirm} activeOpacity={0.85} disabled={locking}>
-              {locking ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.lockConfirmBtnText}>✔ Complete & send</Text>}
+              {locking ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.lockConfirmBtnText}>{isCompletion ? 'Mark completed →' : 'Send to client →'}</Text>}
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -327,6 +341,8 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
   const [status, setStatus] = useState('draft');
   const [lockedAt, setLockedAt] = useState(null);
   const [lockedByName, setLockedByName] = useState('');
+  const [completedAt, setCompletedAt] = useState(null);
+  const [completedByName, setCompletedByName] = useState('');
   const [providerReview, setProviderReview] = useState(null);
 
   const [client, setClient] = useState(null); // full user object of selected client
@@ -342,27 +358,40 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
   const [photos, setPhotos] = useState([]);
 
   const [errors, setErrors] = useState({});
+  const scrollRef = useRef(null);
+  // y-offset of each required Field within the form ScrollView, captured via
+  // onLayout — lets a failed validation scroll straight to the first
+  // offending field instead of leaving the user to hunt for small red text.
+  const fieldPositions = useRef({});
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
   const [keywordPickerOpen, setKeywordPickerOpen] = useState(false);
   const [startPickerOpen, setStartPickerOpen] = useState(false);
   const [finishPickerOpen, setFinishPickerOpen] = useState(false);
   const [lockModalOpen, setLockModalOpen] = useState(false);
+  // Which of the two approvals the shared SendToClientModal is currently
+  // being used for — decides its copy and which confirm handler fires.
+  const [sendModalMode, setSendModalMode] = useState('start');
   const [locking, setLocking] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
 
-  // Editability follows the lifecycle: 'draft' and 'sent_to_client' are both
-  // fully editable — sending to the client is NOT a lock, the provider can
-  // still fix any field until the client confirms. Once confirmed, every
-  // field locks EXCEPT the work amount, which stays open as a correction
-  // "bucket" until commission is paid ('completed_paid') — 'disputed' is
-  // also fully read-only.
+  // Editability follows the lifecycle: 'draft', 'pending_start_approval',
+  // 'ongoing' AND 'pending_completion_approval' are all fully editable —
+  // neither approval is a lock; the provider can keep fixing any field right
+  // up until the client actually confirms completion. 'rejected' is
+  // read-only (declined, nothing left to edit). Once verified, every field
+  // locks EXCEPT the work amount, which stays open as a correction "bucket"
+  // until commission is paid ('completed_paid') — 'disputed' is also fully
+  // read-only.
   const isDraft = status === WORK_RECORD_STATUS.DRAFT;
-  const isSentToClient = status === WORK_RECORD_STATUS.SENT_TO_CLIENT;
-  const isConfirmed = status === WORK_RECORD_STATUS.CONFIRMED;
-  const isFullyEditable = isDraft || isSentToClient;
+  const isPendingStartApproval = status === WORK_RECORD_STATUS.PENDING_START_APPROVAL;
+  const isOngoing = status === WORK_RECORD_STATUS.ONGOING;
+  const isRejected = status === WORK_RECORD_STATUS.REJECTED;
+  const isPendingCompletionApproval = status === WORK_RECORD_STATUS.PENDING_COMPLETION_APPROVAL;
+  const isVerified = status === WORK_RECORD_STATUS.VERIFIED;
+  const isFullyEditable = isDraft || isPendingStartApproval || isOngoing || isPendingCompletionApproval;
   const fieldsLocked = !isFullyEditable;
-  const amountLocked = fieldsLocked && !isConfirmed;
+  const amountLocked = fieldsLocked && !isVerified;
 
   const { toastMessage, toastOpacity, showToast } = useToast();
 
@@ -426,11 +455,17 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
       if (existingRecordId) {
         try {
           const rec = await getWorkRecord(existingRecordId);
-          // This screen is the provider's own editable/locked view. Anyone
-          // else who opens it (the client, tapping the record card shared in
-          // chat) belongs in the read-only client review flow instead.
+          // This screen is the provider's own editable view. Anyone else who
+          // opens it (the client, tapping the record card shared in chat)
+          // belongs in a client-facing screen instead — which one depends on
+          // where the record is in the two-approval lifecycle: still
+          // awaiting/settled on the START approval goes to the light
+          // approve/decline screen, anything past that (ongoing and beyond)
+          // goes to the fuller read-only review screen.
           if (rec && rec.providerId !== uid) {
-            navigation.replace('WorkRecordReview', { recordId: existingRecordId });
+            const startFlow = rec.status === WORK_RECORD_STATUS.PENDING_START_APPROVAL
+              || rec.status === WORK_RECORD_STATUS.REJECTED;
+            navigation.replace(startFlow ? 'WorkStartApproval' : 'WorkRecordReview', { recordId: existingRecordId });
             return;
           }
           if (rec) {
@@ -454,6 +489,8 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
             setStatus(rec.status || 'draft');
             setLockedAt(toJsDate(rec.lockedAt));
             setLockedByName(rec.lockedByName || '');
+            setCompletedAt(toJsDate(rec.completedAt));
+            setCompletedByName(rec.completedByName || '');
             setProviderReview(rec.providerReview || null);
           } else {
             setNotFound(true);
@@ -467,13 +504,41 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
     })();
   }, [existingRecordId]);
 
+  // Required for both saving and locking: client, project name, category.
+  // Everything else on the form (work area, location, dates, amounts,
+  // photos) is optional and must never block either action.
+  const REQUIRED_FIELD_LABELS = { client: 'Client', projectName: 'Project name', category: 'Category' };
+  const REQUIRED_FIELD_ORDER = ['client', 'projectName', 'category'];
+
   const validate = () => {
     const next = {};
     if (!client) next.client = 'Select the client this work is agreed with';
     if (!projectName.trim()) next.projectName = 'Enter a project name';
     if (!category) next.category = 'Select a project category';
     setErrors(next);
-    return Object.keys(next).length === 0;
+    return next;
+  };
+
+  // Runs validate(), and if anything's missing, surfaces it two ways: a
+  // blocking Alert naming exactly which fields are missing (inline red text
+  // alone is easy to miss if the user's scrolled away from it), and a scroll
+  // to the first offending field so it's actually on screen. Shared by both
+  // "Save details" and "Mark completed" so they can never disagree about
+  // what's required.
+  const validateAndAlert = () => {
+    const next = validate();
+    const missingKeys = REQUIRED_FIELD_ORDER.filter((key) => next[key]);
+    if (missingKeys.length > 0) {
+      Alert.alert(
+        'Missing required fields',
+        `Please complete: ${missingKeys.map((k) => REQUIRED_FIELD_LABELS[k]).join(', ')}`
+      );
+      const y = fieldPositions.current[missingKeys[0]];
+      if (scrollRef.current && typeof y === 'number') {
+        scrollRef.current.scrollTo({ y: Math.max(0, y - 16), animated: true });
+      }
+    }
+    return missingKeys.length === 0;
   };
 
   const handleSelectClient = (u) => {
@@ -545,14 +610,14 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
   };
 
   const handleSaveDetails = async () => {
-    if (!validate()) return;
+    if (!validateAndAlert()) return;
     if (!providerId) { Alert.alert('Error', 'No session found. Please restart the app.'); return; }
     setSaving(true);
     try {
       await persist();
       const message = isDraft
         ? 'Draft saved — find it in My Work Records'
-        : isConfirmed
+        : isVerified
           ? 'Amount updated — find it in My Work Records'
           : 'Changes saved — find it in My Work Records';
       showToast(message);
@@ -567,13 +632,59 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
     }
   };
 
-  const handleMarkCompleted = () => {
-    if (!validate()) return;
+  const handleSendToClient = () => {
+    const valid = validateAndAlert();
+    console.log('SEND TO CLIENT validate:', {
+      valid,
+      missingClient: !client,
+      missingProject: !projectName.trim(),
+      missingCategory: !category,
+    });
+    if (!valid) return;
     if (!providerId) { Alert.alert('Error', 'No session found. Please restart the app.'); return; }
+    setSendModalMode('start');
     setLockModalOpen(true);
   };
 
-  const handleConfirmLock = async () => {
+  // Ongoing → pending_completion_approval. Same required fields as sending
+  // to the client the first time — an ongoing record already has a client,
+  // project name and category, but re-validating costs nothing and guards
+  // against a record somehow reaching here without them.
+  const handleMarkComplete = () => {
+    const valid = validateAndAlert();
+    if (!valid) return;
+    if (!providerId) { Alert.alert('Error', 'No session found. Please restart the app.'); return; }
+    setSendModalMode('completion');
+    setLockModalOpen(true);
+  };
+
+  // Discards an unsaved-to-client draft entirely. Only ever reachable for an
+  // existing draft record (see the header button below) — deleteWorkRecord
+  // itself re-checks ownership + status against the live doc regardless.
+  const handleDeleteDraft = () => {
+    Alert.alert(
+      'Delete this draft?',
+      'This will permanently remove the draft work record. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteWorkRecord(recordId, providerId);
+              navigation.navigate('MyWorkRecords');
+            } catch (err) {
+              Alert.alert('Could Not Delete', err.message || 'Something went wrong. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleConfirmSend = async () => {
+    console.log('handleConfirmSend CALLED');
     setLocking(true);
     try {
       const payload = buildPayload();
@@ -583,16 +694,17 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
         setRecordId(id);
       }
       const nameForLock = providerName || 'The provider';
-      await lockWorkRecord(id, payload, { lockedBy: providerId, lockedByName: nameForLock });
+      await sendWorkToClient(id, payload, { lockedBy: providerId, lockedByName: nameForLock });
+      console.log('SEND: sending work_start_request to client.uid =', client.uid);
       await sendNotification(
         client.uid,
-        'work_locked',
-        `${nameForLock} marked work as completed — please review`,
+        'work_start_request',
+        `${nameForLock} added you to a work record — approve to begin`,
         { recordId: id }
       );
-      // Share it into their chat as a tappable card — this is the client's
-      // entry point into the read-only review + confirm/rate flow, since
-      // there's no notification-tap routing for 'work_locked' yet.
+      // Share it into their chat as a tappable card too — an always-visible
+      // entry point alongside the notification (see ChatScreen's
+      // openWorkRecord, which routes based on the record's current status).
       try {
         const chatId = await createChat(
           { uid: providerId, name: nameForLock },
@@ -603,14 +715,14 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
         });
       } catch (_) {}
 
-      setStatus(WORK_RECORD_STATUS.SENT_TO_CLIENT);
+      setStatus(WORK_RECORD_STATUS.PENDING_START_APPROVAL);
       setLockedAt(new Date());
       setLockedByName(nameForLock);
       setLockModalOpen(false);
 
       Alert.alert(
         'Sent to Client ✅',
-        `${client.name || client.companyName || 'The client'} has been notified to review it. You can still edit the details until they confirm.`,
+        `${client.name || client.companyName || 'The client'} has been notified to approve the start of this work. You can still edit the details.`,
         [{ text: 'OK', onPress: () => navigation.navigate('MyWorkRecords') }]
       );
     } catch (err) {
@@ -618,6 +730,46 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
     } finally {
       setLocking(false);
     }
+  };
+
+  // ongoing → pending_completion_approval. recordId always exists by this
+  // point (an ongoing record was already created and sent once), unlike
+  // handleConfirmSend which also handles the brand-new-draft case.
+  const handleConfirmComplete = async () => {
+    setLocking(true);
+    try {
+      const payload = buildPayload();
+      const nameForComplete = providerName || 'The provider';
+      await markWorkComplete(recordId, payload, { completedBy: providerId, completedByName: nameForComplete });
+      await sendNotification(
+        client.uid,
+        'work_completion_request',
+        `${nameForComplete} marked the work complete — please review & rate`,
+        { recordId }
+      );
+
+      setStatus(WORK_RECORD_STATUS.PENDING_COMPLETION_APPROVAL);
+      setCompletedAt(new Date());
+      setCompletedByName(nameForComplete);
+      setLockModalOpen(false);
+
+      Alert.alert(
+        'Sent to Client ✅',
+        `${client.name || client.companyName || 'The client'} has been notified to review and confirm the completed work.`,
+        [{ text: 'OK', onPress: () => navigation.navigate('MyWorkRecords') }]
+      );
+    } catch (err) {
+      Alert.alert('Could Not Send', err.message || 'Something went wrong. Please try again.');
+    } finally {
+      setLocking(false);
+    }
+  };
+
+  // SendToClientModal is shared by both approvals — dispatch its single
+  // onConfirm to whichever action opened it (see sendModalMode).
+  const handleModalConfirm = () => {
+    if (sendModalMode === 'completion') handleConfirmComplete();
+    else handleConfirmSend();
   };
 
   return (
@@ -639,7 +791,13 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
             <Text style={s.backBtnText}>←</Text>
           </TouchableOpacity>
           <Text style={s.headerTitle}>New Work Record</Text>
-          <View style={{ width: 36 }} />
+          {recordId && isDraft ? (
+            <TouchableOpacity style={s.backBtn} onPress={handleDeleteDraft} activeOpacity={0.7}>
+              <Text style={s.headerDeleteBtnText}>🗑️</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={{ width: 36 }} />
+          )}
         </View>
       </Animated.View>
 
@@ -653,6 +811,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
         </View>
       ) : (
         <ScrollView
+          ref={scrollRef}
           style={s.scroll}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -662,13 +821,25 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
 
           {isDraft ? (
             <View style={s.banner}>
-              <Text style={s.bannerText}>✏️ Editable anytime — update these details, then mark complete once the work is done.</Text>
+              <Text style={s.bannerText}>✏️ Editable — fill in the details, then send to your client to approve the start.</Text>
             </View>
-          ) : isSentToClient ? (
+          ) : isPendingStartApproval ? (
             <View style={s.banner}>
-              <Text style={s.bannerText}>📤 Sent to {client?.name || client?.companyName || 'the client'} for confirmation — still fully editable until they confirm.</Text>
+              <Text style={s.bannerText}>📤 Sent to {client?.name || client?.companyName || 'the client'} — waiting for them to approve the start. Still fully editable.</Text>
             </View>
-          ) : isConfirmed ? (
+          ) : isOngoing ? (
+            <View style={s.ongoingBanner}>
+              <Text style={s.ongoingBannerText}>🟢 Ongoing — {client?.name || client?.companyName || 'the client'} approved the start. Still editable until you mark it complete.</Text>
+            </View>
+          ) : isPendingCompletionApproval ? (
+            <View style={s.banner}>
+              <Text style={s.bannerText}>📤 Sent to {client?.name || client?.companyName || 'the client'} — waiting for them to confirm the work is complete. Still fully editable.</Text>
+            </View>
+          ) : isRejected ? (
+            <View style={s.disputedBanner}>
+              <Text style={s.disputedBannerText}>✕ {client?.name || client?.companyName || 'The client'} declined to start this work record.</Text>
+            </View>
+          ) : isVerified ? (
             <View style={s.confirmedBanner}>
               <Text style={s.confirmedBannerText}>✓ Confirmed by the client — details are locked. The amount stays editable below until commission is paid.</Text>
             </View>
@@ -691,7 +862,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
           {/* Deliberately shows only whether you've rated this client, never
               the rating/review itself — that only ever appears on the
               client's own profile (see ClientReviewsSection). */}
-          {status === WORK_RECORD_STATUS.CONFIRMED && (
+          {status === WORK_RECORD_STATUS.VERIFIED && (
             providerReview ? (
               <View style={s.rateClientDoneBanner}>
                 <Text style={s.rateClientDoneText}>✓ You've rated {client?.name || client?.companyName || 'this client'}</Text>
@@ -703,7 +874,12 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
             )
           )}
 
-          <Field label="Agreed with client" required error={errors.client}>
+          <Field
+            label="Agreed with client"
+            required
+            error={errors.client}
+            onLayout={(e) => { fieldPositions.current.client = e.nativeEvent.layout.y; }}
+          >
             {fieldsLocked ? (
               <View style={[s.clientField, s.readOnlyField]}>
                 <View style={s.clientAvatar}>
@@ -748,7 +924,12 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
             )}
           </Field>
 
-          <Field label="Project name" required error={errors.projectName}>
+          <Field
+            label="Project name"
+            required
+            error={errors.projectName}
+            onLayout={(e) => { fieldPositions.current.projectName = e.nativeEvent.layout.y; }}
+          >
             {fieldsLocked ? (
               <View style={s.readOnlyBox}><Text style={s.readOnlyText}>{projectName || '—'}</Text></View>
             ) : (
@@ -776,7 +957,12 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
             )}
           </Field>
 
-          <Field label="Project category" required error={errors.category}>
+          <Field
+            label="Project category"
+            required
+            error={errors.category}
+            onLayout={(e) => { fieldPositions.current.category = e.nativeEvent.layout.y; }}
+          >
             {fieldsLocked ? (
               <View style={s.readOnlyBox}><Text style={s.readOnlyText}>{category || '—'}</Text></View>
             ) : (
@@ -948,7 +1134,13 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
           activeOpacity={0.7}
         >
           <Text style={s.viewRecordsLinkText}>
-            {isDraft ? '🧾 Saved as draft — View My Work Records →' : '🧾 Sent to client — View My Work Records →'}
+            {isDraft
+              ? '🧾 Saved as draft — View My Work Records →'
+              : isPendingStartApproval
+                ? '🧾 Sent to client — View My Work Records →'
+                : isOngoing
+                  ? '🧾 Ongoing — View My Work Records →'
+                  : '🧾 Sent to client — View My Work Records →'}
           </Text>
         </TouchableOpacity>
       )}
@@ -966,17 +1158,27 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
           {isDraft && (
             <TouchableOpacity
               style={[s.completeBtn, saving && s.btnDisabled]}
-              onPress={handleMarkCompleted}
+              onPress={handleSendToClient}
               activeOpacity={0.85}
               disabled={saving}
             >
-              {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.completeBtnText}>Mark completed →</Text>}
+              {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.completeBtnText}>Send to client →</Text>}
+            </TouchableOpacity>
+          )}
+          {isOngoing && (
+            <TouchableOpacity
+              style={[s.completeBtn, saving && s.btnDisabled]}
+              onPress={handleMarkComplete}
+              activeOpacity={0.85}
+              disabled={saving}
+            >
+              {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.completeBtnText}>Mark work completed →</Text>}
             </TouchableOpacity>
           )}
         </View>
       )}
 
-      {isConfirmed && (
+      {isVerified && (
         <View style={[s.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           <TouchableOpacity
             style={[s.saveBtn, saving && s.btnDisabled]}
@@ -1015,12 +1217,13 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
         onSelect={setPlannedFinish}
         onClose={() => setFinishPickerOpen(false)}
       />
-      <LockConfirmModal
+      <SendToClientModal
         visible={lockModalOpen}
+        mode={sendModalMode}
         clientName={client?.name || client?.companyName || 'The client'}
         labourCharge={labourCharge}
         onCancel={() => setLockModalOpen(false)}
-        onConfirm={handleConfirmLock}
+        onConfirm={handleModalConfirm}
         locking={locking}
       />
       <PhotoViewer
@@ -1062,6 +1265,7 @@ const s = injectFonts({
     alignItems: 'center', justifyContent: 'center',
   },
   backBtnText: { fontSize: 20, fontWeight: '700', color: DARK },
+  headerDeleteBtnText: { fontSize: 16 },
   headerTitle: { fontSize: 15, fontWeight: '600', color: DARK },
 
   scroll: { flex: 1 },
@@ -1083,6 +1287,12 @@ const s = injectFonts({
     borderRadius: 12, backgroundColor: GREEN_LIGHT, borderWidth: 1, borderColor: '#B7E4C7',
   },
   confirmedBannerText: { fontSize: 12, color: GREEN, fontWeight: '600', lineHeight: 18, flex: 1 },
+
+  ongoingBanner: {
+    flexDirection: 'row', margin: 14, marginBottom: 6, padding: 12,
+    borderRadius: 12, backgroundColor: GREEN_LIGHT, borderWidth: 1, borderColor: '#B7E4C7',
+  },
+  ongoingBannerText: { fontSize: 12, color: GREEN, fontWeight: '600', lineHeight: 18, flex: 1 },
 
   rateClientBtn: {
     margin: 14, marginBottom: 6, padding: 14, borderRadius: 12,

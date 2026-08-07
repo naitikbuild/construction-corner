@@ -61,7 +61,7 @@ function CategoryStarRow({ label, value, onChange }) {
 
 // Part 2 of the client confirm+rate flow — reached from
 // ClientWorkRecordReviewScreen's "Confirm & Rate" button. Posting here is
-// what flips the work record to 'confirmed', the only status that counts
+// what flips the work record to 'verified', the only status that counts
 // toward the provider's verified totals (see workRecordService.js).
 export default function RateWorkRecordScreen({ navigation, route }) {
   const recordId = route?.params?.recordId ?? null;
@@ -201,7 +201,7 @@ export default function RateWorkRecordScreen({ navigation, route }) {
     );
   }
 
-  if (record.status === WORK_RECORD_STATUS.CONFIRMED && !submitted) {
+  if (record.status === WORK_RECORD_STATUS.VERIFIED && !submitted) {
     return (
       <View style={s.screen}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />

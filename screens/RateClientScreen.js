@@ -178,7 +178,7 @@ export default function RateClientScreen({ navigation, route }) {
     );
   }
 
-  if (record.status !== WORK_RECORD_STATUS.CONFIRMED) {
+  if (record.status !== WORK_RECORD_STATUS.VERIFIED) {
     return (
       <View style={s.screen}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />

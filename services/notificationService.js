@@ -55,6 +55,7 @@ export const deleteAllNotifications = async (uid) => {
 
 export const sendNotification = async (uid, type, message, extra = {}) => {
   try {
+    console.log('sendNotification WRITING to', `notifications/${uid}/items`, 'type', type);
     await addDoc(collection(db, 'notifications', uid, 'items'), {
       type,
       message,
@@ -62,7 +63,9 @@ export const sendNotification = async (uid, type, message, extra = {}) => {
       createdAt: serverTimestamp(),
       ...extra,
     });
-  } catch (_) {}
+  } catch (e) {
+    console.error('sendNotification FAILED', { uid, type, error: e?.message, code: e?.code });
+  }
 };
 
 // ─── Guest notifications (AsyncStorage) ────────────────────────────────────

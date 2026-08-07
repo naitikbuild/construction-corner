@@ -39,12 +39,16 @@ import BusinessProfileScreen from './screens/BusinessProfileScreen';
 // User Features
 import PersonalProfileScreen from './screens/PersonalProfileScreen';
 import SettingsScreen from './screens/SettingsScreen';
+import ClientReviewsScreen from './screens/ClientReviewsScreen';
 
 // Verified Work System — legacy pending_work/verified_work flow. Still used
-// by NotificationsScreen ('work_confirm' taps → ConfirmWork), SettingsScreen
-// (Work History), and ReviewsListScreen; MarkWorkComplete and LeaveReview
-// were the only fully-orphaned pieces, removed once Business/Supplier moved
-// to work_records (see workRecordService.js).
+// by SettingsScreen (Work History) and ReviewsListScreen; MarkWorkComplete
+// and LeaveReview were removed as fully-orphaned once Business/Supplier
+// moved to work_records (see workRecordService.js). ConfirmWorkScreen is
+// registered here but currently has no reachable entry point — the
+// NotificationsScreen 'work_confirm' tap route that used to open it was
+// removed because no code ever wrote that notification type; kept
+// registered rather than deleted in case it's wired back up.
 import ConfirmWorkScreen from './screens/ConfirmWorkScreen';
 import WorkHistoryScreen from './screens/WorkHistoryScreen';
 import CommissionWalletScreen from './screens/CommissionWalletScreen';
@@ -53,6 +57,7 @@ import ReviewsListScreen from './screens/ReviewsListScreen';
 // Work Record System — now the verified-work system for all five provider
 // types (Worker/Contractor/Professional/Business/Supplier).
 import CreateWorkRecordScreen from './screens/CreateWorkRecordScreen';
+import WorkStartApprovalScreen from './screens/WorkStartApprovalScreen';
 import ClientWorkRecordReviewScreen from './screens/ClientWorkRecordReviewScreen';
 import RateWorkRecordScreen from './screens/RateWorkRecordScreen';
 import RateClientScreen from './screens/RateClientScreen';
@@ -159,6 +164,7 @@ export default function App() {
         {/* User Features */}
         <Stack.Screen name="PersonalProfile" component={PersonalProfileScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
+        <Stack.Screen name="ClientReviews" component={ClientReviewsScreen} />
 
         {/* Verified Work System (legacy — see import comment above) */}
         <Stack.Screen name="ConfirmWork" component={ConfirmWorkScreen} />
@@ -168,6 +174,7 @@ export default function App() {
 
         {/* Work Record System */}
         <Stack.Screen name="CreateWorkRecord" component={CreateWorkRecordScreen} />
+        <Stack.Screen name="WorkStartApproval" component={WorkStartApprovalScreen} />
         <Stack.Screen name="WorkRecordReview" component={ClientWorkRecordReviewScreen} />
         <Stack.Screen name="RateWorkRecord" component={RateWorkRecordScreen} />
         <Stack.Screen name="RateClient" component={RateClientScreen} />

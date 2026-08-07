@@ -373,7 +373,7 @@ export const DEMO_CHATS = [
     participant: {
       uid: 'demo_chat_participant_3',
       name: 'Sai Constructions',
-      category: 'Sub Contractor',
+      category: 'Contractors',
       profileType: 'contractor',
       photoUri: PLACEHOLDER_PHOTO('sai-constructions'),
       verified: true,

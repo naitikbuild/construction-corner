@@ -11,7 +11,7 @@ import { BLUE, BLUE_DIM } from '../constants/colors';
 const SLIDES = [
   {
     emoji: '👷',
-    title: 'Find Sub Contractors\n& Professionals',
+    title: 'Find Contractors\n& Professionals',
     sub: 'Connect with verified architects, engineers, contractors and 50+ construction professionals across India.',
   },
   {

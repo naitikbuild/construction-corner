@@ -16,8 +16,7 @@ import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
 import { useToast } from '../hooks/useToast';
 import { getProfile, recordProfileView, updateProfile } from '../services/userService';
 import { getTotalVerifiedAmount, getVerifiedWork } from '../services/workService';
-import { getProviderWorkRecords, workRecordToProject, workRecordToVerifiedWork, getClientReviews, WORK_RECORD_STATUS } from '../services/workRecordService';
-import ClientReviewsSection from '../components/ClientReviewsSection';
+import { getProviderWorkRecords, workRecordToProject, workRecordToVerifiedWork, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { getCurrentUid } from '../utils/session';
 import { auth } from '../config/firebase'; // TEMP DEBUG — for CHAT GATE DEBUG / MYUID SET logging below, remove with the logs
 import { formatAmountIndian, formatJoinedDate } from '../utils/format';
@@ -209,7 +208,6 @@ export default function WorkerProfileScreen({ navigation, route }) {
   const [verifiedAmt, setVerifiedAmt] = useState(0);
   const [verifiedWork, setVerifiedWork] = useState([]);
   const [realProjects, setRealProjects] = useState([]);
-  const [clientReviews, setClientReviews] = useState([]);
   const [myUid, setMyUid] = useState(null);
   const [viewer, setViewer] = useState({ visible: false, photos: [], index: 0 });
   const [projectDetail, setProjectDetail] = useState(null);
@@ -279,16 +277,12 @@ export default function WorkerProfileScreen({ navigation, route }) {
             setRealProjects([]);
           } else {
             const records = await getProviderWorkRecords(uid);
-            const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.CONFIRMED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
-            setVerifiedAmt(confirmed.reduce((sum, r) => sum + (r.contractValue || 0), 0));
+            const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.VERIFIED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
+            setVerifiedAmt(confirmed.reduce((sum, r) => sum + (r.labourCharge || 0), 0));
             setVerifiedWork(confirmed.map(workRecordToVerifiedWork));
             setRealProjects(records.map(workRecordToProject));
           }
         } catch (_) {}
-        // Reviews received AS A CLIENT (from providers this person has
-        // hired) — a separate reputation from the VERIFIED WORK above,
-        // which is reviews received AS A PROVIDER.
-        try { setClientReviews(await getClientReviews(uid)); } catch (_) {}
       }
     } catch (_) {}
     finally { setLoading(false); }
@@ -728,37 +722,33 @@ export default function WorkerProfileScreen({ navigation, route }) {
             {about || 'Add a short bio to attract more clients'}
           </Text>
 
-          <View style={s.divider} />
-
-          {/* ── 8. SKILLS ───────────────────────────────────────────────── */}
-          <View style={s.sectionHeadRow}>
-            <Text style={[s.sLabel, { marginBottom: 0 }]}>SKILLS</Text>
-            {isOwn && (
-              <TouchableOpacity onPress={() => handleEditSection('skills')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Text style={s.editPencil}>✏️</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-          {(primarySkill && primarySkill !== 'Add your skill') || skillTags.length > 0 || skills.length > 0 ? (
+          {/* ── 8. ADDITIONAL SKILLS ─────────────────────────────────────
+              The primary skill already shows in the hero line above (see
+              heroTypeTradeParts) — this section is ONLY for skills beyond
+              that, so it's hidden entirely rather than repeating the
+              primary skill when there's nothing extra to show. */}
+          {(skillTags.length > 0 || (!worker?.primarySkill && skills.length > 1)) && (
             <>
-              {primarySkill && primarySkill !== 'Add your skill' && (
-                <View style={s.primarySkillChip}>
-                  <Text style={s.primarySkillText}>{primarySkill}</Text>
-                  <Text style={s.primarySkillBadge}>Designation</Text>
-                </View>
-              )}
-              {skillTags.length > 0 && (
-                <View style={[s.chipsWrap, { marginTop: 10 }]}>
+              <View style={s.divider} />
+              <View style={s.sectionHeadRow}>
+                <Text style={[s.sLabel, { marginBottom: 0 }]}>ADDITIONAL SKILLS</Text>
+                {isOwn && (
+                  <TouchableOpacity onPress={() => handleEditSection('skills')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Text style={s.editPencil}>✏️</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              {skillTags.length > 0 ? (
+                <View style={s.chipsWrap}>
                   {skillTags.map((sk, i) => (
                     <View key={i} style={s.hashChip}>
                       <Text style={s.hashChipText}>#{sk.toLowerCase()}</Text>
                     </View>
                   ))}
                 </View>
-              )}
-              {/* Fallback: old profiles with only workerSkills, no primarySkill/skillTags */}
-              {!worker?.primarySkill && skillTags.length === 0 && skills.length > 1 && (
-                <View style={[s.chipsWrap, { marginTop: 10 }]}>
+              ) : (
+                // Fallback: old profiles with only workerSkills, no primarySkill/skillTags
+                <View style={s.chipsWrap}>
                   {skills.slice(1).map((sk, i) => (
                     <View key={i} style={s.hashChip}>
                       <Text style={s.hashChipText}>#{sk.toLowerCase()}</Text>
@@ -767,8 +757,6 @@ export default function WorkerProfileScreen({ navigation, route }) {
                 </View>
               )}
             </>
-          ) : (
-            <Text style={s.placeholder}>No skills added yet</Text>
           )}
 
           <View style={s.divider} />
@@ -795,12 +783,6 @@ export default function WorkerProfileScreen({ navigation, route }) {
               </View>
             ))
           )}
-
-          <View style={s.divider} />
-
-          {/* ── 10. REVIEWS AS A CLIENT ─────────────────────────────────── */}
-          <Text style={s.sLabel}>REVIEWS AS A CLIENT</Text>
-          <ClientReviewsSection reviews={clientReviews} />
 
         </View>
 
@@ -967,16 +949,6 @@ const s = injectFonts({
     paddingHorizontal: 12, paddingVertical: 6,
   },
   skillChipText: { fontSize: 12, fontWeight: '500', color: DARK },
-  primarySkillChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: FILL, borderRadius: 12, padding: 12,
-  },
-  primarySkillText: { fontSize: 15, fontWeight: '700', color: DARK, flex: 1 },
-  primarySkillBadge: {
-    fontSize: 9, fontWeight: '700', color: GREEN,
-    backgroundColor: GREEN_LIGHT, paddingHorizontal: 7, paddingVertical: 3,
-    borderRadius: 6, letterSpacing: 0.5, textTransform: 'uppercase',
-  },
   hashChip: {
     backgroundColor: FILL, borderRadius: 20,
     paddingHorizontal: 10, paddingVertical: 5,

@@ -6,14 +6,14 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { injectFonts } from '../theme/typography';
-import PhotoViewer from '../components/PhotoViewer';
 import { getCurrentUid } from '../utils/session';
 import { getProfile } from '../services/userService';
-import { getWorkRecord, disputeWorkRecord, WORK_RECORD_STATUS } from '../services/workRecordService';
+import { getWorkRecord, approveWorkStart, rejectWorkStart, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { sendNotification } from '../services/notificationService';
 
 const DARK   = '#262626';
 const GREEN  = '#22A559';
+const GREEN_LIGHT = '#EAF7EF';
 const BG     = '#FAF9F5';
 const FILL   = '#F2F2F2';
 const BORDER = '#E5E5E5';
@@ -59,14 +59,15 @@ function DetailCell({ label, value, green }) {
   );
 }
 
-// Client-side read-only view of a work record the provider marked complete
-// (status 'pending_completion_approval') — the SECOND of the two-approval
-// lifecycle's approvals (see workRecordService.js). Reached by tapping a
-// 'work_completion_request' notification, or the work-record card shared in
-// chat (see ChatScreen's recordId handling and CreateWorkRecordScreen's
-// role-based redirect). Lets the client either confirm + rate
-// (→ RateWorkRecordScreen) or raise an issue.
-export default function ClientWorkRecordReviewScreen({ navigation, route }) {
+// Light client-facing screen for the FIRST of the two-approval work record
+// lifecycle's approvals: reached by tapping a 'work_start_request'
+// notification, or the record card shared in chat while the record is still
+// 'pending_start_approval' (see CreateWorkRecordScreen's role-based
+// redirect). Approve → 'ongoing' (shows on the provider's profile as an
+// ongoing project); Decline → 'rejected' (never shown). Deliberately no
+// rating/review here — that only happens at completion, once the
+// pending_completion_approval flow is built.
+export default function WorkStartApprovalScreen({ navigation, route }) {
   const recordId = route?.params?.recordId ?? null;
   const insets = useSafeAreaInsets();
 
@@ -74,16 +75,11 @@ export default function ClientWorkRecordReviewScreen({ navigation, route }) {
   const [record, setRecord] = useState(null);
   const [provider, setProvider] = useState(null);
   const [myUid, setMyUid] = useState(null);
-  const [disputing, setDisputing] = useState(false);
-  const [viewerOpen, setViewerOpen] = useState(false);
-  const [viewerIndex, setViewerIndex] = useState(0);
+  const [responding, setResponding] = useState(false);
 
   const load = useCallback(async () => {
     if (!recordId) { setLoading(false); return; }
     try {
-      // Prefer the live Firebase Auth uid over the cached AsyncStorage copy —
-      // a stale cache here would misidentify the client (blocking the real
-      // client from reviewing, or attributing a dispute to the wrong uid).
       const me = await getCurrentUid();
       setMyUid(me);
       const rec = await getWorkRecord(recordId);
@@ -102,41 +98,66 @@ export default function ClientWorkRecordReviewScreen({ navigation, route }) {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const isClient = !!myUid && !!record && record.clientId === myUid;
-  const photos = record?.photos || [];
-  const providerName = provider?.name || provider?.companyName || record?.completedByName || record?.lockedByName || 'Provider';
+  const providerName = provider?.name || provider?.companyName || record?.lockedByName || 'Provider';
   const providerVerified = !!(provider?.verificationNumber || provider?.verified);
+  const clientDisplayName = record?.clientName || 'You';
 
-  const handleRaiseIssue = () => {
+  const handleApprove = () => {
     Alert.alert(
-      'Raise an issue?',
-      `${providerName} will be notified that you raised an issue with this work record.`,
+      'Approve this work record?',
+      `${providerName} will be notified and this will show as an ongoing project.`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Raise Issue', style: 'destructive', onPress: doRaiseIssue },
+        { text: 'Approve', onPress: doApprove },
       ]
     );
   };
 
-  const doRaiseIssue = async () => {
-    setDisputing(true);
+  const doApprove = async () => {
+    setResponding(true);
     try {
-      await disputeWorkRecord(recordId, { disputedBy: myUid });
+      await approveWorkStart(recordId, myUid);
       await sendNotification(
         record.providerId,
-        'work_disputed',
-        `${record.clientName || 'The client'} raised an issue with "${record.projectName || 'a work record'}"`,
+        'work_started',
+        `${clientDisplayName} approved — work is now ongoing`,
         { recordId }
       );
-      setRecord(prev => ({ ...prev, status: WORK_RECORD_STATUS.DISPUTED }));
+      setRecord(prev => ({ ...prev, status: WORK_RECORD_STATUS.ONGOING }));
     } catch (err) {
       Alert.alert('Error', err.message || 'Could not submit. Please try again.');
     } finally {
-      setDisputing(false);
+      setResponding(false);
     }
   };
 
-  const handleConfirmAndRate = () => {
-    navigation.navigate('RateWorkRecord', { recordId });
+  const handleDecline = () => {
+    Alert.alert(
+      'Decline this work record?',
+      `${providerName} will be notified that you declined to start this engagement.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Decline', style: 'destructive', onPress: doDecline },
+      ]
+    );
+  };
+
+  const doDecline = async () => {
+    setResponding(true);
+    try {
+      await rejectWorkStart(recordId, myUid);
+      await sendNotification(
+        record.providerId,
+        'work_rejected',
+        `${clientDisplayName} declined to start this work record`,
+        { recordId }
+      );
+      setRecord(prev => ({ ...prev, status: WORK_RECORD_STATUS.REJECTED }));
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Could not submit. Please try again.');
+    } finally {
+      setResponding(false);
+    }
   };
 
   if (loading) {
@@ -180,15 +201,15 @@ export default function ClientWorkRecordReviewScreen({ navigation, route }) {
         </View>
         <View style={s.center}>
           <Text style={s.emptyIcon}>🔒</Text>
-          <Text style={s.emptyText}>Only {record.clientName || 'the client'} can review this work record.</Text>
+          <Text style={s.emptyText}>Only {record.clientName || 'the client'} can respond to this work record.</Text>
         </View>
       </View>
     );
   }
 
-  const isPending = record.status === WORK_RECORD_STATUS.PENDING_COMPLETION_APPROVAL;
-  const isVerified = record.status === WORK_RECORD_STATUS.VERIFIED;
-  const isDisputed = record.status === WORK_RECORD_STATUS.DISPUTED;
+  const isPending = record.status === WORK_RECORD_STATUS.PENDING_START_APPROVAL;
+  const isOngoing = record.status === WORK_RECORD_STATUS.ONGOING;
+  const isRejected = record.status === WORK_RECORD_STATUS.REJECTED;
 
   return (
     <View style={s.screen}>
@@ -198,25 +219,25 @@ export default function ClientWorkRecordReviewScreen({ navigation, route }) {
         <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()}>
           <Text style={s.backBtnText}>←</Text>
         </TouchableOpacity>
-        <Text style={s.headerTitle}>Work Record</Text>
+        <Text style={s.headerTitle}>Approve Work Record</Text>
         <View style={{ width: 36 }} />
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
         <View style={s.banner}>
           <Text style={s.bannerText}>
-            📤 Marked complete by {record.completedByName || providerName} on {formatDate(record.completedAt) || '—'} — please review
+            📤 Sent by {record.lockedByName || providerName} on {formatDate(record.lockedAt) || '—'} for your approval
           </Text>
         </View>
 
-        {isVerified && (
+        {isOngoing && (
           <View style={s.statusBannerGreen}>
-            <Text style={s.statusBannerGreenText}>✓ You confirmed and rated this work{record.rating ? ` — ${record.rating}★` : ''}.</Text>
+            <Text style={s.statusBannerGreenText}>✓ You approved this — it's now an ongoing project.</Text>
           </View>
         )}
-        {isDisputed && (
+        {isRejected && (
           <View style={s.statusBannerAlert}>
-            <Text style={s.statusBannerAlertText}>⚑ You raised an issue with this work record. The provider has been notified.</Text>
+            <Text style={s.statusBannerAlertText}>✕ You declined this work record. The provider has been notified.</Text>
           </View>
         )}
 
@@ -258,70 +279,28 @@ export default function ClientWorkRecordReviewScreen({ navigation, route }) {
           />
           {record.category ? <DetailCell label="Category" value={record.category} /> : null}
         </View>
-
-        {record.keywords?.length > 0 ? (
-          <View style={s.compactField}>
-            <Text style={s.compactLabel}>Type of Work</Text>
-            <View style={s.keywordTagsWrap}>
-              {record.keywords.map((k, i) => (
-                <View key={i} style={s.keywordTag}>
-                  <Text style={s.keywordTagText}>{k}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        ) : null}
-
-        <View style={s.compactField}>
-          <Text style={s.compactLabel}>Work Photos</Text>
-          {photos.length > 0 ? (
-            <View style={s.photoGrid}>
-              {photos.map((uri, i) => (
-                <TouchableOpacity
-                  key={i}
-                  style={s.photoSlot}
-                  activeOpacity={0.85}
-                  onPress={() => { setViewerIndex(i); setViewerOpen(true); }}
-                >
-                  <Image source={{ uri }} style={s.photoThumb} resizeMode="cover" />
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : (
-            <View style={s.readOnlyBox}>
-              <Text style={s.readOnlyMuted}>No photos added</Text>
-            </View>
-          )}
-        </View>
       </ScrollView>
 
       {isPending && (
         <View style={[s.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           <TouchableOpacity
-            style={[s.issueBtn, disputing && s.btnDisabled]}
-            onPress={handleRaiseIssue}
+            style={[s.declineBtn, responding && s.btnDisabled]}
+            onPress={handleDecline}
             activeOpacity={0.85}
-            disabled={disputing}
+            disabled={responding}
           >
-            {disputing ? <ActivityIndicator color={DARK} /> : <Text style={s.issueBtnText}>Raise an issue</Text>}
+            {responding ? <ActivityIndicator color={DARK} /> : <Text style={s.declineBtnText}>Decline</Text>}
           </TouchableOpacity>
           <TouchableOpacity
-            style={[s.confirmBtn, disputing && s.btnDisabled]}
-            onPress={handleConfirmAndRate}
+            style={[s.approveBtn, responding && s.btnDisabled]}
+            onPress={handleApprove}
             activeOpacity={0.85}
-            disabled={disputing}
+            disabled={responding}
           >
-            <Text style={s.confirmBtnText}>Confirm & Rate ★</Text>
+            {responding ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.approveBtnText}>Approve ✓</Text>}
           </TouchableOpacity>
         </View>
       )}
-
-      <PhotoViewer
-        visible={viewerOpen}
-        photos={photos}
-        initialIndex={viewerIndex}
-        onClose={() => setViewerOpen(false)}
-      />
     </View>
   );
 }
@@ -395,40 +374,20 @@ const s = injectFonts({
   detailCellValue: { fontSize: 13, color: DARK, fontWeight: '600' },
   detailCellValueGreen: { color: GREEN, fontWeight: '700' },
 
-  compactField: { paddingHorizontal: 14, marginTop: 16 },
-  compactLabel: { fontSize: 12, fontWeight: '600', color: DARK, marginBottom: 8 },
-
-  keywordTagsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  keywordTag: {
-    backgroundColor: '#EAF7EF', borderRadius: 20,
-    paddingHorizontal: 12, paddingVertical: 6,
-  },
-  keywordTagText: { fontSize: 12, fontWeight: '600', color: GREEN },
-
-  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  photoSlot: { width: 92, height: 92, borderRadius: 10, overflow: 'hidden' },
-  photoThumb: { width: '100%', height: '100%' },
-
-  readOnlyBox: {
-    borderWidth: 1.5, borderColor: BORDER, borderRadius: 12,
-    paddingHorizontal: 14, paddingVertical: 12, backgroundColor: FILL,
-  },
-  readOnlyMuted: { fontSize: 13, color: LIGHT, fontStyle: 'italic' },
-
   bottomBar: {
     flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingTop: 12,
     backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: BORDER,
   },
-  issueBtn: {
+  declineBtn: {
     flex: 1, height: 50, borderRadius: 14,
     borderWidth: 1.5, borderColor: DARK, backgroundColor: '#FFFFFF',
     alignItems: 'center', justifyContent: 'center',
   },
-  issueBtnText: { fontSize: 14, fontWeight: '700', color: DARK },
-  confirmBtn: {
+  declineBtnText: { fontSize: 14, fontWeight: '700', color: DARK },
+  approveBtn: {
     flex: 1.3, height: 50, borderRadius: 14,
-    backgroundColor: DARK, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center',
   },
-  confirmBtnText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
+  approveBtnText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
   btnDisabled: { opacity: 0.6 },
 });

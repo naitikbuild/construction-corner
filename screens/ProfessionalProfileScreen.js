@@ -16,8 +16,7 @@ import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
 import { useToast } from '../hooks/useToast';
 import { getProfile, recordProfileView, updateProfile } from '../services/userService';
 import { getVerifiedWork, getTotalVerifiedAmount } from '../services/workService';
-import { getProviderWorkRecords, workRecordToProject, workRecordToVerifiedWork, getClientReviews, WORK_RECORD_STATUS } from '../services/workRecordService';
-import ClientReviewsSection from '../components/ClientReviewsSection';
+import { getProviderWorkRecords, workRecordToProject, workRecordToVerifiedWork, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { getCurrentUid } from '../utils/session';
 import { formatAmountIndian, formatJoinedDate } from '../utils/format';
 
@@ -417,7 +416,6 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
   const [verifiedAmt, setVerifiedAmt] = useState(0);
   const [verifiedWork, setVerifiedWork] = useState([]);
   const [realProjects, setRealProjects] = useState([]);
-  const [clientReviews, setClientReviews] = useState([]);
   const [myUid, setMyUid] = useState(null);
   const [viewer, setViewer] = useState({ visible: false, photos: [], index: 0 });
   const [projectDetail, setProjectDetail] = useState(null);
@@ -494,13 +492,12 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
             setRealProjects([]);
           } else {
             const records = await getProviderWorkRecords(uid);
-            const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.CONFIRMED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
-            setVerifiedAmt(confirmed.reduce((sum, r) => sum + (r.contractValue || 0), 0));
+            const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.VERIFIED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
+            setVerifiedAmt(confirmed.reduce((sum, r) => sum + (r.labourCharge || 0), 0));
             setVerifiedWork(confirmed.map(workRecordToVerifiedWork));
             setRealProjects(records.map(workRecordToProject));
           }
         } catch (_) {}
-        try { setClientReviews(await getClientReviews(uid)); } catch (_) {}
       }
     } catch (_) {}
     finally { setLoading(false); }
@@ -1149,12 +1146,6 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
               </View>
             ))
           )}
-
-          <View style={s.divider} />
-
-          {/* ── 15. REVIEWS AS A CLIENT ─────────────────────────────────── */}
-          <Text style={s.sLabel}>REVIEWS AS A CLIENT</Text>
-          <ClientReviewsSection reviews={clientReviews} />
 
         </View>
 

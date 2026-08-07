@@ -1,5 +1,9 @@
+import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { injectFonts } from '../theme/typography';
+import { auth } from '../config/firebase';
+import { subscribeUnreadMessageCount } from '../services/chatService';
+import UnreadBadge from './UnreadBadge';
 
 const ORANGE = '#FF6B2B';
 
@@ -16,6 +20,17 @@ const TABS = [
 ];
 
 export default function BottomNav({ navigation, active, onProfilePress }) {
+  const [unreadMessages, setUnreadMessages] = useState(0);
+
+  // Chat tab badge — only for real signed-in accounts (guests have no live
+  // Firestore chats to count). Live total, so it updates the moment a
+  // message arrives or a conversation is marked read/deleted elsewhere.
+  useEffect(() => {
+    if (!auth.currentUser) return;
+    const unsub = subscribeUnreadMessageCount(auth.currentUser.uid, setUnreadMessages);
+    return unsub;
+  }, []);
+
   return (
     <View style={styles.nav}>
       {TABS.map(tab => {
@@ -34,13 +49,16 @@ export default function BottomNav({ navigation, active, onProfilePress }) {
             onPress={handlePress}
             activeOpacity={0.7}
           >
-            {isActive ? (
-              <View style={styles.activeIconWrap}>
+            <View style={styles.iconWrap}>
+              {isActive ? (
+                <View style={styles.activeIconWrap}>
+                  <Text style={styles.icon}>{tab.icon}</Text>
+                </View>
+              ) : (
                 <Text style={styles.icon}>{tab.icon}</Text>
-              </View>
-            ) : (
-              <Text style={styles.icon}>{tab.icon}</Text>
-            )}
+              )}
+              {tab.screen === 'ChatList' && <UnreadBadge count={unreadMessages} />}
+            </View>
             <Text style={[styles.label, isActive && styles.labelActive]}>
               {tab.label}
             </Text>
@@ -65,6 +83,7 @@ const styles = injectFonts({
     elevation: 12,
   },
   item: { flex: 1, alignItems: 'center', gap: 3 },
+  iconWrap: { position: 'relative' },
   icon: { fontSize: 22 },
   label: { fontSize: 10, fontWeight: '600', color: '#888888' },
   labelActive: { color: ORANGE, fontWeight: '800' },

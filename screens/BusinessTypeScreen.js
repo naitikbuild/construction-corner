@@ -12,7 +12,7 @@ const BUSINESS_TYPES = [
     key: 'solo_worker',
     profileType: 'worker',
     emoji: '👷',
-    label: 'Solo Worker',
+    label: 'Skill Experts',
     sub: 'Individual skilled worker - Mason, Electrician, Plumber etc',
   },
   {
@@ -26,7 +26,7 @@ const BUSINESS_TYPES = [
     key: 'contractor',
     profileType: 'contractor',
     emoji: '👷‍♂️',
-    label: 'Sub Contractor',
+    label: 'Contractors',
     sub: 'Individual contractor with a small crew - Civil, Electrical, Plumbing',
   },
 ];

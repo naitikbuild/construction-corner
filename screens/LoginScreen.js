@@ -87,6 +87,19 @@ export default function LoginScreen({ navigation, route }) {
     }, 1000);
   };
 
+  // Landing point for an account that's fully authenticated with a complete
+  // profile already — collapses any AccountType/BusinessType/Login screens
+  // sitting underneath into a single Home root (with the gate's intended
+  // destination pushed on top, if there is one) so back can't walk back
+  // into onboarding/role-selection once signed in.
+  const landAfterAuth = (dest, params) => {
+    if (dest === 'Home') {
+      navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+    } else {
+      navigation.reset({ index: 1, routes: [{ name: 'Home' }, { name: dest, params }] });
+    }
+  };
+
   // ─── After auth: route based on profile state ─────────────────────────────
   const routeAfterAuth = async (uid, phoneNum = null) => {
     if (phoneNum) await AsyncStorage.setItem('phone', phoneNum);
@@ -96,8 +109,8 @@ export default function LoginScreen({ navigation, route }) {
       // Already a complete account — if this login was triggered by the
       // gate (tapping a provider profile while signed out), land right back
       // on that profile instead of Home.
-      if (redirectToParam?.screen) navigation.replace(redirectToParam.screen, redirectToParam.params);
-      else navigation.replace('Home');
+      if (redirectToParam?.screen) landAfterAuth(redirectToParam.screen, redirectToParam.params);
+      else landAfterAuth('Home');
     } else if (roleParam === 'personal' || profileTypeParam === 'personal' || accountTypeParam === 'personal') {
       // Personal users get a minimal profile setup instead of the worker/business wizard
       navigation.replace('PersonalProfileSetup', { phone: phoneNum, redirectTo: redirectToParam });
@@ -203,7 +216,7 @@ export default function LoginScreen({ navigation, route }) {
 
   // ─── ONBOARDING ──────────────────────────────────────────────────────────────
   const SLIDES = [
-    { key: 'onboard1', emoji: '👷', title: 'Find Sub Contractors\n& Professionals', sub: 'Connect with verified architects, engineers, contractors and 50+ construction professionals across India.', dot: 0, next: 'onboard3', nextLabel: 'Next →' },
+    { key: 'onboard1', emoji: '👷', title: 'Find Contractors\n& Professionals', sub: 'Connect with verified architects, engineers, contractors and 50+ construction professionals across India.', dot: 0, next: 'onboard3', nextLabel: 'Next →' },
     { key: 'onboard3', emoji: '📈', title: 'Grow Your Business\n& Network', sub: 'Post tenders, find jobs, take courses and be part of India\'s construction revolution.', dot: 1, next: 'accountType', nextLabel: "Let's Go! 🚀" },
   ];
 

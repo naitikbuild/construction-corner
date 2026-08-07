@@ -1,11 +1,11 @@
 import { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StatusBar, ActivityIndicator,
+  StatusBar, ActivityIndicator, Alert,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { injectFonts } from '../theme/typography';
-import { getAllProviderWorkRecords, WORK_RECORD_STATUS } from '../services/workRecordService';
+import { getAllProviderWorkRecords, deleteWorkRecord, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { formatAmountIndian } from '../utils/format';
 import { getCurrentUid } from '../utils/session';
 
@@ -39,33 +39,45 @@ function formatDate(v) {
 
 // The most relevant timestamp for a record's current status.
 function recordDate(r) {
-  if (r.status === WORK_RECORD_STATUS.CONFIRMED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID) return r.confirmedAt;
+  if (r.status === WORK_RECORD_STATUS.VERIFIED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID) return r.confirmedAt;
   if (r.status === WORK_RECORD_STATUS.DISPUTED) return r.disputedAt;
-  if (r.status === WORK_RECORD_STATUS.SENT_TO_CLIENT) return r.lockedAt;
+  if (r.status === WORK_RECORD_STATUS.REJECTED) return r.startRejectedAt;
+  if (r.status === WORK_RECORD_STATUS.PENDING_COMPLETION_APPROVAL) return r.completedAt;
+  if (r.status === WORK_RECORD_STATUS.ONGOING) return r.startApprovedAt;
+  if (r.status === WORK_RECORD_STATUS.PENDING_START_APPROVAL) return r.lockedAt;
   return r.updatedAt || r.createdAt;
 }
 
 const STATUS_META = {
   [WORK_RECORD_STATUS.DRAFT]: { label: 'DRAFT', color: MID, bg: FILL },
-  [WORK_RECORD_STATUS.SENT_TO_CLIENT]: { label: 'AWAITING CONFIRMATION', color: AMBER_TEXT, bg: AMBER_BG },
-  [WORK_RECORD_STATUS.CONFIRMED]: { label: 'COMPLETED', color: GREEN, bg: GREEN_LIGHT },
+  [WORK_RECORD_STATUS.PENDING_START_APPROVAL]: { label: 'AWAITING START APPROVAL', color: AMBER_TEXT, bg: AMBER_BG },
+  [WORK_RECORD_STATUS.ONGOING]: { label: 'ONGOING', color: GREEN, bg: GREEN_LIGHT },
+  [WORK_RECORD_STATUS.REJECTED]: { label: 'REJECTED', color: ALERT, bg: '#FDEAEA' },
+  [WORK_RECORD_STATUS.PENDING_COMPLETION_APPROVAL]: { label: 'AWAITING COMPLETION APPROVAL', color: AMBER_TEXT, bg: AMBER_BG },
+  [WORK_RECORD_STATUS.VERIFIED]: { label: 'COMPLETED', color: GREEN, bg: GREEN_LIGHT },
   [WORK_RECORD_STATUS.COMPLETED_PAID]: { label: 'COMPLETED', color: GREEN, bg: GREEN_LIGHT },
   [WORK_RECORD_STATUS.DISPUTED]: { label: 'DISPUTED', color: ALERT, bg: '#FDEAEA' },
 };
 
-// Each section groups one or more raw statuses under one header — CONFIRMED
+// Each section groups one or more raw statuses under one header — VERIFIED
 // and COMPLETED_PAID both read as "COMPLETED" here, they just differ in
 // whether the amount is still correctable (see CreateWorkRecordScreen).
 const SECTIONS = [
-  { key: 'drafts', statuses: [WORK_RECORD_STATUS.DRAFT], title: 'DRAFTS', sub: 'In progress, not yet completed' },
-  { key: 'awaiting', statuses: [WORK_RECORD_STATUS.SENT_TO_CLIENT], title: 'AWAITING CONFIRMATION', sub: 'Sent to client — still editable until they confirm' },
-  { key: 'completed', statuses: [WORK_RECORD_STATUS.CONFIRMED, WORK_RECORD_STATUS.COMPLETED_PAID], title: 'COMPLETED', sub: 'Verified' },
+  { key: 'drafts', statuses: [WORK_RECORD_STATUS.DRAFT], title: 'DRAFTS', sub: 'In progress, not yet sent' },
+  { key: 'pendingStart', statuses: [WORK_RECORD_STATUS.PENDING_START_APPROVAL], title: 'AWAITING START APPROVAL', sub: 'Sent to client — still editable until they respond' },
+  { key: 'ongoing', statuses: [WORK_RECORD_STATUS.ONGOING], title: 'ONGOING', sub: 'Approved by the client — still editable' },
+  { key: 'pendingCompletion', statuses: [WORK_RECORD_STATUS.PENDING_COMPLETION_APPROVAL], title: 'AWAITING COMPLETION APPROVAL', sub: 'Marked complete — still editable until they confirm' },
+  { key: 'completed', statuses: [WORK_RECORD_STATUS.VERIFIED, WORK_RECORD_STATUS.COMPLETED_PAID], title: 'COMPLETED', sub: 'Verified' },
   { key: 'disputed', statuses: [WORK_RECORD_STATUS.DISPUTED], title: 'DISPUTED', sub: '' },
+  { key: 'rejected', statuses: [WORK_RECORD_STATUS.REJECTED], title: 'REJECTED', sub: 'Client declined to start' },
 ];
 
-function RecordRow({ record, onPress }) {
+function RecordRow({ record, onPress, onDelete }) {
   const meta = STATUS_META[record.status] || STATUS_META[WORK_RECORD_STATUS.DRAFT];
   const date = formatDate(recordDate(record));
+  // Only drafts are deletable — once sent to the client it's part of the
+  // verified/dispute trail (see workRecordService.deleteWorkRecord).
+  const canDelete = record.status === WORK_RECORD_STATUS.DRAFT;
   return (
     <TouchableOpacity style={s.row} activeOpacity={0.7} onPress={onPress}>
       <View style={{ flex: 1 }}>
@@ -80,6 +92,16 @@ function RecordRow({ record, onPress }) {
           <Text style={[s.badgeText, { color: meta.color }]}>{meta.label}</Text>
         </View>
       </View>
+      {canDelete && (
+        <TouchableOpacity
+          style={s.deleteBtn}
+          onPress={onDelete}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          activeOpacity={0.6}
+        >
+          <Text style={s.deleteBtnText}>🗑️</Text>
+        </TouchableOpacity>
+      )}
       <Text style={s.chevron}>›</Text>
     </TouchableOpacity>
   );
@@ -91,15 +113,17 @@ function RecordRow({ record, onPress }) {
 export default function MyWorkRecordsScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [records, setRecords] = useState([]);
+  const [uid, setUid] = useState(null);
 
   const load = useCallback(async () => {
     try {
-      const uid = await getCurrentUid();
-      if (!uid || uid.startsWith('guest_')) {
+      const currentUid = await getCurrentUid();
+      setUid(currentUid);
+      if (!currentUid || currentUid.startsWith('guest_')) {
         setRecords([]);
         return;
       }
-      const all = await getAllProviderWorkRecords(uid);
+      const all = await getAllProviderWorkRecords(currentUid);
       setRecords(all);
     } catch (_) {
       setRecords([]);
@@ -109,6 +133,30 @@ export default function MyWorkRecordsScreen({ navigation }) {
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const confirmDeleteDraft = (record) => {
+    Alert.alert(
+      'Delete this draft?',
+      'This will permanently remove the draft work record. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => performDeleteDraft(record) },
+      ]
+    );
+  };
+
+  // Removes from the list immediately for a responsive feel; if the delete
+  // actually fails (network, or the record's status changed underneath us),
+  // put it back and tell the provider rather than leaving the list wrong.
+  const performDeleteDraft = async (record) => {
+    setRecords(prev => prev.filter(r => r.id !== record.id));
+    try {
+      await deleteWorkRecord(record.id, uid);
+    } catch (err) {
+      setRecords(prev => [...prev, record]);
+      Alert.alert('Could Not Delete', err.message || 'Something went wrong. Please try again.');
+    }
+  };
 
   // push (not navigate) so re-opening a record from this list always mounts a
   // fresh CreateWorkRecordScreen instance for that exact recordId — reusing an
@@ -162,7 +210,7 @@ export default function MyWorkRecordsScreen({ navigation }) {
               <View style={s.sectionCard}>
                 {sec.records.map((r, i) => (
                   <View key={r.id} style={i > 0 ? s.rowBorder : null}>
-                    <RecordRow record={r} onPress={() => openRecord(r)} />
+                    <RecordRow record={r} onPress={() => openRecord(r)} onDelete={() => confirmDeleteDraft(r)} />
                   </View>
                 ))}
               </View>
@@ -216,4 +264,6 @@ const s = injectFonts({
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 7 },
   badgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.3 },
   chevron: { fontSize: 18, color: '#B5B5B5', marginLeft: 2 },
+  deleteBtn: { padding: 4, marginLeft: 6 },
+  deleteBtnText: { fontSize: 15 },
 });

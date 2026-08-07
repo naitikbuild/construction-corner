@@ -35,6 +35,10 @@ export default function PersonalProfileSetupScreen({ navigation, route }) {
   const [detecting, setDetecting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [initial, setInitial] = useState({ name: '', photoUri: '', city: '', state: '', pincode: '' });
+  // False until the prefill effect below finds a saved personal profile —
+  // distinguishes "editing my existing profile" (found one) from "finishing
+  // signup" (found none), which decides how the final save navigates.
+  const [hasExistingProfile, setHasExistingProfile] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -60,6 +64,7 @@ export default function PersonalProfileSetupScreen({ navigation, route }) {
           setLat(typeof p.lat === 'number' ? p.lat : null);
           setLng(typeof p.lng === 'number' ? p.lng : null);
           setInitial(loaded);
+          setHasExistingProfile(true);
         }
       } catch (_) {}
     })();
@@ -192,10 +197,22 @@ export default function PersonalProfileSetupScreen({ navigation, route }) {
         await saveProfile(uid, profileData);
       }
 
-      // If this setup was reached via the login gate (tapping a provider
-      // profile while signed out), land on that profile now instead of Home.
-      if (redirectTo?.screen) navigation.replace(redirectTo.screen, redirectTo.params);
-      else navigation.replace('Home');
+      if (hasExistingProfile) {
+        // Editing an existing profile — keep the screen it was opened from
+        // (e.g. Settings/PersonalProfile) reachable via back.
+        if (redirectTo?.screen) navigation.replace(redirectTo.screen, redirectTo.params);
+        else navigation.replace('Home');
+      } else if (redirectTo?.screen) {
+        // Fresh signup completing via the login gate — collapse the whole
+        // onboarding/role-selection stack (AccountType/Login/this screen)
+        // down to Home, then land on the originally-intended destination on
+        // top of it, so back goes to Home instead of back into signup.
+        navigation.reset({ index: 1, routes: [{ name: 'Home' }, { name: redirectTo.screen, params: redirectTo.params }] });
+      } else {
+        // Fresh signup completing with no gate destination — Home becomes
+        // the root; back exits the app instead of walking into signup.
+        navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+      }
     } catch (err) {
       Alert.alert('Save Failed', err.message || 'Could not save profile. Please try again.');
     } finally {

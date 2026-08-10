@@ -11,7 +11,7 @@ import { injectFonts } from '../theme/typography';
 import PhotoViewer from '../components/PhotoViewer';
 import { getCurrentUid } from '../utils/session';
 import { searchUsers, getProfile } from '../services/userService';
-import { createWorkRecord, updateWorkRecord, getWorkRecord, sendWorkToClient, markWorkComplete, deleteWorkRecord, WORK_RECORD_STATUS } from '../services/workRecordService';
+import { createWorkRecord, updateWorkRecord, getWorkRecord, sendWorkToClient, sendForPartnerApproval, markWorkComplete, deleteWorkRecord, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { sendNotification } from '../services/notificationService';
 import { createChat, sendWorkRecordMessage } from '../services/chatService';
 import { useToast } from '../hooks/useToast';
@@ -89,9 +89,12 @@ function Field({ label, required, error, hint, children, onLayout }) {
   );
 }
 
-// ── Client search & select modal — any app user (Personal, Contractor,
-// Company, Professional) can be picked as the agreed client.
-function ClientPickerModal({ visible, onClose, onSelect, excludeUid }) {
+// ── Client/partner search & select modal — any app user (Personal,
+// Contractor, Company, Professional) can be picked as the agreed client or
+// (see the Partner section below) as a revenue-split partner. `excludeUids`
+// keeps the current provider — and, for the partner picker, the already-
+// selected client too — out of the results.
+function ClientPickerModal({ visible, onClose, onSelect, excludeUids = [], title = 'Select client' }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -110,7 +113,7 @@ function ClientPickerModal({ visible, onClose, onSelect, excludeUid }) {
       setSearching(true);
       try {
         const users = await searchUsers(q);
-        setResults(users.filter(u => u.uid !== excludeUid));
+        setResults(users.filter(u => !excludeUids.includes(u.uid)));
       } catch (_) {
         setResults([]);
       } finally {
@@ -123,7 +126,7 @@ function ClientPickerModal({ visible, onClose, onSelect, excludeUid }) {
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <TouchableOpacity style={s.modalOverlay} onPress={onClose} activeOpacity={1}>
         <TouchableOpacity style={s.modalSheet} activeOpacity={1} onPress={() => {}}>
-          <Text style={s.modalTitle}>Select client</Text>
+          <Text style={s.modalTitle}>{title}</Text>
           <TextInput
             style={s.modalSearchInput}
             placeholder="Search by name, city or trade..."
@@ -284,33 +287,43 @@ function CalendarModal({ visible, title, value, onSelect, onClose }) {
   );
 }
 
-// ── Send-to-client confirmation — shared by BOTH approvals in the
-// two-approval lifecycle: start (draft → pending_start_approval) and
-// completion (ongoing → pending_completion_approval). Neither is a lock —
-// the provider can keep editing every field right through both pending
-// states; nothing locks until the client confirms completion.
-function SendToClientModal({ visible, mode, clientName, labourCharge, onCancel, onConfirm, locking }) {
+// ── Send-to-client confirmation — shared by ALL THREE approvals in the
+// lifecycle: partner (draft → pending_partner_approval, only when a partner
+// is set), start (draft/pending_partner_approval → pending_start_approval)
+// and completion (ongoing → pending_completion_approval). None of these are
+// a lock — the provider can keep editing every field right through all the
+// pending states; nothing locks until the client confirms completion.
+function SendToClientModal({ visible, mode, clientName, partnerName, partnerSharePct, labourCharge, onCancel, onConfirm, locking }) {
   const isCompletion = mode === 'completion';
+  const isPartner = mode === 'partner';
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={locking ? undefined : onCancel}>
       <TouchableOpacity style={s.modalOverlay} onPress={locking ? undefined : onCancel} activeOpacity={1}>
         <TouchableOpacity style={s.lockSheet} activeOpacity={1} onPress={() => {}}>
           <Text style={s.lockTitle}>
-            {isCompletion ? 'Mark this work as completed?' : `Send this record to ${clientName}?`}
+            {isPartner ? `Send this record to ${partnerName}?`
+              : isCompletion ? 'Mark this work as completed?'
+              : `Send this record to ${clientName}?`}
           </Text>
           <Text style={s.lockBody}>
-            {isCompletion
-              ? `This sends the record to ${clientName} to confirm the work is complete and rate it. You can still edit the details until they confirm.`
-              : `This sends the record to ${clientName} to approve the start of the engagement. You can still edit every field — nothing locks yet.`}
+            {isPartner
+              ? `This sends the record to ${partnerName} to approve their ${partnerSharePct}% share of the revenue split. ${clientName} won't be notified until they approve.`
+              : isCompletion
+                ? `This sends the record to ${clientName} to confirm the work is complete and rate it. You can still edit the details until they confirm.`
+                : `This sends the record to ${clientName} to approve the start of the engagement. You can still edit every field — nothing locks yet.`}
           </Text>
           <View style={s.lockInfoBox}>
             <Text style={s.lockInfoLine}>
-              {isCompletion ? `✓ ${clientName} is notified to review & rate this work` : `✓ ${clientName} is notified to approve this work`}
+              {isPartner ? `✓ ${partnerName} is notified to approve the ${partnerSharePct}% split`
+                : isCompletion ? `✓ ${clientName} is notified to review & rate this work`
+                : `✓ ${clientName} is notified to approve this work`}
             </Text>
             <Text style={s.lockInfoLine}>
-              {isCompletion
-                ? `✓ Once ${clientName} approves, ${formatAmountIndian(labourCharge)} (labour charge) will be added to your verified work records`
-                : `✓ Still fully editable — ${formatINR(labourCharge)} can be corrected any time before you mark it complete`}
+              {isPartner
+                ? `✓ ${clientName} is notified only after ${partnerName} approves`
+                : isCompletion
+                  ? `✓ Once ${clientName} approves, ${formatAmountIndian(labourCharge)} (labour charge) will be added to your verified work records`
+                  : `✓ Still fully editable — ${formatINR(labourCharge)} can be corrected any time before you mark it complete`}
             </Text>
           </View>
           <View style={s.lockActionsRow}>
@@ -318,7 +331,11 @@ function SendToClientModal({ visible, mode, clientName, labourCharge, onCancel, 
               <Text style={s.lockNotYetBtnText}>Not yet</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[s.lockConfirmBtn, locking && s.btnDisabled]} onPress={onConfirm} activeOpacity={0.85} disabled={locking}>
-              {locking ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.lockConfirmBtnText}>{isCompletion ? 'Mark completed →' : 'Send to client →'}</Text>}
+              {locking ? <ActivityIndicator color="#FFFFFF" /> : (
+                <Text style={s.lockConfirmBtnText}>
+                  {isPartner ? 'Send to partner →' : isCompletion ? 'Mark completed →' : 'Send to client →'}
+                </Text>
+              )}
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -357,6 +374,16 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
   const [labourCharge, setLabourCharge] = useState('');
   const [photos, setPhotos] = useState([]);
 
+  // Optional partner — one other real app user this job's verified revenue
+  // (labour charge) will split with, once they approve (approval flow +
+  // actual split-on-completion come in a later prompt; this screen only
+  // captures the intent). null = solo, exactly as before.
+  const [partner, setPartner] = useState(null); // full user object, like client
+  const [providerSharePct, setProviderSharePct] = useState('50');
+  const [partnerSharePct, setPartnerSharePct] = useState('50');
+  const [partnerApprovalStatus, setPartnerApprovalStatus] = useState(null);
+  const [partnerPickerOpen, setPartnerPickerOpen] = useState(false);
+
   const [errors, setErrors] = useState({});
   const scrollRef = useRef(null);
   // y-offset of each required Field within the form ScrollView, captured via
@@ -375,23 +402,34 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
 
-  // Editability follows the lifecycle: 'draft', 'pending_start_approval',
-  // 'ongoing' AND 'pending_completion_approval' are all fully editable —
-  // neither approval is a lock; the provider can keep fixing any field right
-  // up until the client actually confirms completion. 'rejected' is
-  // read-only (declined, nothing left to edit). Once verified, every field
-  // locks EXCEPT the work amount, which stays open as a correction "bucket"
-  // until commission is paid ('completed_paid') — 'disputed' is also fully
-  // read-only.
+  // Editability follows the lifecycle: 'draft', 'pending_partner_approval',
+  // 'pending_start_approval', 'ongoing' AND 'pending_completion_approval' are
+  // all fully editable — none of these approvals are a lock; the provider
+  // can keep fixing any field right up until the client actually confirms
+  // completion. 'rejected' and 'partner_declined' are ALSO fully editable,
+  // same as 'draft' — a decline isn't a dead end, the provider can fix
+  // whatever made them decline (remove/change the partner, or the split) and
+  // resend (see handleSendToClient/handleConfirmSend/handleConfirmSendToPartner).
+  // Once verified, every field locks EXCEPT the work amount, which stays
+  // open as a correction "bucket" until commission is paid
+  // ('completed_paid') — 'disputed' is fully read-only.
   const isDraft = status === WORK_RECORD_STATUS.DRAFT;
+  const isPendingPartnerApproval = status === WORK_RECORD_STATUS.PENDING_PARTNER_APPROVAL;
   const isPendingStartApproval = status === WORK_RECORD_STATUS.PENDING_START_APPROVAL;
   const isOngoing = status === WORK_RECORD_STATUS.ONGOING;
   const isRejected = status === WORK_RECORD_STATUS.REJECTED;
+  const isPartnerDeclined = status === WORK_RECORD_STATUS.PARTNER_DECLINED;
   const isPendingCompletionApproval = status === WORK_RECORD_STATUS.PENDING_COMPLETION_APPROVAL;
   const isVerified = status === WORK_RECORD_STATUS.VERIFIED;
-  const isFullyEditable = isDraft || isPendingStartApproval || isOngoing || isPendingCompletionApproval;
+  const isFullyEditable = isDraft || isPendingPartnerApproval || isPendingStartApproval || isOngoing
+    || isPendingCompletionApproval || isRejected || isPartnerDeclined;
   const fieldsLocked = !isFullyEditable;
   const amountLocked = fieldsLocked && !isVerified;
+  // Whether the NEXT "send" action (from draft/rejected/partner_declined)
+  // needs to stop at the partner first rather than going straight to the
+  // client — true whenever a partner is set and hasn't already approved.
+  const needsPartnerApproval = !!partner && partnerApprovalStatus !== 'approved';
+  const sendBtnLabel = needsPartnerApproval ? 'Send for partner approval →' : 'Send to client →';
 
   const { toastMessage, toastOpacity, showToast } = useToast();
 
@@ -457,12 +495,23 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
           const rec = await getWorkRecord(existingRecordId);
           // This screen is the provider's own editable view. Anyone else who
           // opens it (the client, tapping the record card shared in chat)
-          // belongs in a client-facing screen instead — which one depends on
-          // where the record is in the two-approval lifecycle: still
-          // awaiting/settled on the START approval goes to the light
-          // approve/decline screen, anything past that (ongoing and beyond)
-          // goes to the fuller read-only review screen.
+          // belongs in a client-facing (or, for a partner, partner-facing)
+          // screen instead — which one depends on the viewer's role and
+          // where the record is in the lifecycle: the partner always goes to
+          // their own approval screen (it's the only place they act on this
+          // record); otherwise still awaiting/settled on the START approval
+          // goes to the light client approve/decline screen, anything past
+          // that (ongoing and beyond) goes to the fuller read-only review
+          // screen.
           if (rec && rec.providerId !== uid) {
+            // uid && guard: a solo record's partnerId is null, same as an
+            // unauthenticated viewer's uid — without this, a no-session
+            // viewer opening a plain solo record would false-match
+            // null === null and get misrouted here.
+            if (uid && rec.partnerId === uid) {
+              navigation.replace('PartnerApproval', { recordId: existingRecordId });
+              return;
+            }
             const startFlow = rec.status === WORK_RECORD_STATUS.PENDING_START_APPROVAL
               || rec.status === WORK_RECORD_STATUS.REJECTED;
             navigation.replace(startFlow ? 'WorkStartApproval' : 'WorkRecordReview', { recordId: existingRecordId });
@@ -486,6 +535,10 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
             setContractValue(rec.contractValue != null ? String(rec.contractValue) : '');
             setLabourCharge(rec.labourCharge != null ? String(rec.labourCharge) : '');
             setPhotos(rec.photos || []);
+            setPartner(rec.partnerId ? { uid: rec.partnerId, name: rec.partnerName || 'Partner' } : null);
+            setProviderSharePct(rec.providerSharePct != null ? String(rec.providerSharePct) : '50');
+            setPartnerSharePct(rec.partnerSharePct != null ? String(rec.partnerSharePct) : '50');
+            setPartnerApprovalStatus(rec.partnerApprovalStatus || null);
             setStatus(rec.status || 'draft');
             setLockedAt(toJsDate(rec.lockedAt));
             setLockedByName(rec.lockedByName || '');
@@ -507,14 +560,20 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
   // Required for both saving and locking: client, project name, category.
   // Everything else on the form (work area, location, dates, amounts,
   // photos) is optional and must never block either action.
-  const REQUIRED_FIELD_LABELS = { client: 'Client', projectName: 'Project name', category: 'Category' };
-  const REQUIRED_FIELD_ORDER = ['client', 'projectName', 'category'];
+  const REQUIRED_FIELD_LABELS = { client: 'Client', projectName: 'Project name', category: 'Category', split: 'Partner split' };
+  const REQUIRED_FIELD_ORDER = ['client', 'projectName', 'category', 'split'];
 
   const validate = () => {
     const next = {};
     if (!client) next.client = 'Select the client this work is agreed with';
     if (!projectName.trim()) next.projectName = 'Enter a project name';
     if (!category) next.category = 'Select a project category';
+    if (partner) {
+      const sum = (Number(providerSharePct) || 0) + (Number(partnerSharePct) || 0);
+      if (providerSharePct === '' || partnerSharePct === '' || sum !== 100) {
+        next.split = 'Partner split percentages must add up to 100%';
+      }
+    }
     setErrors(next);
     return next;
   };
@@ -546,6 +605,41 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
     if (errors.client) setErrors(prev => ({ ...prev, client: '' }));
   };
 
+  const handleSelectPartner = (u) => {
+    setPartner(u);
+    setProviderSharePct('50');
+    setPartnerSharePct('50');
+    setPartnerApprovalStatus(null); // a new partner (or a switch) starts a fresh approval
+    if (errors.split) setErrors(prev => ({ ...prev, split: '' }));
+  };
+
+  const handleRemovePartner = () => {
+    setPartner(null);
+    setProviderSharePct('50');
+    setPartnerSharePct('50');
+    setPartnerApprovalStatus(null);
+    if (errors.split) setErrors(prev => ({ ...prev, split: '' }));
+  };
+
+  // Editing either percentage auto-adjusts the other so they always sum to
+  // 100 — validate() below is still the safety net for the brief in-between
+  // states while typing (e.g. a temporarily empty field).
+  const handleProviderPctChange = (v) => {
+    const digits = v.replace(/[^0-9]/g, '').slice(0, 3);
+    const num = digits === '' ? '' : Math.min(100, Number(digits));
+    setProviderSharePct(String(num));
+    setPartnerSharePct(num === '' ? '' : String(100 - num));
+    if (errors.split) setErrors(prev => ({ ...prev, split: '' }));
+  };
+
+  const handlePartnerPctChange = (v) => {
+    const digits = v.replace(/[^0-9]/g, '').slice(0, 3);
+    const num = digits === '' ? '' : Math.min(100, Number(digits));
+    setPartnerSharePct(String(num));
+    setProviderSharePct(num === '' ? '' : String(100 - num));
+    if (errors.split) setErrors(prev => ({ ...prev, split: '' }));
+  };
+
   const handleSelectCategory = (c) => {
     setCategory(c);
     if (errors.category) setErrors(prev => ({ ...prev, category: '' }));
@@ -560,20 +654,26 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
   };
 
   const handleAddPhoto = async () => {
-    if (photos.length >= MAX_PHOTOS) return;
+    const remaining = MAX_PHOTOS - photos.length;
+    if (remaining <= 0) return;
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Please allow photo library access to add work photos.');
       return;
     }
+    // allowsMultipleSelection can't coexist with the crop editor in
+    // expo-image-picker — bulk add trades per-image cropping for that.
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [4, 3],
+      allowsMultipleSelection: true,
+      selectionLimit: remaining,
       quality: 0.7,
     });
-    if (!result.canceled && result.assets?.[0]?.uri) {
-      setPhotos(prev => [...prev, result.assets[0].uri]);
+    if (result.canceled || !result.assets?.length) return;
+    const picked = result.assets.map(a => a.uri);
+    setPhotos(prev => [...prev, ...picked.slice(0, remaining)]);
+    if (picked.length > remaining) {
+      Alert.alert('Photo limit', `You can add up to ${MAX_PHOTOS} photos.`);
     }
   };
 
@@ -597,6 +697,15 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
     contractValue: contractValue ? Number(contractValue) : null,
     labourCharge: labourCharge ? Number(labourCharge) : null,
     photos,
+    partnerId: partner?.uid || null,
+    partnerName: partner ? (partner.name || partner.companyName || '') : null,
+    providerSharePct: partner ? (Number(providerSharePct) || 0) : null,
+    partnerSharePct: partner ? (Number(partnerSharePct) || 0) : null,
+    // Preserves whatever approval status is already on the record (relevant
+    // once the approval flow exists) unless there's no partner (solo — always
+    // null) or this is a fresh/switched partner with no status yet (defaults
+    // to 'pending', per spec).
+    partnerApprovalStatus: partner ? (partnerApprovalStatus || 'pending') : null,
   });
 
   const persist = async () => {
@@ -642,7 +751,11 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
     });
     if (!valid) return;
     if (!providerId) { Alert.alert('Error', 'No session found. Please restart the app.'); return; }
-    setSendModalMode('start');
+    // A record with an unapproved partner stops at the partner first (see
+    // needsPartnerApproval) — the client is never notified until the
+    // partner approves (see handleConfirmSendToPartner). Solo (or a partner
+    // who already approved) skips straight to the client, as before.
+    setSendModalMode(needsPartnerApproval ? 'partner' : 'start');
     setLockModalOpen(true);
   };
 
@@ -658,13 +771,16 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
     setLockModalOpen(true);
   };
 
-  // Discards an unsaved-to-client draft entirely. Only ever reachable for an
-  // existing draft record (see the header button below) — deleteWorkRecord
-  // itself re-checks ownership + status against the live doc regardless.
-  const handleDeleteDraft = () => {
+  // Discards a draft or a rejected record entirely. Only ever reachable for
+  // an existing draft/rejected record (see the header button below) —
+  // deleteWorkRecord itself re-checks ownership + status against the live
+  // doc regardless.
+  const handleDeleteRecord = () => {
     Alert.alert(
-      'Delete this draft?',
-      'This will permanently remove the draft work record. This cannot be undone.',
+      isDraft ? 'Delete this draft?' : 'Delete this record?',
+      isDraft
+        ? 'This will permanently remove the draft work record. This cannot be undone.'
+        : 'This will permanently remove this declined work record. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -732,6 +848,46 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
     }
   };
 
+  // draft/partner_declined → pending_partner_approval. Only reached when
+  // needsPartnerApproval is true (see handleSendToClient) — the client is
+  // deliberately NOT notified or shared into chat here; that only happens
+  // once the partner approves (see PartnerApprovalScreen.doApprove).
+  const handleConfirmSendToPartner = async () => {
+    setLocking(true);
+    try {
+      const payload = buildPayload();
+      let id = recordId;
+      if (!id) {
+        id = await createWorkRecord(providerId, payload);
+        setRecordId(id);
+      }
+      const nameForLock = providerName || 'The provider';
+      await sendForPartnerApproval(id, payload, { sentBy: providerId, sentByName: nameForLock });
+      await sendNotification(
+        partner.uid,
+        'partner_split_request',
+        `${nameForLock} added you as a partner on ${projectName.trim() || 'a project'} with a ${partnerSharePct}% share — approve?`,
+        { recordId: id }
+      );
+
+      setStatus(WORK_RECORD_STATUS.PENDING_PARTNER_APPROVAL);
+      setPartnerApprovalStatus('pending');
+      setLockedAt(new Date());
+      setLockedByName(nameForLock);
+      setLockModalOpen(false);
+
+      Alert.alert(
+        'Sent to Partner ✅',
+        `${partner.name || partner.companyName || 'Your partner'} has been notified to approve the ${partnerSharePct}% split. ${client.name || client.companyName || 'The client'} will be notified once they approve.`,
+        [{ text: 'OK', onPress: () => navigation.navigate('MyWorkRecords') }]
+      );
+    } catch (err) {
+      Alert.alert('Could Not Send', err.message || 'Something went wrong. Please try again.');
+    } finally {
+      setLocking(false);
+    }
+  };
+
   // ongoing → pending_completion_approval. recordId always exists by this
   // point (an ongoing record was already created and sent once), unlike
   // handleConfirmSend which also handles the brand-new-draft case.
@@ -765,10 +921,11 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
     }
   };
 
-  // SendToClientModal is shared by both approvals — dispatch its single
+  // SendToClientModal is shared by all three approvals — dispatch its single
   // onConfirm to whichever action opened it (see sendModalMode).
   const handleModalConfirm = () => {
     if (sendModalMode === 'completion') handleConfirmComplete();
+    else if (sendModalMode === 'partner') handleConfirmSendToPartner();
     else handleConfirmSend();
   };
 
@@ -791,8 +948,8 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
             <Text style={s.backBtnText}>←</Text>
           </TouchableOpacity>
           <Text style={s.headerTitle}>New Work Record</Text>
-          {recordId && isDraft ? (
-            <TouchableOpacity style={s.backBtn} onPress={handleDeleteDraft} activeOpacity={0.7}>
+          {recordId && (isDraft || isRejected || isPartnerDeclined) ? (
+            <TouchableOpacity style={s.backBtn} onPress={handleDeleteRecord} activeOpacity={0.7}>
               <Text style={s.headerDeleteBtnText}>🗑️</Text>
             </TouchableOpacity>
           ) : (
@@ -823,6 +980,18 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
             <View style={s.banner}>
               <Text style={s.bannerText}>✏️ Editable — fill in the details, then send to your client to approve the start.</Text>
             </View>
+          ) : isPendingPartnerApproval ? (
+            <View style={s.banner}>
+              <Text style={s.bannerText}>
+                🤝 Sent to {partner?.name || partner?.companyName || 'your partner'} — waiting for them to approve the {partnerSharePct}% split before this goes to {client?.name || client?.companyName || 'the client'}. Still fully editable.
+              </Text>
+            </View>
+          ) : isPartnerDeclined ? (
+            <View style={s.disputedBanner}>
+              <Text style={s.disputedBannerText}>
+                ✕ {partner?.name || partner?.companyName || 'Your partner'} declined the {partnerSharePct}% split. Edit the partner or split and resend, or delete it below.
+              </Text>
+            </View>
           ) : isPendingStartApproval ? (
             <View style={s.banner}>
               <Text style={s.bannerText}>📤 Sent to {client?.name || client?.companyName || 'the client'} — waiting for them to approve the start. Still fully editable.</Text>
@@ -837,7 +1006,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
             </View>
           ) : isRejected ? (
             <View style={s.disputedBanner}>
-              <Text style={s.disputedBannerText}>✕ {client?.name || client?.companyName || 'The client'} declined to start this work record.</Text>
+              <Text style={s.disputedBannerText}>✕ {client?.name || client?.companyName || 'The client'} declined to start this work record. Edit and resend, or delete it below.</Text>
             </View>
           ) : isVerified ? (
             <View style={s.confirmedBanner}>
@@ -1091,6 +1260,78 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
             )}
           </Field>
 
+          <Field
+            label="Partner"
+            hint={!fieldsLocked && !partner ? 'Optional — split verified revenue on this job with one other app user.' : undefined}
+            error={errors.split}
+            onLayout={(e) => { fieldPositions.current.split = e.nativeEvent.layout.y; }}
+          >
+            {fieldsLocked ? (
+              <View style={s.readOnlyBox}>
+                <Text style={s.readOnlyText}>
+                  {partner ? `You ${providerSharePct}% · ${partner.name || partner.companyName || 'Partner'} ${partnerSharePct}%` : '—'}
+                </Text>
+              </View>
+            ) : partner ? (
+              <View style={s.partnerCard}>
+                <View style={s.partnerRow}>
+                  <View style={s.clientAvatar}>
+                    {partner.photoUri ? (
+                      <Image source={{ uri: partner.photoUri }} style={s.clientAvatarImg} />
+                    ) : (
+                      <Text style={{ fontSize: 18 }}>👤</Text>
+                    )}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.clientResultName} numberOfLines={1}>{partner.name || partner.companyName || 'Unnamed user'}</Text>
+                    <Text style={s.clientResultRole} numberOfLines={1}>{partner._roleLabel || roleCityLabel(partner)}</Text>
+                  </View>
+                  <TouchableOpacity onPress={handleRemovePartner} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Text style={s.partnerRemoveText}>✕ Remove</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={s.splitRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.splitLabel}>You</Text>
+                    <View style={[s.splitInputWrap, errors.split && s.inputError]}>
+                      <TextInput
+                        style={s.splitInput}
+                        value={providerSharePct}
+                        onChangeText={handleProviderPctChange}
+                        keyboardType="number-pad"
+                        maxLength={3}
+                      />
+                      <Text style={s.splitPct}>%</Text>
+                    </View>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.splitLabel} numberOfLines={1}>{partner.name || partner.companyName || 'Partner'}</Text>
+                    <View style={[s.splitInputWrap, errors.split && s.inputError]}>
+                      <TextInput
+                        style={s.splitInput}
+                        value={partnerSharePct}
+                        onChangeText={handlePartnerPctChange}
+                        keyboardType="number-pad"
+                        maxLength={3}
+                      />
+                      <Text style={s.splitPct}>%</Text>
+                    </View>
+                  </View>
+                </View>
+
+                <Text style={s.splitSummary}>
+                  You {providerSharePct || 0}% · {partner.name || partner.companyName || 'Partner'} {partnerSharePct || 0}%
+                </Text>
+                <Text style={s.fieldHint}>Revenue (labour charge) will be split by this percentage after the work is verified.</Text>
+              </View>
+            ) : (
+              <TouchableOpacity style={s.addPartnerBtn} onPress={() => setPartnerPickerOpen(true)} activeOpacity={0.8}>
+                <Text style={s.addPartnerBtnText}>+ Add partner</Text>
+              </TouchableOpacity>
+            )}
+          </Field>
+
           <View style={s.fieldWrap}>
             <View style={s.sectionHeadRow}>
               <Text style={s.fieldLabel}>Work photos</Text>
@@ -1136,11 +1377,17 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
           <Text style={s.viewRecordsLinkText}>
             {isDraft
               ? '🧾 Saved as draft — View My Work Records →'
-              : isPendingStartApproval
-                ? '🧾 Sent to client — View My Work Records →'
-                : isOngoing
-                  ? '🧾 Ongoing — View My Work Records →'
-                  : '🧾 Sent to client — View My Work Records →'}
+              : isPendingPartnerApproval
+                ? '🧾 Sent to partner — View My Work Records →'
+                : isPartnerDeclined
+                  ? '🧾 Partner declined — View My Work Records →'
+                  : isPendingStartApproval
+                    ? '🧾 Sent to client — View My Work Records →'
+                    : isOngoing
+                      ? '🧾 Ongoing — View My Work Records →'
+                      : isRejected
+                        ? '🧾 Declined — View My Work Records →'
+                        : '🧾 Sent to client — View My Work Records →'}
           </Text>
         </TouchableOpacity>
       )}
@@ -1162,7 +1409,7 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
               activeOpacity={0.85}
               disabled={saving}
             >
-              {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.completeBtnText}>Send to client →</Text>}
+              {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.completeBtnText}>{sendBtnLabel}</Text>}
             </TouchableOpacity>
           )}
           {isOngoing && (
@@ -1173,6 +1420,16 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
               disabled={saving}
             >
               {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.completeBtnText}>Mark work completed →</Text>}
+            </TouchableOpacity>
+          )}
+          {(isRejected || isPartnerDeclined) && (
+            <TouchableOpacity
+              style={[s.completeBtn, saving && s.btnDisabled]}
+              onPress={handleSendToClient}
+              activeOpacity={0.85}
+              disabled={saving}
+            >
+              {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.completeBtnText}>{isPartnerDeclined ? sendBtnLabel.replace('Send', 'Resend') : 'Resend to client →'}</Text>}
             </TouchableOpacity>
           )}
         </View>
@@ -1195,7 +1452,15 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
         visible={clientPickerOpen}
         onClose={() => setClientPickerOpen(false)}
         onSelect={handleSelectClient}
-        excludeUid={providerId}
+        excludeUids={[providerId].filter(Boolean)}
+        title="Select client"
+      />
+      <ClientPickerModal
+        visible={partnerPickerOpen}
+        onClose={() => setPartnerPickerOpen(false)}
+        onSelect={handleSelectPartner}
+        excludeUids={[providerId, client?.uid].filter(Boolean)}
+        title="Select partner"
       />
       <KeywordPickerModal
         visible={keywordPickerOpen}
@@ -1221,6 +1486,8 @@ export default function CreateWorkRecordScreen({ navigation, route }) {
         visible={lockModalOpen}
         mode={sendModalMode}
         clientName={client?.name || client?.companyName || 'The client'}
+        partnerName={partner?.name || partner?.companyName || 'Your partner'}
+        partnerSharePct={partnerSharePct}
         labourCharge={labourCharge}
         onCancel={() => setLockModalOpen(false)}
         onConfirm={handleModalConfirm}
@@ -1396,6 +1663,29 @@ const s = injectFonts({
     color: '#FFFFFF', fontSize: 11, fontWeight: '900',
     textAlign: 'center', lineHeight: 18, overflow: 'hidden',
   },
+
+  // ── Partner + revenue split
+  addPartnerBtn: {
+    borderWidth: 1.5, borderColor: BORDER, borderStyle: 'dashed', borderRadius: 12,
+    paddingVertical: 12, alignItems: 'center', backgroundColor: FILL,
+  },
+  addPartnerBtnText: { fontSize: 13, fontWeight: '700', color: MID },
+  partnerCard: {
+    borderWidth: 1.5, borderColor: BORDER, borderRadius: 12,
+    padding: 12, backgroundColor: '#FFFFFF',
+  },
+  partnerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  partnerRemoveText: { fontSize: 12, fontWeight: '700', color: ALERT },
+  splitRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14 },
+  splitLabel: { fontSize: 12, color: MID, fontWeight: '600', marginBottom: 6 },
+  splitInputWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    borderWidth: 1.5, borderColor: BORDER, borderRadius: 10,
+    paddingHorizontal: 12, backgroundColor: '#FFFFFF',
+  },
+  splitInput: { flex: 1, paddingVertical: 10, fontSize: 14, color: DARK, fontWeight: '700' },
+  splitPct: { fontSize: 13, color: LIGHT, fontWeight: '600' },
+  splitSummary: { fontSize: 12, color: GREEN, fontWeight: '700', marginTop: 12 },
 
   // ── Modals (search sheet)
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', paddingHorizontal: 20 },

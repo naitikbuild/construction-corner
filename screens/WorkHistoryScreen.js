@@ -7,7 +7,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { injectFonts } from '../theme/typography';
 
 import { getVerifiedWork } from '../services/workService';
-import { getProviderWorkRecords, WORK_RECORD_STATUS } from '../services/workRecordService';
+import { getPartyWorkRecords, getWorkRecordShareAmount, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { isDemoUid } from '../demoData';
 import { getCurrentUid } from '../utils/session';
 const ORANGE = '#262626';
@@ -83,14 +83,17 @@ export default function WorkHistoryScreen({ navigation, route }) {
           rating: Number(w.rating) || 0,
         }));
       } else if (!uid.startsWith('guest_')) {
-        const records = await getProviderWorkRecords(uid);
+        // getPartyWorkRecords (not getProviderWorkRecords) — includes
+        // records where `uid` is an APPROVED partner, so a partner sees
+        // their share of a partnered record in their own work history too.
+        const records = await getPartyWorkRecords(uid);
         const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.VERIFIED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
         mapped = confirmed.map(r => ({
           id: r.id,
           type: r.projectName || 'Construction Work',
           location: r.location || 'India',
           date: formatDate(r.confirmedAt) || new Date().toLocaleDateString('en-IN'),
-          amount: Number(r.labourCharge) || 0,
+          amount: getWorkRecordShareAmount(r, uid),
           year: String(toJsDate(r.confirmedAt)?.getFullYear() || new Date().getFullYear()),
           customer: r.clientName || 'Client',
           rating: Number(r.rating) || 0,

@@ -605,20 +605,26 @@ function Step3Professional({ data, setData }) {
 
   const pickPortfolioPhoto = async () => {
     const photos = data.workPhotos || [];
-    if (photos.length >= 6) return;
+    const remaining = 6 - photos.length;
+    if (remaining <= 0) return;
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Please allow photo library access to add portfolio photos.');
       return;
     }
+    // allowsMultipleSelection can't coexist with the crop editor in
+    // expo-image-picker — bulk add trades per-image cropping for that.
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
+      allowsMultipleSelection: true,
+      selectionLimit: remaining,
       quality: 0.7,
     });
-    if (!result.canceled && result.assets?.[0]?.uri) {
-      setData({ ...data, workPhotos: [...photos, result.assets[0].uri] });
+    if (result.canceled || !result.assets?.length) return;
+    const picked = result.assets.map(a => a.uri);
+    setData({ ...data, workPhotos: [...photos, ...picked.slice(0, remaining)] });
+    if (picked.length > remaining) {
+      Alert.alert('Photo limit', 'You can add up to 6 photos.');
     }
   };
 
@@ -892,20 +898,26 @@ function Step3Worker({ data, setData }) {
 
   const pickPhoto = async () => {
     const photos = data.workPhotos || [];
-    if (photos.length >= 6) return;
+    const remaining = 6 - photos.length;
+    if (remaining <= 0) return;
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Please allow photo library access to add work photos.');
       return;
     }
+    // allowsMultipleSelection can't coexist with the crop editor in
+    // expo-image-picker — bulk add trades per-image cropping for that.
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
+      allowsMultipleSelection: true,
+      selectionLimit: remaining,
       quality: 0.7,
     });
-    if (!result.canceled && result.assets?.[0]?.uri) {
-      setData({ ...data, workPhotos: [...photos, result.assets[0].uri] });
+    if (result.canceled || !result.assets?.length) return;
+    const picked = result.assets.map(a => a.uri);
+    setData({ ...data, workPhotos: [...photos, ...picked.slice(0, remaining)] });
+    if (picked.length > remaining) {
+      Alert.alert('Photo limit', 'You can add up to 6 photos.');
     }
   };
 
@@ -1052,20 +1064,26 @@ function Step3Contractor({ data, setData }) {
 
   const pickWorkPhoto = async () => {
     const photos = data.workPhotos || [];
-    if (photos.length >= 6) return;
+    const remaining = 6 - photos.length;
+    if (remaining <= 0) return;
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Please allow photo library access to add work photos.');
       return;
     }
+    // allowsMultipleSelection can't coexist with the crop editor in
+    // expo-image-picker — bulk add trades per-image cropping for that.
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
+      allowsMultipleSelection: true,
+      selectionLimit: remaining,
       quality: 0.7,
     });
-    if (!result.canceled && result.assets?.[0]?.uri) {
-      setData({ ...data, workPhotos: [...photos, result.assets[0].uri] });
+    if (result.canceled || !result.assets?.length) return;
+    const picked = result.assets.map(a => a.uri);
+    setData({ ...data, workPhotos: [...photos, ...picked.slice(0, remaining)] });
+    if (picked.length > remaining) {
+      Alert.alert('Photo limit', 'You can add up to 6 photos.');
     }
   };
 

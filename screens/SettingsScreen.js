@@ -176,6 +176,11 @@ export default function SettingsScreen({ navigation }) {
   };
 
   const available = profile?.available !== false;
+  // Populated by userService.blockUser — see the "Block user" menu on every
+  // provider profile screen and ChatScreen's header menu. Removing an entry
+  // here via persistSetting (same updateProfile() as everywhere else in this
+  // screen) is a full, symmetric unblock: it's the only place either side's
+  // block was ever recorded (see utils/blocking.checkMutualBlock).
   const blockedUsers = profile?.blockedUsers || [];
 
   const unblockUser = (blockedUid) => {

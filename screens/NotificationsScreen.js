@@ -110,11 +110,24 @@ function notifToCard(n) {
     work_started:   { icon: '🟢', iconBg: '#F0FDF4', iconColor: '#15803D', filter: 'Work' },
     // Provider: client declined the start approval.
     work_rejected:  { icon: '✕', iconBg: '#FDEAEA', iconColor: '#B00020', filter: 'Work' },
+    // Partner: provider added them as a partner with a revenue split, needs
+    // to approve before the record proceeds to the client (gates
+    // work_start_request above — see workRecordService.js).
+    partner_split_request: { icon: '🤝', iconBg: '#FFF3E0', iconColor: '#B26A00', filter: 'Work' },
+    // Provider: partner approved the split — record now sent to the client.
+    partner_split_approved: { icon: '🤝', iconBg: '#F0FDF4', iconColor: '#15803D', filter: 'Work' },
+    // Provider: partner declined the split — record never reached the client.
+    partner_split_declined: { icon: '✕', iconBg: '#FDEAEA', iconColor: '#B00020', filter: 'Work' },
     // Client: provider marked the work complete, needs to confirm + rate
     // (second of the two-approval lifecycle).
     work_completion_request: { icon: '🧾', iconBg: '#FFF3E0', iconColor: '#B26A00', filter: 'Work' },
     // Provider: client confirmed + rated — provider can rate them back.
     work_confirmed: { icon: '⭐', iconBg: '#F0FDF4', iconColor: '#15803D', filter: 'Work' },
+    // Partner (only on a record with an approved split): client confirmed +
+    // rated — same rating as the provider's, plus their own revenue share.
+    // Distinct from work_confirmed because a partner can't rate the client
+    // back (see rateClient — provider-only), so this routes differently.
+    partner_work_verified: { icon: '⭐', iconBg: '#F0FDF4', iconColor: '#15803D', filter: 'Work' },
     // Provider: client raised an issue instead of confirming.
     work_disputed:  { icon: '⚑', iconBg: '#FDEAEA', iconColor: '#B00020', filter: 'Work' },
     // Client: provider rated them back after confirming.
@@ -311,11 +324,21 @@ export default function NotificationsScreen({ navigation }) {
               // Provider: client approved/declined the start — open their
               // own record view (now ongoing, or rejected).
               else if (item.type === 'work_started' || item.type === 'work_rejected') navigation.push('CreateWorkRecord', { recordId: item.recordId });
+              // Partner: approve/decline the revenue split, before the
+              // record is even allowed to reach the client.
+              else if (item.type === 'partner_split_request') navigation.navigate('PartnerApproval', { recordId: item.recordId });
+              // Provider: partner approved/declined the split — open their
+              // own record view.
+              else if (item.type === 'partner_split_approved' || item.type === 'partner_split_declined') navigation.push('CreateWorkRecord', { recordId: item.recordId });
               // Client: review the completed record, confirm + rate the
               // provider (second of the two-approval lifecycle).
               else if (item.type === 'work_completion_request') navigation.navigate('WorkRecordReview', { recordId: item.recordId });
               // Provider: client confirmed + rated — rate the client back.
               else if (item.type === 'work_confirmed') navigation.navigate('RateClient', { recordId: item.recordId });
+              // Partner: client confirmed + rated — open their own record
+              // view (there's no "rate the client back" for a partner, only
+              // the provider does that — see rateClient).
+              else if (item.type === 'partner_work_verified') navigation.push('CreateWorkRecord', { recordId: item.recordId });
               // Provider: open their own record view for the disputed record.
               // push (not navigate) via CreateWorkRecord — it's the provider's
               // own editable screen, same entry point as opening from

@@ -11,7 +11,8 @@ const LIGHT  = '#8E8E8E';
 // Category + amount reads better than location for scanning a long list —
 // "Residential · ₹18.5L" tells a client type + scale at a glance.
 function projectSubline(p) {
-  return [p.category, p.value ? formatAmountIndian(p.value) : null].filter(Boolean).join(' · ');
+  return [p.category, p.value ? formatAmountIndian(p.value) : null, p.isPartnership ? '🤝 Partnership' : null]
+    .filter(Boolean).join(' · ');
 }
 
 function ProjectRow({ project, bordered, onPress }) {

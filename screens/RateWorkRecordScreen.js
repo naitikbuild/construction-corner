@@ -9,8 +9,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { injectFonts } from '../theme/typography';
 import { getCurrentUid } from '../utils/session';
 import { getProfile } from '../services/userService';
-import { getWorkRecord, confirmWorkRecord, WORK_RECORD_STATUS } from '../services/workRecordService';
+import { getWorkRecord, confirmWorkRecord, getWorkRecordShareAmount, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { sendNotification } from '../services/notificationService';
+import { formatAmountIndian } from '../utils/format';
 
 const DARK   = '#262626';
 const GREEN  = '#22A559';
@@ -109,7 +110,8 @@ export default function RateWorkRecordScreen({ navigation, route }) {
   };
 
   const handleAddPhoto = async () => {
-    if (photos.length >= MAX_REVIEW_PHOTOS) return;
+    const remaining = MAX_REVIEW_PHOTOS - photos.length;
+    if (remaining <= 0) return;
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Please allow photo library access to add photos.');
@@ -117,10 +119,15 @@ export default function RateWorkRecordScreen({ navigation, route }) {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      selectionLimit: remaining,
       quality: 0.7,
     });
-    if (!result.canceled && result.assets?.[0]?.uri) {
-      setPhotos(prev => [...prev, result.assets[0].uri]);
+    if (result.canceled || !result.assets?.length) return;
+    const picked = result.assets.map(a => a.uri);
+    setPhotos(prev => [...prev, ...picked.slice(0, remaining)]);
+    if (picked.length > remaining) {
+      Alert.alert('Photo limit', `You can add up to ${MAX_REVIEW_PHOTOS} photos.`);
     }
   };
 
@@ -142,12 +149,30 @@ export default function RateWorkRecordScreen({ navigation, route }) {
         reviewPhotos: photos,
         confirmedBy: myUid,
       });
+
+      // 'verified' is confirmed above — recompute shares off the record as
+      // it stood when loaded (labourCharge/split fields don't change here).
+      const hasApprovedPartner = !!record.partnerId && record.partnerApprovalStatus === 'approved';
+      const providerShare = getWorkRecordShareAmount(record, record.providerId);
       await sendNotification(
         record.providerId,
         'work_confirmed',
-        `${record.clientName || 'The client'} confirmed and rated your work — ${overallRating}★. Tap to rate them back.`,
+        `${record.clientName || 'The client'} confirmed and rated your work — ${overallRating}★. ${formatAmountIndian(providerShare)} added to your verified work. Tap to rate them back.`,
         { recordId }
       );
+      // BOTH partners get the same rating and their own share of the
+      // labour charge — pending/declined partners never reach 'verified'
+      // with a partnerId still set to anything meaningful (see
+      // getWorkRecordShareAmount), so this only fires for an approved one.
+      if (hasApprovedPartner) {
+        const partnerShare = getWorkRecordShareAmount(record, record.partnerId);
+        await sendNotification(
+          record.partnerId,
+          'partner_work_verified',
+          `${record.clientName || 'The client'} confirmed the work — ${overallRating}★. ${formatAmountIndian(partnerShare)} added to your verified work.`,
+          { recordId }
+        );
+      }
       setSubmitted(true);
     } catch (err) {
       Alert.alert('Error', err.message || 'Could not post your review. Please try again.');

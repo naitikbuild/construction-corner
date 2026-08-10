@@ -15,8 +15,10 @@ import AllProjectsModal from '../components/AllProjectsModal';
 import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
 import { useToast } from '../hooks/useToast';
 import { getProfile, recordProfileView, updateProfile } from '../services/userService';
+import { checkMutualBlock, confirmBlockUser } from '../utils/blocking';
+import BlockedProfileNotice from '../components/BlockedProfileNotice';
 import { getTotalVerifiedAmount, getVerifiedWork } from '../services/workService';
-import { getProviderWorkRecords, workRecordToProject, workRecordToVerifiedWork, WORK_RECORD_STATUS } from '../services/workRecordService';
+import { getPartyWorkRecords, workRecordToProject, workRecordToVerifiedWork, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { getCurrentUid } from '../utils/session';
 import { auth } from '../config/firebase'; // TEMP DEBUG — for CHAT GATE DEBUG / MYUID SET logging below, remove with the logs
 import { formatAmountIndian, formatJoinedDate } from '../utils/format';
@@ -38,7 +40,8 @@ function AvailabilityChip({ available }) {
 // Category + amount reads better than location for scanning a list —
 // "Residential · ₹18.5L" tells a client type + scale at a glance.
 function projectSubline(p) {
-  return [p.category, p.value ? formatAmountIndian(p.value) : null].filter(Boolean).join(' · ');
+  return [p.category, p.value ? formatAmountIndian(p.value) : null, p.isPartnership ? '🤝 Partnership' : null]
+    .filter(Boolean).join(' · ');
 }
 
 const PROJECTS_PREVIEW_COUNT = 3;
@@ -108,7 +111,7 @@ const pj = injectFonts({
 // tile to wrap. Measuring the real container removes the guesswork entirely.
 const GRID_GAP = 8;
 
-function WorkPhotoGrid({ photos = [], isOwn, onAdd, onReplace, onRemove, onEditSection, onView }) {
+function WorkPhotoGrid({ photos = [], savingUris = [], isOwn, onAdd, onReplace, onRemove, onEditSection, onView }) {
   const [gridWidth, setGridWidth] = useState(0);
   const slotSize = gridWidth > 0 ? Math.floor((gridWidth - GRID_GAP * 2) / 3) - 1 : 0;
 
@@ -133,6 +136,11 @@ function WorkPhotoGrid({ photos = [], isOwn, onAdd, onReplace, onRemove, onEditS
             {uri ? (
               <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.85} onPress={() => onView(i)}>
                 <Image source={{ uri }} style={wp.thumb} resizeMode="cover" />
+                {savingUris.includes(uri) && (
+                  <View style={wp.savingOverlay}>
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  </View>
+                )}
                 {isOwn && (
                   <>
                     <TouchableOpacity style={wp.replaceBtn} onPress={() => onReplace(i)}>
@@ -174,6 +182,10 @@ const wp = injectFonts({
     borderRadius: 10, overflow: 'hidden',
   },
   thumb: { width: '100%', height: '100%' },
+  savingOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center',
+  },
   placeholder: {
     flex: 1, backgroundColor: '#F2F2F2',
     alignItems: 'center', justifyContent: 'center',
@@ -205,11 +217,13 @@ export default function WorkerProfileScreen({ navigation, route }) {
 
   const [loading, setLoading] = useState(true);
   const [worker, setWorker] = useState(null);
+  const [blocked, setBlocked] = useState(false);
   const [verifiedAmt, setVerifiedAmt] = useState(0);
   const [verifiedWork, setVerifiedWork] = useState([]);
   const [realProjects, setRealProjects] = useState([]);
   const [myUid, setMyUid] = useState(null);
   const [viewer, setViewer] = useState({ visible: false, photos: [], index: 0 });
+  const [savingPhotoUris, setSavingPhotoUris] = useState([]);
   const [projectDetail, setProjectDetail] = useState(null);
   const [allProjectsOpen, setAllProjectsOpen] = useState(false);
   const { headerAnimatedStyle, headerHeight, onHeaderLayout, onScroll } = useAutoHideHeader();
@@ -258,6 +272,10 @@ export default function WorkerProfileScreen({ navigation, route }) {
 
       setWorker(profile);
 
+      if (uid !== me) {
+        try { setBlocked(await checkMutualBlock(me, uid, profile?.blockedUsers)); } catch (_) {}
+      }
+
       // Verified totals — only meaningful for real Firebase users (and demo profiles).
       // Demo profiles keep reading their fixture data (demoVerifiedAmount/
       // demoVerifiedWork/projects in demoData.js) via the legacy workService
@@ -276,11 +294,19 @@ export default function WorkerProfileScreen({ navigation, route }) {
             setVerifiedWork(works || []);
             setRealProjects([]);
           } else {
-            const records = await getProviderWorkRecords(uid);
+            // getPartyWorkRecords (not getProviderWorkRecords) — includes
+            // records where `uid` is an APPROVED partner, not just where
+            // they're the lead provider, so a partner sees their share of a
+            // partnered record on their own profile too. Both amount (split
+            // by percentage) and project count naturally come out right per
+            // party since a record can only ever appear once in any single
+            // uid's own list (see getWorkRecordShareAmount).
+            const records = await getPartyWorkRecords(uid);
             const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.VERIFIED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
-            setVerifiedAmt(confirmed.reduce((sum, r) => sum + (r.labourCharge || 0), 0));
-            setVerifiedWork(confirmed.map(workRecordToVerifiedWork));
-            setRealProjects(records.map(workRecordToProject));
+            const work = confirmed.map(r => workRecordToVerifiedWork(r, uid));
+            setVerifiedAmt(work.reduce((sum, w) => sum + (w.amount || 0), 0));
+            setVerifiedWork(work);
+            setRealProjects(records.map(r => workRecordToProject(r, uid)));
           }
         } catch (_) {}
       }
@@ -404,6 +430,26 @@ export default function WorkerProfileScreen({ navigation, route }) {
     return result.assets[0].uri;
   };
 
+  // Grid adds allow picking several photos at once — allowsMultipleSelection
+  // and allowsEditing/crop can't coexist in expo-image-picker, so this path
+  // (unlike pickImage above, still used for the avatar and single replace)
+  // trades per-image cropping for bulk add.
+  const pickMultipleImages = async (limit) => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please allow photo library access.');
+      return [];
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      selectionLimit: limit,
+      quality: 0.7,
+    });
+    if (result.canceled || !result.assets?.length) return [];
+    return result.assets.map(a => a.uri);
+  };
+
   const handleChangeAvatar = async () => {
     const uri = await pickImage();
     if (uri) persistOwnProfileChange({ photoUri: uri });
@@ -411,9 +457,17 @@ export default function WorkerProfileScreen({ navigation, route }) {
 
   const handleAddPhoto = async () => {
     const photos = worker?.workPhotos || [];
-    if (photos.length >= 6) return;
-    const uri = await pickImage();
-    if (uri) persistOwnProfileChange({ workPhotos: [...photos, uri] });
+    const remaining = 6 - photos.length;
+    if (remaining <= 0) return;
+    const picked = await pickMultipleImages(remaining);
+    if (!picked.length) return;
+    const toAdd = picked.slice(0, remaining);
+    setSavingPhotoUris(toAdd);
+    await persistOwnProfileChange({ workPhotos: [...photos, ...toAdd] });
+    setSavingPhotoUris([]);
+    if (picked.length > remaining) {
+      Alert.alert('Photo limit', 'You can add up to 6 photos.');
+    }
   };
 
   const handleReplacePhoto = async (index) => {
@@ -444,6 +498,10 @@ export default function WorkerProfileScreen({ navigation, route }) {
         <ActivityIndicator size="large" color="#262626" />
       </View>
     );
+  }
+
+  if (blocked) {
+    return <BlockedProfileNotice onBack={() => navigation.goBack()} />;
   }
 
   // ── Derived display values ────────────────────────────────────────────────
@@ -503,7 +561,13 @@ export default function WorkerProfileScreen({ navigation, route }) {
             <Text style={s.navShare}>⚙️</Text>
           </TouchableOpacity>
         ) : (
-          <View style={[s.navBtn, { backgroundColor: 'transparent' }]} />
+          <TouchableOpacity
+            style={s.navBtn}
+            onPress={() => confirmBlockUser(myUid, viewUid, worker?.name, () => navigation.goBack())}
+            activeOpacity={0.7}
+          >
+            <Text style={s.navShare}>⋮</Text>
+          </TouchableOpacity>
         )}
       </Animated.View>
 
@@ -699,6 +763,7 @@ export default function WorkerProfileScreen({ navigation, route }) {
           {/* ── 6. GALLERY ───────────────────────────────────────────────── */}
           <WorkPhotoGrid
             photos={worker?.workPhotos}
+            savingUris={savingPhotoUris}
             isOwn={isOwn}
             onAdd={handleAddPhoto}
             onReplace={handleReplacePhoto}

@@ -16,9 +16,11 @@ import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
 import { useToast } from '../hooks/useToast';
 import { getProfile, recordProfileView, updateProfile } from '../services/userService';
 import { getVerifiedWork, getTotalVerifiedAmount } from '../services/workService';
-import { getProviderWorkRecords, workRecordToProject, workRecordToVerifiedWork, WORK_RECORD_STATUS } from '../services/workRecordService';
+import { getPartyWorkRecords, workRecordToProject, workRecordToVerifiedWork, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { getCurrentUid } from '../utils/session';
 import { formatAmountIndian, formatJoinedDate } from '../utils/format';
+import { checkMutualBlock, confirmBlockUser } from '../utils/blocking';
+import BlockedProfileNotice from '../components/BlockedProfileNotice';
 
 // Slot size is measured from the grid container's ACTUAL laid-out width via
 // onLayout, not guessed from useWindowDimensions() minus assumed padding —
@@ -27,7 +29,7 @@ import { formatAmountIndian, formatJoinedDate } from '../utils/format';
 // as Contractor's GalleryGrid / Worker's WorkPhotoGrid).
 const GRID_GAP = 8;
 
-function PortfolioGrid({ photos = [], isOwn, onAdd, onReplace, onRemove, onView }) {
+function PortfolioGrid({ photos = [], savingUris = [], isOwn, onAdd, onReplace, onRemove, onView }) {
   const [gridWidth, setGridWidth] = useState(0);
   const slotSize = gridWidth > 0 ? Math.floor((gridWidth - GRID_GAP * 2) / 3) - 1 : 0;
   const slotBox = { width: slotSize, height: slotSize };
@@ -41,6 +43,11 @@ function PortfolioGrid({ photos = [], isOwn, onAdd, onReplace, onRemove, onView 
           {uri ? (
             <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.85} onPress={() => onView(i)}>
               <Image source={{ uri }} style={wp.thumb} resizeMode="cover" />
+              {savingUris.includes(uri) && (
+                <View style={wp.savingOverlay}>
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                </View>
+              )}
               {isOwn && (
                 <>
                   <TouchableOpacity style={wp.replaceBtn} onPress={() => onReplace(i)}>
@@ -71,6 +78,10 @@ const wp = injectFonts({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   slot: { borderRadius: 10, overflow: 'hidden' },
   thumb: { width: '100%', height: '100%' },
+  savingOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center',
+  },
   placeholder: {
     flex: 1, backgroundColor: '#F2F2F2',
     alignItems: 'center', justifyContent: 'center',
@@ -101,7 +112,8 @@ const wp = injectFonts({
 // Category + amount reads better than location for scanning a list —
 // "Residential · ₹18.5L" tells a client type + scale at a glance.
 function projectSubline(p) {
-  return [p.category, p.value ? formatAmountIndian(p.value) : null].filter(Boolean).join(' · ');
+  return [p.category, p.value ? formatAmountIndian(p.value) : null, p.isPartnership ? '🤝 Partnership' : null]
+    .filter(Boolean).join(' · ');
 }
 
 const PROJECTS_PREVIEW_COUNT = 3;
@@ -413,11 +425,13 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
 
   const [loading, setLoading] = useState(true);
   const [professional, setProfessional] = useState(null);
+  const [blocked, setBlocked] = useState(false);
   const [verifiedAmt, setVerifiedAmt] = useState(0);
   const [verifiedWork, setVerifiedWork] = useState([]);
   const [realProjects, setRealProjects] = useState([]);
   const [myUid, setMyUid] = useState(null);
   const [viewer, setViewer] = useState({ visible: false, photos: [], index: 0 });
+  const [savingPhotoUris, setSavingPhotoUris] = useState([]);
   const [projectDetail, setProjectDetail] = useState(null);
   const [allProjectsOpen, setAllProjectsOpen] = useState(false);
   const { headerAnimatedStyle, headerHeight, onHeaderLayout, onScroll } = useAutoHideHeader();
@@ -474,6 +488,10 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
 
       setProfessional(profile);
 
+      if (uid !== me) {
+        try { setBlocked(await checkMutualBlock(me, uid, profile?.blockedUsers)); } catch (_) {}
+      }
+
       // Verified totals — only meaningful for real Firebase users (and demo profiles).
       // Demo profiles keep reading their fixture data via the legacy workService
       // calls (already special-cased for demo uids). Real accounts read their
@@ -491,11 +509,15 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
             setVerifiedWork(works || []);
             setRealProjects([]);
           } else {
-            const records = await getProviderWorkRecords(uid);
+            // getPartyWorkRecords (not getProviderWorkRecords) — includes
+            // records where `uid` is an APPROVED partner, so a partner sees
+            // their share of a partnered record on their own profile too.
+            const records = await getPartyWorkRecords(uid);
             const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.VERIFIED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
-            setVerifiedAmt(confirmed.reduce((sum, r) => sum + (r.labourCharge || 0), 0));
-            setVerifiedWork(confirmed.map(workRecordToVerifiedWork));
-            setRealProjects(records.map(workRecordToProject));
+            const work = confirmed.map(r => workRecordToVerifiedWork(r, uid));
+            setVerifiedAmt(work.reduce((sum, w) => sum + (w.amount || 0), 0));
+            setVerifiedWork(work);
+            setRealProjects(records.map(r => workRecordToProject(r, uid)));
           }
         } catch (_) {}
       }
@@ -627,11 +649,39 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
     return result.assets[0].uri;
   };
 
+  // Grid adds allow picking several photos at once — allowsMultipleSelection
+  // and allowsEditing/crop can't coexist in expo-image-picker, so this path
+  // (unlike pickPortfolioImage above, still used for single replace) trades
+  // per-image cropping for bulk add.
+  const pickMultiplePortfolioImages = async (limit) => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please allow photo library access.');
+      return [];
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      selectionLimit: limit,
+      quality: 0.7,
+    });
+    if (result.canceled || !result.assets?.length) return [];
+    return result.assets.map(a => a.uri);
+  };
+
   const handleAddPortfolioPhoto = async () => {
     const photos = professional?.workPhotos || [];
-    if (photos.length >= 6) return;
-    const uri = await pickPortfolioImage();
-    if (uri) persistOwnProfileChange({ workPhotos: [...photos, uri] });
+    const remaining = 6 - photos.length;
+    if (remaining <= 0) return;
+    const picked = await pickMultiplePortfolioImages(remaining);
+    if (!picked.length) return;
+    const toAdd = picked.slice(0, remaining);
+    setSavingPhotoUris(toAdd);
+    await persistOwnProfileChange({ workPhotos: [...photos, ...toAdd] });
+    setSavingPhotoUris([]);
+    if (picked.length > remaining) {
+      Alert.alert('Photo limit', 'You can add up to 6 photos.');
+    }
   };
 
   const handleReplacePortfolioPhoto = async (index) => {
@@ -764,6 +814,10 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
     );
   }
 
+  if (blocked) {
+    return <BlockedProfileNotice onBack={() => navigation.goBack()} />;
+  }
+
   // ── Derived display values ────────────────────────────────────────────────
   const isOwn = !viewUid || viewUid === myUid;
 
@@ -845,7 +899,13 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
             <Text style={s.navShare}>⚙️</Text>
           </TouchableOpacity>
         ) : (
-          <View style={[s.navBtn, { backgroundColor: 'transparent' }]} />
+          <TouchableOpacity
+            style={s.navBtn}
+            onPress={() => confirmBlockUser(myUid, viewUid, professional?.name || professional?.companyName, () => navigation.goBack())}
+            activeOpacity={0.7}
+          >
+            <Text style={s.navShare}>⋮</Text>
+          </TouchableOpacity>
         )}
       </Animated.View>
 
@@ -1033,6 +1093,7 @@ export default function ProfessionalProfileScreen({ navigation, route }) {
           </View>
           <PortfolioGrid
             photos={professional?.workPhotos}
+            savingUris={savingPhotoUris}
             isOwn={isOwn}
             onAdd={handleAddPortfolioPhoto}
             onReplace={handleReplacePortfolioPhoto}

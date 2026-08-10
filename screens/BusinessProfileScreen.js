@@ -6,13 +6,15 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getProfile, recordProfileView } from '../services/userService';
 import {
-  getProviderWorkRecords, workRecordToProject, getClientReviews, WORK_RECORD_STATUS,
+  getPartyWorkRecords, workRecordToProject, getWorkRecordShareAmount, getClientReviews, WORK_RECORD_STATUS,
 } from '../services/workRecordService';
 import ClientReviewsSection from '../components/ClientReviewsSection';
 import ProjectDetailModal from '../components/ProjectDetailModal';
 import PhotoViewer from '../components/PhotoViewer';
 import { formatAmountIndian } from '../utils/format';
 import { getCurrentUid } from '../utils/session';
+import { checkMutualBlock, confirmBlockUser } from '../utils/blocking';
+import BlockedProfileNotice from '../components/BlockedProfileNotice';
 
 // ─── Orange Gradient Button ───────────────────────────────────────────────────
 function GradBtn({ label, subLabel, onPress }) {
@@ -95,6 +97,7 @@ export default function BusinessProfileScreen({ navigation, route }) {
   const [activeTab, setActiveTab] = useState('Projects');
   const [loading, setLoading] = useState(true);
   const [liveProfile, setLiveProfile] = useState(null);
+  const [blocked, setBlocked] = useState(false);
   const [verifiedAmt, setVerifiedAmt] = useState('');
   const [verifiedJobsCount, setVerifiedJobsCount] = useState(0);
   const [realProjects, setRealProjects] = useState([]);
@@ -123,17 +126,24 @@ export default function BusinessProfileScreen({ navigation, route }) {
       const profile = await getProfile(uid);
       if (profile) setLiveProfile(profile);
 
+      if (uid !== me) {
+        try { setBlocked(await checkMutualBlock(me, uid, profile?.blockedUsers)); } catch (_) {}
+      }
+
       // Verified totals + projects now come from work_records, same system
       // Worker/Contractor/Professional use — no demo Business/Supplier
       // profiles exist today, so this is always the real-data path.
       if (uid && !uid.startsWith('guest_')) {
         try {
-          const records = await getProviderWorkRecords(uid);
+          // getPartyWorkRecords (not getProviderWorkRecords) — includes
+          // records where `uid` is an APPROVED partner, so a partner sees
+          // their share of a partnered record on their own profile too.
+          const records = await getPartyWorkRecords(uid);
           const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.VERIFIED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
-          const total = confirmed.reduce((sum, r) => sum + (r.labourCharge || 0), 0);
+          const total = confirmed.reduce((sum, r) => sum + getWorkRecordShareAmount(r, uid), 0);
           setVerifiedAmt(total > 0 ? `₹${total.toLocaleString('en-IN')}` : '₹0');
           setVerifiedJobsCount(confirmed.length);
-          setRealProjects(records.map(workRecordToProject));
+          setRealProjects(records.map(r => workRecordToProject(r, uid)));
         } catch (_) {}
         try { setClientReviews(await getClientReviews(uid)); } catch (_) { setClientReviews([]); }
       }
@@ -190,6 +200,10 @@ export default function BusinessProfileScreen({ navigation, route }) {
     );
   }
 
+  if (blocked) {
+    return <BlockedProfileNotice onBack={() => navigation.goBack()} />;
+  }
+
   if (!liveProfile && !viewUid) {
     return (
       <View style={[ss.screen, { alignItems: 'center', justifyContent: 'center', padding: 32 }]}>
@@ -218,9 +232,18 @@ export default function BusinessProfileScreen({ navigation, route }) {
           <Text style={ss.backArrow}>←</Text>
         </TouchableOpacity>
         <Text style={ss.headerTitle}>Company Profile</Text>
-        <TouchableOpacity style={ss.moreBtn} onPress={() => Alert.alert('Options')}>
-          <Text style={ss.moreIcon}>⋯</Text>
-        </TouchableOpacity>
+        {isOwn ? (
+          <TouchableOpacity style={ss.moreBtn} onPress={() => Alert.alert('Options')}>
+            <Text style={ss.moreIcon}>⋯</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={ss.moreBtn}
+            onPress={() => confirmBlockUser(myUid, viewUid, liveProfile?.companyName || liveProfile?.name, () => navigation.goBack())}
+          >
+            <Text style={ss.moreIcon}>⋯</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -405,6 +428,7 @@ export default function BusinessProfileScreen({ navigation, route }) {
                         </View>
                       </View>
                       {p.location ? <Text style={ss.projectLoc}>📍 {p.location}</Text> : null}
+                      {p.isPartnership ? <Text style={ss.projectPartnership}>🤝 Partnership</Text> : null}
                     </View>
                     <Text style={ss.projectValue}>{p.value ? formatAmountIndian(p.value) : '—'}</Text>
                   </TouchableOpacity>
@@ -542,6 +566,7 @@ const ss = StyleSheet.create({
   projectLogoWrap: { width: 52, height: 52, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.8)', alignItems: 'center', justifyContent: 'center' },
   projectName: { fontSize: 13, fontWeight: '800', color: '#1A1A1A' },
   projectLoc: { fontSize: 11, color: '#666666', marginTop: 2 },
+  projectPartnership: { fontSize: 11, color: '#22A559', fontWeight: '700', marginTop: 2 },
   projectValue: { fontSize: 15, fontWeight: '800', color: '#FFB830' },
   statusBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
   statusText: { fontSize: 10, fontWeight: '700' },

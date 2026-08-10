@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, TextInput, StatusBar,
   KeyboardAvoidingView, Platform, Image, Alert, Modal, Linking, ActivityIndicator,
+  Keyboard,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
@@ -9,7 +10,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { injectFonts } from '../theme/typography';
-import { getProfile } from '../services/userService';
+import { getProfile, blockUser, unblockUser } from '../services/userService';
 import {
   sendMessage, sendAttachmentMessage, createChat, markChatRead,
   subscribeToChat, subscribeToRecentMessages, getOlderMessages,
@@ -235,6 +236,7 @@ export default function ChatScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
 
   const [otherProfile, setOtherProfile] = useState(null);
+  const [myBlockedUsers, setMyBlockedUsers] = useState([]);
   const [messages, setMessages] = useState([]);
   const [chatMeta, setChatMeta] = useState(null);
   const [inputText, setInputText] = useState('');
@@ -242,6 +244,7 @@ export default function ChatScreen({ navigation, route }) {
   const [chatId, setChatId] = useState(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [demoLastReadByOther, setDemoLastReadByOther] = useState(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
 
   // Attachments — optimistic local queue so an upload shows a sending
   // indicator immediately and can be retried on failure, before the synced
@@ -298,6 +301,15 @@ export default function ChatScreen({ navigation, route }) {
 
       getProfile(conversation.uid)
         .then(p => { if (!cancelled) setOtherProfile(p); })
+        .catch(() => {});
+
+      // My own blockedUsers — needed to tell "I blocked them" apart from
+      // "they blocked me" (see isBlocked/iBlockedThem below), which decide
+      // both the freeze note's wording and the header menu's Block/Unblock
+      // label. Fire-and-forget, same as the other-profile fetch above — the
+      // chat itself must never wait on this.
+      getProfile(uid)
+        .then(p => { if (!cancelled) setMyBlockedUsers(p?.blockedUsers || []); })
         .catch(() => {});
 
       try {
@@ -369,6 +381,18 @@ export default function ChatScreen({ navigation, route }) {
     }, [myUid])
   );
 
+  // Keep the latest messages / the text being typed in view whenever the
+  // keyboard opens — without this, KeyboardAvoidingView shrinks the FlatList
+  // but the scroll offset stays put, so the last message can end up hidden
+  // right behind the now-risen input bar.
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const sub = Keyboard.addListener(showEvent, () => {
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+    });
+    return () => sub.remove();
+  }, []);
+
   const loadOlder = async () => {
     if (loadingOlderRef.current || !hasMoreOlderRef.current || !chatIdRef.current || !oldestCursorRef.current) return;
     loadingOlderRef.current = true;
@@ -395,6 +419,12 @@ export default function ChatScreen({ navigation, route }) {
   const handleSend = async () => {
     const text = inputText.trim();
     if (!text || !myUid) return;
+    // Belt-and-suspenders — the input bar is already replaced by a frozen
+    // notice below whenever isBlocked is true, so this should never
+    // actually be reachable, but never trust that alone for a hard block.
+    const blocked = myBlockedUsers.some(u => u.uid === conversation.uid)
+      || (otherProfile?.blockedUsers || []).some(u => u.uid === myUid);
+    if (blocked) return;
     setInputText('');
     isNearBottomRef.current = true;
 
@@ -418,6 +448,58 @@ export default function ChatScreen({ navigation, route }) {
     const pt = (otherProfile?.profileType || '').toLowerCase();
     const screen = PROFILE_SCREEN[pt];
     if (screen && conversation.uid) navigation.navigate(screen, { uid: conversation.uid });
+  };
+
+  // ── Block / unblock — conversation header menu. Unlike a profile screen
+  // (which gets replaced entirely by a "not available" notice once blocked),
+  // this screen stays open post-block so existing messages remain visible —
+  // so, unlike the profile screens' menus, this one needs to offer Unblock
+  // too, not just Block (see the header render below).
+  const iBlockedThem = myBlockedUsers.some(u => u.uid === conversation.uid);
+  const theyBlockedMe = !!otherProfile && (otherProfile.blockedUsers || []).some(u => u.uid === myUid);
+  const isBlocked = iBlockedThem || theyBlockedMe;
+
+  const handleMenuPress = () => {
+    if (iBlockedThem) {
+      Alert.alert(
+        `Unblock ${conversation.name || 'this user'}?`,
+        "You'll be able to see each other's profile and message again.",
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Unblock',
+            onPress: async () => {
+              try {
+                await unblockUser(myUid, conversation.uid);
+                setMyBlockedUsers(prev => prev.filter(u => u.uid !== conversation.uid));
+              } catch (err) {
+                Alert.alert('Could Not Unblock', err.message || 'Something went wrong. Please try again.');
+              }
+            },
+          },
+        ]
+      );
+    } else {
+      Alert.alert(
+        `Block ${conversation.name || 'this user'}?`,
+        "You won't be able to see each other's profile or message.",
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Block',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await blockUser(myUid, conversation.uid, conversation.name || 'User');
+                setMyBlockedUsers(prev => [...prev, { uid: conversation.uid, name: conversation.name || 'User' }]);
+              } catch (err) {
+                Alert.alert('Could Not Block', err.message || 'Something went wrong. Please try again.');
+              }
+            },
+          },
+        ]
+      );
+    }
   };
 
   const openWorkRecord = (recordId) => {
@@ -562,7 +644,7 @@ export default function ChatScreen({ navigation, route }) {
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
       {/* ── Header ── */}
-      <View style={cs.header}>
+      <View style={cs.header} onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
         <TouchableOpacity style={cs.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
           <Text style={cs.backIcon}>←</Text>
         </TouchableOpacity>
@@ -593,12 +675,22 @@ export default function ChatScreen({ navigation, route }) {
             )}
           </View>
         </TouchableOpacity>
+        {!conversation.isDemo && (
+          <TouchableOpacity style={cs.moreBtn} onPress={handleMenuPress} activeOpacity={0.7}>
+            <Text style={cs.moreIcon}>⋮</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
+      {/* Android relies on windowSoftInputMode="adjustResize" (app.json's
+          android.softwareKeyboardLayoutMode) to resize the whole screen for
+          the keyboard, so KeyboardAvoidingView is left inert there — giving
+          it a 'height'/'padding' behavior too would double-compensate and
+          leave a large empty gap above the input bar. */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
       >
         {initialLoading ? (
           <View style={cs.center} />
@@ -656,31 +748,40 @@ export default function ChatScreen({ navigation, route }) {
           />
         )}
 
-        {/* ── Input bar ── */}
-        <View style={[cs.inputBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-          <TouchableOpacity style={cs.plusBtn} onPress={() => setAttachSheetOpen(true)} activeOpacity={0.7}>
-            <Text style={cs.plusIcon}>+</Text>
-          </TouchableOpacity>
-          <View style={cs.inputWrap}>
-            <TextInput
-              style={cs.textInput}
-              placeholder="Message..."
-              placeholderTextColor={LIGHT}
-              value={inputText}
-              onChangeText={setInputText}
-              multiline
-              maxLength={1000}
-            />
+        {/* ── Input bar — frozen (existing messages stay visible, but no new
+            ones either direction) once either side has blocked the other ── */}
+        {isBlocked ? (
+          <View style={[cs.blockedBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+            <Text style={cs.blockedBarText}>
+              {iBlockedThem ? 'You blocked this user' : 'This conversation is unavailable'}
+            </Text>
           </View>
-          <TouchableOpacity
-            style={[cs.sendBtn, !inputText.trim() && cs.sendBtnDisabled]}
-            onPress={handleSend}
-            disabled={!inputText.trim()}
-            activeOpacity={0.85}
-          >
-            <Text style={cs.sendIcon}>➤</Text>
-          </TouchableOpacity>
-        </View>
+        ) : (
+          <View style={[cs.inputBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+            <TouchableOpacity style={cs.plusBtn} onPress={() => setAttachSheetOpen(true)} activeOpacity={0.7}>
+              <Text style={cs.plusIcon}>+</Text>
+            </TouchableOpacity>
+            <View style={cs.inputWrap}>
+              <TextInput
+                style={cs.textInput}
+                placeholder="Message..."
+                placeholderTextColor={LIGHT}
+                value={inputText}
+                onChangeText={setInputText}
+                multiline
+                maxLength={1000}
+              />
+            </View>
+            <TouchableOpacity
+              style={[cs.sendBtn, !inputText.trim() && cs.sendBtnDisabled]}
+              onPress={handleSend}
+              disabled={!inputText.trim()}
+              activeOpacity={0.85}
+            >
+              <Text style={cs.sendIcon}>➤</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </KeyboardAvoidingView>
 
       <AttachmentSheet
@@ -719,6 +820,11 @@ const cs = injectFonts({
     alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
   backIcon: { fontSize: 20, lineHeight: 24, fontWeight: '700', color: DARK },
+  moreBtn: {
+    width: 36, height: 36, borderRadius: 18, backgroundColor: FILL,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  moreIcon: { fontSize: 20, lineHeight: 24, fontWeight: '700', color: DARK },
   headerInfoRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   headerAvatarWrap: { width: 40, height: 40, flexShrink: 0 },
   headerAvatarImg: { width: 40, height: 40, borderRadius: 20 },
@@ -841,6 +947,11 @@ const cs = injectFonts({
     backgroundColor: '#FFFFFF', paddingHorizontal: 12, paddingTop: 10,
     borderTopWidth: 1, borderTopColor: BORDER,
   },
+  blockedBar: {
+    backgroundColor: FILL, paddingHorizontal: 16, paddingTop: 14,
+    borderTopWidth: 1, borderTopColor: BORDER, alignItems: 'center',
+  },
+  blockedBarText: { fontSize: 13, color: MID, fontWeight: '600' },
   plusBtn: {
     width: 38, height: 38, borderRadius: 19, backgroundColor: FILL,
     alignItems: 'center', justifyContent: 'center', flexShrink: 0,

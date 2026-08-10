@@ -80,6 +80,29 @@ export default function ProjectDetailModal({ visible, project, onClose, onViewPh
             </View>
           </View>
 
+          {project.isPartnership ? (
+            <View style={s.partnershipCard}>
+              <Text style={s.partnershipTitle}>🤝 PARTNERSHIP</Text>
+              <View style={s.partnershipRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.partnershipRole}>Lead Provider</Text>
+                  <Text style={s.partnershipName} numberOfLines={1}>{project.providerName || 'Provider'}</Text>
+                </View>
+                <Text style={s.partnershipPct}>{project.providerSharePct ?? 0}%</Text>
+                <Text style={s.partnershipAmt}>{formatAmountIndian(project.providerShareAmount)}</Text>
+              </View>
+              <View style={[s.partnershipRow, s.partnershipRowBorder]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.partnershipRole}>Partner</Text>
+                  <Text style={s.partnershipName} numberOfLines={1}>{project.partnerName || 'Partner'}</Text>
+                </View>
+                <Text style={s.partnershipPct}>{project.partnerSharePct ?? 0}%</Text>
+                <Text style={s.partnershipAmt}>{formatAmountIndian(project.partnerShareAmount)}</Text>
+              </View>
+              <Text style={s.partnershipNote}>Shares are of the labour charge, split after the work is verified.</Text>
+            </View>
+          ) : null}
+
           <View style={s.detailGrid}>
             <DetailCell label="Category" value={project.category || '—'} />
             <DetailCell label="Location" value={project.location || '—'} />
@@ -169,6 +192,19 @@ const s = injectFonts({
     borderRadius: 10, backgroundColor: FILL, borderWidth: 1, borderColor: BORDER,
   },
   bannerText: { fontSize: 11, color: MID, fontWeight: '600', lineHeight: 15, flex: 1 },
+
+  partnershipCard: {
+    marginHorizontal: 14, marginTop: 8, padding: 12,
+    borderRadius: 12, backgroundColor: '#EAF7EF', borderWidth: 1, borderColor: '#B7E4C7',
+  },
+  partnershipTitle: { fontSize: 10, fontWeight: '700', color: GREEN, letterSpacing: 0.6, marginBottom: 8 },
+  partnershipRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
+  partnershipRowBorder: { borderTopWidth: 1, borderTopColor: '#B7E4C7' },
+  partnershipRole: { fontSize: 10, fontWeight: '600', color: '#1E874B' },
+  partnershipName: { fontSize: 13, fontWeight: '700', color: DARK, marginTop: 1 },
+  partnershipPct: { fontSize: 13, fontWeight: '700', color: GREEN, minWidth: 40, textAlign: 'right' },
+  partnershipAmt: { fontSize: 13, fontWeight: '700', color: GREEN, minWidth: 68, textAlign: 'right' },
+  partnershipNote: { fontSize: 10, color: '#1E874B', fontWeight: '500', lineHeight: 14, marginTop: 8 },
 
   titleRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

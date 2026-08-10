@@ -19,7 +19,8 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundColor": "#0A66C2"
       },
-      "package": "com.constructioncorner.app"
+      "package": "com.constructioncorner.app",
+      "softwareKeyboardLayoutMode": "resize"
     },
     "plugins": [
       "expo-font",

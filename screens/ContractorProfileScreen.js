@@ -16,9 +16,11 @@ import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
 import { useToast } from '../hooks/useToast';
 import { getProfile, recordProfileView, updateProfile } from '../services/userService';
 import { getVerifiedWork, getTotalVerifiedAmount } from '../services/workService';
-import { getProviderWorkRecords, workRecordToProject, workRecordToVerifiedWork, WORK_RECORD_STATUS } from '../services/workRecordService';
+import { getPartyWorkRecords, workRecordToProject, workRecordToVerifiedWork, WORK_RECORD_STATUS } from '../services/workRecordService';
 import { formatAmountIndian, formatJoinedDate } from '../utils/format';
 import { getCurrentUid } from '../utils/session';
+import { checkMutualBlock, confirmBlockUser } from '../utils/blocking';
+import BlockedProfileNotice from '../components/BlockedProfileNotice';
 
 
 // ─── Status pill (Taking new projects / Not taking projects) ───────────────
@@ -96,7 +98,8 @@ function ServicesChips({ services = [] }) {
 // Category + amount reads better than location for scanning a list —
 // "Residential · ₹18.5L" tells a client type + scale at a glance.
 function projectSubline(p) {
-  return [p.category, p.value ? formatAmountIndian(p.value) : null].filter(Boolean).join(' · ');
+  return [p.category, p.value ? formatAmountIndian(p.value) : null, p.isPartnership ? '🤝 Partnership' : null]
+    .filter(Boolean).join(' · ');
 }
 
 const PROJECTS_PREVIEW_COUNT = 3;
@@ -167,7 +170,7 @@ const pj = injectFonts({
 // tile to wrap. Measuring the real container removes the guesswork entirely.
 const GRID_GAP = 8;
 
-function GalleryGrid({ items = [], isOwn, onAdd, onReplace, onRemove, onView }) {
+function GalleryGrid({ items = [], savingUris = [], isOwn, onAdd, onReplace, onRemove, onView }) {
   const [gridWidth, setGridWidth] = useState(0);
   const slotSize = gridWidth > 0 ? Math.floor((gridWidth - GRID_GAP * 2) / 3) - 1 : 0;
   const slotBox = { width: slotSize, height: slotSize };
@@ -181,6 +184,11 @@ function GalleryGrid({ items = [], isOwn, onAdd, onReplace, onRemove, onView }) 
           {item?.uri ? (
             <TouchableOpacity style={[gl.imgWrap, slotBox]} activeOpacity={0.85} onPress={() => onView(i)}>
               <Image source={{ uri: item.uri }} style={[gl.thumb, slotBox]} resizeMode="cover" />
+              {savingUris.includes(item.uri) && (
+                <View style={[gl.savingOverlay, slotBox]}>
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                </View>
+              )}
               {!isOwn && item.caption ? (
                 <Text style={gl.caption} numberOfLines={1}>{item.caption}</Text>
               ) : null}
@@ -216,6 +224,10 @@ const gl = injectFonts({
   tile: {},
   imgWrap: {},
   thumb: { borderRadius: 10 },
+  savingOverlay: {
+    position: 'absolute', top: 0, left: 0, borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center',
+  },
   caption: { fontSize: 10, color: '#8E8E8E', fontWeight: '500', marginTop: 4 },
   placeholder: {
     borderRadius: 10,
@@ -277,11 +289,13 @@ export default function ContractorProfileScreen({ navigation, route }) {
 
   const [loading, setLoading] = useState(true);
   const [contractor, setContractor] = useState(null);
+  const [blocked, setBlocked] = useState(false);
   const [verifiedAmt, setVerifiedAmt] = useState(0);
   const [verifiedWork, setVerifiedWork] = useState([]);
   const [realProjects, setRealProjects] = useState([]);
   const [myUid, setMyUid] = useState(null);
   const [viewer, setViewer] = useState({ visible: false, photos: [], index: 0 });
+  const [savingPhotoUris, setSavingPhotoUris] = useState([]);
   const [projectDetail, setProjectDetail] = useState(null);
   const [allProjectsOpen, setAllProjectsOpen] = useState(false);
   const { headerAnimatedStyle, headerHeight, onHeaderLayout, onScroll } = useAutoHideHeader();
@@ -323,6 +337,10 @@ export default function ContractorProfileScreen({ navigation, route }) {
 
       setContractor(profile);
 
+      if (uid !== me) {
+        try { setBlocked(await checkMutualBlock(me, uid, profile?.blockedUsers)); } catch (_) {}
+      }
+
       // Verified totals — only meaningful for real Firebase users (and demo profiles).
       // Demo profiles keep reading their fixture data via the legacy workService
       // calls (already special-cased for demo uids). Real accounts read their
@@ -340,11 +358,15 @@ export default function ContractorProfileScreen({ navigation, route }) {
             setVerifiedWork(works || []);
             setRealProjects([]);
           } else {
-            const records = await getProviderWorkRecords(uid);
+            // getPartyWorkRecords (not getProviderWorkRecords) — includes
+            // records where `uid` is an APPROVED partner, so a partner sees
+            // their share of a partnered record on their own profile too.
+            const records = await getPartyWorkRecords(uid);
             const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.VERIFIED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
-            setVerifiedAmt(confirmed.reduce((sum, r) => sum + (r.labourCharge || 0), 0));
-            setVerifiedWork(confirmed.map(workRecordToVerifiedWork));
-            setRealProjects(records.map(workRecordToProject));
+            const work = confirmed.map(r => workRecordToVerifiedWork(r, uid));
+            setVerifiedAmt(work.reduce((sum, w) => sum + (w.amount || 0), 0));
+            setVerifiedWork(work);
+            setRealProjects(records.map(r => workRecordToProject(r, uid)));
           }
         } catch (_) {}
       }
@@ -476,11 +498,39 @@ export default function ContractorProfileScreen({ navigation, route }) {
     return result.assets[0].uri;
   };
 
+  // Grid adds allow picking several photos at once — allowsMultipleSelection
+  // and allowsEditing/crop can't coexist in expo-image-picker, so this path
+  // (unlike pickGalleryImage above, still used for single replace) trades
+  // per-image cropping for bulk add.
+  const pickMultipleGalleryImages = async (limit) => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please allow photo library access.');
+      return [];
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      selectionLimit: limit,
+      quality: 0.7,
+    });
+    if (result.canceled || !result.assets?.length) return [];
+    return result.assets.map(a => a.uri);
+  };
+
   const handleAddGalleryPhoto = async () => {
     const photos = contractor?.workPhotos || [];
-    if (photos.length >= 6) return;
-    const uri = await pickGalleryImage();
-    if (uri) persistOwnProfileChange({ workPhotos: [...photos, uri] });
+    const remaining = 6 - photos.length;
+    if (remaining <= 0) return;
+    const picked = await pickMultipleGalleryImages(remaining);
+    if (!picked.length) return;
+    const toAdd = picked.slice(0, remaining);
+    setSavingPhotoUris(toAdd);
+    await persistOwnProfileChange({ workPhotos: [...photos, ...toAdd] });
+    setSavingPhotoUris([]);
+    if (picked.length > remaining) {
+      Alert.alert('Photo limit', 'You can add up to 6 photos.');
+    }
   };
 
   const handleReplaceGalleryPhoto = async (index) => {
@@ -511,6 +561,10 @@ export default function ContractorProfileScreen({ navigation, route }) {
         <ActivityIndicator size="large" color="#262626" />
       </View>
     );
+  }
+
+  if (blocked) {
+    return <BlockedProfileNotice onBack={() => navigation.goBack()} />;
   }
 
   // ── Derived display values ────────────────────────────────────────────────
@@ -592,7 +646,13 @@ export default function ContractorProfileScreen({ navigation, route }) {
             <Text style={s.navShare}>⚙️</Text>
           </TouchableOpacity>
         ) : (
-          <View style={[s.navBtn, { backgroundColor: 'transparent' }]} />
+          <TouchableOpacity
+            style={s.navBtn}
+            onPress={() => confirmBlockUser(myUid, viewUid, contractor?.name || contractor?.companyName, () => navigation.goBack())}
+            activeOpacity={0.7}
+          >
+            <Text style={s.navShare}>⋮</Text>
+          </TouchableOpacity>
         )}
       </Animated.View>
 
@@ -779,6 +839,7 @@ export default function ContractorProfileScreen({ navigation, route }) {
           </View>
           <GalleryGrid
             items={galleryItems}
+            savingUris={savingPhotoUris}
             isOwn={isOwn}
             onAdd={handleAddGalleryPhoto}
             onReplace={handleReplaceGalleryPhoto}

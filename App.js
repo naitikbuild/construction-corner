@@ -58,6 +58,7 @@ import ReviewsListScreen from './screens/ReviewsListScreen';
 // types (Worker/Contractor/Professional/Business/Supplier).
 import CreateWorkRecordScreen from './screens/CreateWorkRecordScreen';
 import WorkStartApprovalScreen from './screens/WorkStartApprovalScreen';
+import PartnerApprovalScreen from './screens/PartnerApprovalScreen';
 import ClientWorkRecordReviewScreen from './screens/ClientWorkRecordReviewScreen';
 import RateWorkRecordScreen from './screens/RateWorkRecordScreen';
 import RateClientScreen from './screens/RateClientScreen';
@@ -175,6 +176,7 @@ export default function App() {
         {/* Work Record System */}
         <Stack.Screen name="CreateWorkRecord" component={CreateWorkRecordScreen} />
         <Stack.Screen name="WorkStartApproval" component={WorkStartApprovalScreen} />
+        <Stack.Screen name="PartnerApproval" component={PartnerApprovalScreen} />
         <Stack.Screen name="WorkRecordReview" component={ClientWorkRecordReviewScreen} />
         <Stack.Screen name="RateWorkRecord" component={RateWorkRecordScreen} />
         <Stack.Screen name="RateClient" component={RateClientScreen} />

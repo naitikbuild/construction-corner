@@ -21,6 +21,11 @@ import { isDemoUid } from '../demoData';
 //                                  approveWorkStart below.
 //   rejected                    → client declined the start approval. Not
 //                                  shown as ongoing (or anywhere public).
+//                                  Not a dead end for the provider though —
+//                                  same as 'draft', it's fully editable and
+//                                  deletable; editing and resending goes
+//                                  through sendWorkToClient again, which
+//                                  flips it back to pending_start_approval.
 //   pending_completion_approval → provider marked the work complete (see
 //                                  markWorkComplete below). Client notified
 //                                  to confirm + rate. Still fully editable by
@@ -51,9 +56,19 @@ import { isDemoUid } from '../demoData';
 // 'completed_paid') records.
 export const WORK_RECORD_STATUS = {
   DRAFT: 'draft',
+  // Only reached for a record with a partner — sits BEFORE
+  // pending_start_approval in the lifecycle: the client is never notified
+  // until the partner approves the split (see sendForPartnerApproval /
+  // approvePartnerSplit below). A solo record (no partner) skips this
+  // entirely, same as before.
+  PENDING_PARTNER_APPROVAL: 'pending_partner_approval',
   PENDING_START_APPROVAL: 'pending_start_approval',
   ONGOING: 'ongoing',
   REJECTED: 'rejected',
+  // Partner declined the split — mirrors REJECTED (client declining the
+  // start): not shown as ongoing, fully editable/deletable, provider can fix
+  // the partner/split and resend.
+  PARTNER_DECLINED: 'partner_declined',
   PENDING_COMPLETION_APPROVAL: 'pending_completion_approval',
   VERIFIED: 'verified',
   COMPLETED_PAID: 'completed_paid',
@@ -77,6 +92,15 @@ export const createWorkRecord = async (providerId, data) => {
     contractValue: data.contractValue ?? null,
     labourCharge: data.labourCharge ?? null,
     photos: data.photos || [],
+    // Optional partnership — see CreateWorkRecordScreen's Partner section.
+    // partnerApprovalStatus is separate from the client-facing `status`
+    // lifecycle above; 'pending' vs null (never 'approved'/'declined' yet —
+    // that flow doesn't exist until a later prompt).
+    partnerId: data.partnerId ?? null,
+    partnerName: data.partnerName ?? null,
+    providerSharePct: data.providerSharePct ?? null,
+    partnerSharePct: data.partnerSharePct ?? null,
+    partnerApprovalStatus: data.partnerApprovalStatus ?? null,
     status: WORK_RECORD_STATUS.DRAFT,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -106,6 +130,51 @@ export const sendWorkToClient = async (recordId, data, { lockedBy, lockedByName 
     lockedAt: serverTimestamp(),
     lockedBy,
     lockedByName: lockedByName || '',
+    updatedAt: serverTimestamp(),
+  });
+};
+
+// Provider sends a record that HAS a partner: saves the latest field edits
+// and routes it to the PARTNER first instead of the client — reuses the same
+// lockedAt/lockedBy/lockedByName fields as sendWorkToClient (here meaning
+// "when/who sent this for partner approval"). The client is not notified at
+// this point; see approvePartnerSplit below for what happens once the
+// partner responds.
+export const sendForPartnerApproval = async (recordId, data, { sentBy, sentByName }) => {
+  await updateDoc(doc(db, 'work_records', recordId), {
+    ...data,
+    status: WORK_RECORD_STATUS.PENDING_PARTNER_APPROVAL,
+    partnerApprovalStatus: 'pending',
+    lockedAt: serverTimestamp(),
+    lockedBy: sentBy,
+    lockedByName: sentByName || '',
+    updatedAt: serverTimestamp(),
+  });
+};
+
+// Partner approves their split — the record can now proceed to the client
+// for start approval, same as a solo record always has (see
+// PartnerApprovalScreen, which sends the client the 'work_start_request'
+// notification right after calling this).
+export const approvePartnerSplit = async (recordId, approvedBy) => {
+  await updateDoc(doc(db, 'work_records', recordId), {
+    status: WORK_RECORD_STATUS.PENDING_START_APPROVAL,
+    partnerApprovalStatus: 'approved',
+    partnerApprovedAt: serverTimestamp(),
+    partnerApprovedBy: approvedBy || null,
+    updatedAt: serverTimestamp(),
+  });
+};
+
+// Partner declines the split — the record never reaches the client. Mirrors
+// rejectWorkStart below: fully editable/deletable, the provider can change
+// the partner or split and resend (back through sendForPartnerApproval).
+export const declinePartnerSplit = async (recordId, declinedBy) => {
+  await updateDoc(doc(db, 'work_records', recordId), {
+    status: WORK_RECORD_STATUS.PARTNER_DECLINED,
+    partnerApprovalStatus: 'declined',
+    partnerDeclinedAt: serverTimestamp(),
+    partnerDeclinedBy: declinedBy || null,
     updatedAt: serverTimestamp(),
   });
 };
@@ -152,12 +221,18 @@ export const markWorkComplete = async (recordId, data, { completedBy, completedB
   });
 };
 
-// Permanently discards a draft the provider decided not to pursue. Scoped to
-// DRAFT only — once a record has been sent to the client
-// (pending_start_approval) or they've acted on it (ongoing/rejected/
-// confirmed/completed_paid/disputed), it's part of the engagement/verified/
-// dispute trail and must never be deletable, only the lifecycle transitions
-// above. Ownership + status are both re-checked against the live doc (not
+// Statuses the provider can still freely rewrite or discard entirely: a
+// DRAFT was never sent, a REJECTED record's client declined to start, and a
+// PARTNER_DECLINED record's partner declined the split — none of these are
+// part of any engagement/verified/dispute trail yet, so all three stay
+// deletable and (see CreateWorkRecordScreen) fully editable, same rules.
+// Everything past that (pending_start/partner_approval onward) is part of
+// that trail and must never be deletable.
+const DELETABLE_STATUSES = [WORK_RECORD_STATUS.DRAFT, WORK_RECORD_STATUS.REJECTED, WORK_RECORD_STATUS.PARTNER_DECLINED];
+
+// Permanently discards a draft or a rejected record the provider decided not
+// to pursue (edit-and-resend instead goes through sendWorkToClient, not
+// this). Ownership + status are both re-checked against the live doc (not
 // whatever the caller thinks the status is) so this can't be used to delete
 // someone else's record or a record that changed status mid-flight.
 export const deleteWorkRecord = async (recordId, requestingUid) => {
@@ -166,7 +241,7 @@ export const deleteWorkRecord = async (recordId, requestingUid) => {
   if (!snap.exists()) return;
   const rec = snap.data();
   if (rec.providerId !== requestingUid) throw new Error('You can only delete your own work records.');
-  if (rec.status !== WORK_RECORD_STATUS.DRAFT) throw new Error('Only draft work records can be deleted.');
+  if (!DELETABLE_STATUSES.includes(rec.status)) throw new Error('Only draft or declined work records can be deleted.');
   await deleteDoc(ref);
 };
 
@@ -177,15 +252,19 @@ export const getWorkRecord = async (recordId) => {
 
 // Every work record for a provider worth showing on their real profile:
 // ongoing, pending_completion_approval, verified, completed_paid, disputed.
-// Excluded: 'draft' (private, still being filled in), 'pending_start_approval'
-// (sent but not yet approved — not ongoing yet) and 'rejected' (client
-// declined to start — never shown, publicly or as ongoing). Demo profiles
-// have no real `work_records` docs — their projects come from the
-// demoData.js fixtures instead — so this always returns [] for a demo uid.
+// Excluded: 'draft' (private, still being filled in), 'pending_partner_approval'
+// (awaiting the partner — not even sent to the client yet), 'pending_start_approval'
+// (sent but not yet approved — not ongoing yet), 'rejected' (client declined
+// to start) and 'partner_declined' (partner declined the split) — none ever
+// shown, publicly or as ongoing. Demo profiles have no real `work_records`
+// docs — their projects come from the demoData.js fixtures instead — so this
+// always returns [] for a demo uid.
 const HIDDEN_FROM_PROFILE = [
   WORK_RECORD_STATUS.DRAFT,
+  WORK_RECORD_STATUS.PENDING_PARTNER_APPROVAL,
   WORK_RECORD_STATUS.PENDING_START_APPROVAL,
   WORK_RECORD_STATUS.REJECTED,
+  WORK_RECORD_STATUS.PARTNER_DECLINED,
 ];
 export const getProviderWorkRecords = async (providerId) => {
   if (!providerId || (DEMO_MODE && isDemoUid(providerId))) return [];
@@ -194,6 +273,59 @@ export const getProviderWorkRecords = async (providerId) => {
   return snap.docs
     .map(d => ({ id: d.id, ...d.data() }))
     .filter(r => !HIDDEN_FROM_PROFILE.includes(r.status));
+};
+
+// Every work record where `uid` is an APPROVED partner — a record a
+// provider merely proposed (partnerApprovalStatus 'pending') or that was
+// declined never appears here or anywhere on the partner's profile (see the
+// REVENUE SPLIT rules on getWorkRecordShareAmount below). Same
+// HIDDEN_FROM_PROFILE filter as getProviderWorkRecords for symmetry — an
+// ongoing partnered project should show as ONGOING on the partner's profile
+// too, not just appear once verified.
+export const getPartnerWorkRecords = async (uid) => {
+  if (!uid || (DEMO_MODE && isDemoUid(uid))) return [];
+  const q = query(
+    collection(db, 'work_records'),
+    where('partnerId', '==', uid),
+    where('partnerApprovalStatus', '==', 'approved')
+  );
+  const snap = await getDocs(q);
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(r => !HIDDEN_FROM_PROFILE.includes(r.status));
+};
+
+// Every real work record `uid` is a party to — either as the lead provider,
+// or (once approved) as the partner. A record can never match both queries
+// for the same uid (the partner picker excludes the provider themselves —
+// see CreateWorkRecordScreen), so no dedup is needed. Every profile screen's
+// PROJECTS section and verified-revenue stat row should read from this
+// (not getProviderWorkRecords directly) so a partner sees their share of a
+// partnered record even though they're not its providerId.
+export const getPartyWorkRecords = async (uid) => {
+  const [asProvider, asPartner] = await Promise.all([
+    getProviderWorkRecords(uid),
+    getPartnerWorkRecords(uid),
+  ]);
+  return [...asProvider, ...asPartner];
+};
+
+// This record's labour-charge revenue attributable to `uid` — the single
+// source of truth for the split so every screen's number agrees. Solo (no
+// partner, or a partner that hasn't approved) always attributes the full
+// amount to the provider and nothing to anyone else — pending/declined
+// partners get nothing, per spec. An approved partner splits it by the
+// agreed percentages; anyone who is neither this record's provider nor its
+// approved partner gets 0.
+export const getWorkRecordShareAmount = (record, uid) => {
+  const labour = record.labourCharge || 0;
+  const hasApprovedPartner = !!record.partnerId && record.partnerApprovalStatus === 'approved';
+  if (!hasApprovedPartner) {
+    return uid && uid === record.providerId ? labour : 0;
+  }
+  if (uid === record.providerId) return labour * (record.providerSharePct || 0) / 100;
+  if (uid === record.partnerId) return labour * (record.partnerSharePct || 0) / 100;
+  return 0;
 };
 
 // Every work record for a provider, INCLUDING drafts — for the provider's own
@@ -208,6 +340,25 @@ export const getAllProviderWorkRecords = async (providerId) => {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 };
 
+// Every work record where `uid` is named as the partner, REGARDLESS of
+// partnerApprovalStatus — for the partner's own "My Work Records" list (see
+// MyWorkRecordsScreen), where a still-pending or already-declined
+// partnership needs to stay visible so the partner can act on or review it.
+// Unlike getPartnerWorkRecords (approved-only, used for the public profile),
+// this deliberately includes 'pending_partner_approval' and
+// 'partner_declined'. The one status excluded is 'draft' — the provider
+// hasn't sent it yet, so the partner shouldn't see it at all until they do
+// (mirrors why getAllProviderWorkRecords is never used for anyone but the
+// provider themselves).
+export const getAllPartnerWorkRecords = async (uid) => {
+  if (!uid || (DEMO_MODE && isDemoUid(uid))) return [];
+  const q = query(collection(db, 'work_records'), where('partnerId', '==', uid));
+  const snap = await getDocs(q);
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(r => r.status !== WORK_RECORD_STATUS.DRAFT);
+};
+
 // Maps a work_record doc to the "project" shape ProjectsList/AllProjectsModal/
 // ProjectDetailModal already render (see demoData.js's `projects` fixtures
 // for the same shape). Only 'verified'/'completed_paid' records are truly
@@ -216,8 +367,12 @@ export const getAllProviderWorkRecords = async (providerId) => {
 // separate "pending confirmation" badge in those shared components yet.
 // 'pending_start_approval' and 'rejected' records never reach this function
 // at all — getProviderWorkRecords filters them out before the profile ever
-// sees them.
-export const workRecordToProject = (record) => ({
+// sees them. `uid` is whichever profile this project is being shown ON —
+// needed to compute `myShareAmount` for a partnered record (see
+// getWorkRecordShareAmount) so it reads correctly whether this is the
+// provider's or the partner's own profile. `value` (contract value) is
+// deliberately NEVER split — only the labour-charge revenue is.
+export const workRecordToProject = (record, uid) => ({
   id: record.id,
   name: record.projectName || '',
   location: record.location || '',
@@ -231,6 +386,18 @@ export const workRecordToProject = (record) => ({
   plannedStart: record.plannedStart || null,
   plannedFinish: record.plannedFinish || null,
   recordStatus: record.status,
+  // Partnership metadata — only meaningful once isPartnership is true (a
+  // merely-pending partner never reaches a real profile at all, see
+  // HIDDEN_FROM_PROFILE, so there's no "proposed split" state to render here).
+  isPartnership: !!record.partnerId && record.partnerApprovalStatus === 'approved',
+  providerName: record.lockedByName || '',
+  providerSharePct: record.providerSharePct ?? null,
+  providerShareAmount: getWorkRecordShareAmount(record, record.providerId),
+  partnerName: record.partnerName || '',
+  partnerSharePct: record.partnerSharePct ?? null,
+  partnerShareAmount: record.partnerId ? getWorkRecordShareAmount(record, record.partnerId) : 0,
+  labourCharge: record.labourCharge || 0,
+  myShareAmount: getWorkRecordShareAmount(record, uid),
 });
 
 // Client confirms a completed record: stores their overall rating, the 4
@@ -303,12 +470,15 @@ export const getClientReviews = async (clientUid) => {
 // work stat row expects (same fields the legacy `verified_work` docs have —
 // amount/rating/review/verifiedAt — so the existing rating-average/jobs-
 // count/reviews-list logic keeps working unchanged for real accounts).
-// `amount` is the LABOUR CHARGE, not the contract value — verified
-// Revenue is what the provider actually earned (labour), not the full
-// project value, which still only shows on the record detail for context.
-export const workRecordToVerifiedWork = (record) => ({
+// `amount` is `uid`'s SHARE of the labour charge (see
+// getWorkRecordShareAmount) — the full amount when solo, split by the
+// agreed percentage when there's an approved partner — never the contract
+// value, which still only shows on the record detail for context. `rating`
+// is always the client's FULL rating, never split — both the provider and
+// an approved partner get the exact same rating on this same record.
+export const workRecordToVerifiedWork = (record, uid) => ({
   id: record.id,
-  amount: record.labourCharge || 0,
+  amount: getWorkRecordShareAmount(record, uid),
   rating: record.rating || 0,
   review: record.review || '',
   customerName: record.clientName || '',

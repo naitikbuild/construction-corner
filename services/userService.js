@@ -86,6 +86,33 @@ export const recordProfileView = async (viewedUid, viewerUid) => {
   } catch (_) {}
 };
 
+// ─── Blocking ───────────────────────────────────────────────────────────────
+// Mutual-effect block, stored as a plain `blockedUsers: [{ uid, name }]`
+// array on each user's OWN document — never a shared/cross-user structure,
+// since Firestore rules can only let a user write their own doc. A block is
+// "mutual" purely by how it's CHECKED, not how it's stored: opening a
+// profile or chat looks at BOTH participants' own blockedUsers arrays (see
+// utils/blocking.js's checkMutualBlock) — if either one lists the other,
+// it's treated as blocked both ways. This is also exactly the shape
+// SettingsScreen's "Blocked Users" list already expected before any block
+// action existed to populate it.
+export const blockUser = async (myUid, blockedUid, blockedName) => {
+  if (!myUid || !blockedUid || myUid === blockedUid) return;
+  const ref = doc(db, 'users', myUid);
+  const snap = await getDoc(ref);
+  const current = (snap.exists() && snap.data().blockedUsers) || [];
+  if (current.some(u => u.uid === blockedUid)) return; // already blocked
+  await updateDoc(ref, { blockedUsers: [...current, { uid: blockedUid, name: blockedName || 'User' }] });
+};
+
+export const unblockUser = async (myUid, blockedUid) => {
+  if (!myUid || !blockedUid) return;
+  const ref = doc(db, 'users', myUid);
+  const snap = await getDoc(ref);
+  const current = (snap.exists() && snap.data().blockedUsers) || [];
+  await updateDoc(ref, { blockedUsers: current.filter(u => u.uid !== blockedUid) });
+};
+
 // ─── Search matching ────────────────────────────────────────────────────────
 // A provider's PRIMARY skill/category always ranks above one who only matches
 // via extra skills/services/tools, which in turn ranks above one who only

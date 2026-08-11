@@ -824,34 +824,6 @@ function Step3Professional({ data, setData }) {
         />
       </Field>
 
-      <Field label="Verification (Aadhaar or GST)">
-        <View style={styles.pillRow}>
-          {['aadhaar', 'gst'].map(t => (
-            <TouchableOpacity
-              key={t}
-              style={[styles.pill, data.verificationType === t && styles.pillActive]}
-              onPress={() => setData({ ...data, verificationType: t, verificationNumber: '' })}
-            >
-              <Text style={[styles.pillText, data.verificationType === t && styles.pillTextActive]}>
-                {t === 'aadhaar' ? 'Aadhaar' : 'GST'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        {data.verificationType ? (
-          <Input
-            style={{ marginTop: 10 }}
-            value={data.verificationNumber}
-            onChangeText={(v) => setData({ ...data, verificationNumber: v })}
-            placeholder={data.verificationType === 'aadhaar' ? '12-digit Aadhaar number' : 'e.g. 24AABCS1429B1Z1'}
-            keyboardType={data.verificationType === 'aadhaar' ? 'number-pad' : 'default'}
-            autoCapitalize="characters"
-            maxLength={data.verificationType === 'aadhaar' ? 12 : 15}
-          />
-        ) : null}
-        <Text style={styles.skillHint}>Provide either one — this unlocks your verified badge</Text>
-      </Field>
-
       <Field label="Portfolio Work Photos">
         <View style={styles.photoGrid}>
           {[0, 1, 2, 3, 4, 5].map(i => {
@@ -1199,34 +1171,6 @@ function Step3Contractor({ data, setData }) {
         />
       </Field>
 
-      <Field label="Verification (Aadhaar or GST)">
-        <View style={styles.pillRow}>
-          {['aadhaar', 'gst'].map(t => (
-            <TouchableOpacity
-              key={t}
-              style={[styles.pill, data.verificationType === t && styles.pillActive]}
-              onPress={() => setData({ ...data, verificationType: t, verificationNumber: '' })}
-            >
-              <Text style={[styles.pillText, data.verificationType === t && styles.pillTextActive]}>
-                {t === 'aadhaar' ? 'Aadhaar' : 'GST'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        {data.verificationType ? (
-          <Input
-            style={{ marginTop: 10 }}
-            value={data.verificationNumber}
-            onChangeText={(v) => setData({ ...data, verificationNumber: v })}
-            placeholder={data.verificationType === 'aadhaar' ? '12-digit Aadhaar number' : 'e.g. 24AABCS1429B1Z1'}
-            keyboardType={data.verificationType === 'aadhaar' ? 'number-pad' : 'default'}
-            autoCapitalize="characters"
-            maxLength={data.verificationType === 'aadhaar' ? 12 : 15}
-          />
-        ) : null}
-        <Text style={styles.skillHint}>Provide either one — this unlocks your verified badge</Text>
-      </Field>
-
       <Field label="Work Photos">
         <View style={styles.photoGrid}>
           {[0, 1, 2, 3, 4, 5].map(i => {
@@ -1289,16 +1233,6 @@ function Step3Business({ data, setData }) {
         options={COMPANY_TYPES}
         onSelect={(v) => setData({ ...data, companyType: v })}
       />
-
-      <Field label="GST Number">
-        <Input
-          value={data.gst}
-          onChangeText={(v) => setData({ ...data, gst: v })}
-          placeholder="e.g. 24AABCS1429B1Z1"
-          autoCapitalize="characters"
-          maxLength={15}
-        />
-      </Field>
 
       <Field label="RERA Number (optional)">
         <Input
@@ -1438,16 +1372,6 @@ function Step3Supplier({ data, setData }) {
         options={SUPPLIER_CATEGORIES}
         onSelect={(v) => setData({ ...data, supplierCategory: v })}
       />
-
-      <Field label="GST Number">
-        <Input
-          value={data.supplierGst}
-          onChangeText={(v) => setData({ ...data, supplierGst: v })}
-          placeholder="e.g. 24AABCS1429B1Z1"
-          autoCapitalize="characters"
-          maxLength={15}
-        />
-      </Field>
 
       <Field label="Materials Supplied" required>
         <View style={styles.materialGrid}>
@@ -1598,7 +1522,6 @@ function Step4({ data, onEdit, profileType }) {
           <ReviewRow icon="🪪" label="Reg. Number" value={data.regNumber} />
           <ReviewRow icon="🏠" label="Native Place" value={[data.nativePlaceCity, data.nativePlaceState].filter(Boolean).join(', ')} />
           <ReviewRow icon="#️⃣" label="Extra Skills" value={(data.extraSkills || []).slice(0, 3).join(', ')} />
-          <ReviewRow icon="✅" label="Verification" value={data.verificationNumber ? `${data.verificationType === 'gst' ? 'GST' : 'Aadhaar'} added` : ''} />
         </ReviewCard>
       )}
 
@@ -1620,7 +1543,6 @@ function Step4({ data, onEdit, profileType }) {
           <ReviewRow icon="👥" label="Team Size" value={data.contractorTeamSize} />
           <ReviewRow icon="🏠" label="Native Place" value={[data.nativePlaceCity, data.nativePlaceState].filter(Boolean).join(', ')} />
           <ReviewRow icon="#️⃣" label="Other Skills" value={(data.otherSkills || []).slice(0, 3).join(', ')} />
-          <ReviewRow icon="✅" label="Verification" value={data.verificationNumber ? `${data.verificationType === 'gst' ? 'GST' : 'Aadhaar'} added` : ''} />
         </ReviewCard>
       )}
 
@@ -1629,7 +1551,6 @@ function Step4({ data, onEdit, profileType }) {
         <ReviewCard title="Business Details" onEdit={() => onEdit(detailStep)}>
           <ReviewRow icon="🏢" label="Company" value={data.companyName} />
           <ReviewRow icon="🏭" label="Type" value={data.companyType} />
-          <ReviewRow icon="📋" label="GST" value={data.gst} />
           <ReviewRow icon="🏗️" label="RERA" value={data.reraNumber} />
           <ReviewRow icon="👥" label="Team Size" value={data.teamSize} />
           <ReviewRow icon="📅" label="Est." value={data.yearEstablished} />
@@ -1642,7 +1563,6 @@ function Step4({ data, onEdit, profileType }) {
         <ReviewCard title="Supplier Details" onEdit={() => onEdit(detailStep)}>
           <ReviewRow icon="🏪" label="Company" value={data.companyName || data.businessName} />
           <ReviewRow icon="📦" label="Category" value={data.supplierCategory} />
-          <ReviewRow icon="📋" label="GST" value={data.supplierGst} />
           <ReviewRow icon="🚚" label="Delivery" value={data.deliveryRadius} />
           <ReviewRow icon="💳" label="Payment" value={data.paymentTerms} />
         </ReviewCard>
@@ -1748,10 +1668,7 @@ export default function EditProfileScreen({ navigation, route }) {
     contractorBio: '',
     otherSkills: [],
     contractorWebsite: '',
-    verificationType: '',
-    verificationNumber: '',
     // business
-    gst: '',
     reraNumber: '',
     companyType: '',
     teamSize: '',
@@ -1765,7 +1682,6 @@ export default function EditProfileScreen({ navigation, route }) {
     whatsapp: '',
     // supplier
     supplierCategory: '',
-    supplierGst: '',
     materials: [],
     deliveryRadius: '',
     minOrder: '',
@@ -1873,8 +1789,18 @@ export default function EditProfileScreen({ navigation, route }) {
         ? (data.companyName || data.name || '')
         : (data.name || '');
 
-      // Build location string and clean up worker-specific fields
-      const { dailyWage: _removed, ...cleanData } = data;
+      // Build location string and clean up worker-specific fields. Also strips
+      // Aadhaar/PAN/GST/Labour Licence fields — no longer collected via any
+      // form field above, but stripped again here defensively so an existing
+      // profile's legacy values (pulled into `data` when editing) are never
+      // silently re-written on save.
+      const {
+        dailyWage: _removed,
+        verificationType: _verificationType, verificationNumber: _verificationNumber,
+        gst: _gst, supplierGst: _supplierGst,
+        aadhaar: _aadhaar, pan: _pan, labourLicence: _labourLicence,
+        ...cleanData
+      } = data;
       const workerSkills = cleanData.workerSkills || [];
       const primarySkill = cleanData.primarySkill || workerSkills[0] || '';
       const skillTags = (cleanData.skillTags?.length > 0 ? cleanData.skillTags : workerSkills.slice(1));
@@ -1904,13 +1830,6 @@ export default function EditProfileScreen({ navigation, route }) {
         }
       }
 
-      // Contractor / Professional only: verification is either an Aadhaar or a GST number
-      // (never both required), and drives the green verified badge — never write `verified`
-      // for other profile types.
-      const verificationExtra = (pt === 'contractor' || pt === 'professional')
-        ? { verified: !!(cleanData.verificationNumber && cleanData.verificationNumber.trim()) }
-        : {};
-
       const extraSkillsByType = {
         contractor: cleanData.otherSkills || [],
         professional: cleanData.extraSkills || [],
@@ -1934,7 +1853,6 @@ export default function EditProfileScreen({ navigation, route }) {
         location: locationStr,
         ccScore: 500,
         createdAt: new Date().toISOString(),
-        ...verificationExtra,
       };
 
       if (displayName) await AsyncStorage.setItem('userName', displayName);

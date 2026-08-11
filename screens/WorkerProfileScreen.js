@@ -1,18 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, StatusBar, Alert, ActivityIndicator, Linking,
+  Alert, ActivityIndicator, Linking,
   Image, Animated, Switch,
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import PhotoViewer from '../components/PhotoViewer';
 import ProjectDetailModal from '../components/ProjectDetailModal';
 import AllProjectsModal from '../components/AllProjectsModal';
-import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
+import ProfileCard from '../components/ProfileCard';
+import ProfileScreenHeader from '../components/ProfileScreenHeader';
 import { useToast } from '../hooks/useToast';
 import { getProfile, recordProfileView, updateProfile } from '../services/userService';
 import { checkMutualBlock, confirmBlockUser } from '../utils/blocking';
@@ -226,8 +226,6 @@ export default function WorkerProfileScreen({ navigation, route }) {
   const [savingPhotoUris, setSavingPhotoUris] = useState([]);
   const [projectDetail, setProjectDetail] = useState(null);
   const [allProjectsOpen, setAllProjectsOpen] = useState(false);
-  const { headerAnimatedStyle, headerHeight, onHeaderLayout, onScroll } = useAutoHideHeader();
-  const insets = useSafeAreaInsets();
   const { toastMessage, toastOpacity, showToast } = useToast();
 
   const openViewer = (photos, index = 0) => setViewer({ visible: true, photos, index });
@@ -548,39 +546,17 @@ export default function WorkerProfileScreen({ navigation, route }) {
 
   return (
     <View style={s.screen}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <ProfileScreenHeader
+        title="Worker"
+        onBack={() => navigation.goBack()}
+        rightIcon={isOwn ? '⚙️' : '⋮'}
+        onRightPress={isOwn ? handleOpenSettings : () => confirmBlockUser(myUid, viewUid, worker?.name, () => navigation.goBack())}
+      />
 
-      {/* ── 1. TOP NAV (auto-hides on scroll) ─────────────────────────────── */}
-      <Animated.View style={[s.nav, s.navFloating, { paddingTop: insets.top + 8 }, headerAnimatedStyle]} onLayout={onHeaderLayout}>
-        <TouchableOpacity style={s.navBtn} onPress={() => navigation.goBack()}>
-          <Text style={s.navBack}>←</Text>
-        </TouchableOpacity>
-        <Text style={s.navTitle}>Profile</Text>
-        {isOwn ? (
-          <TouchableOpacity style={s.navBtn} onPress={handleOpenSettings} activeOpacity={0.7}>
-            <Text style={s.navShare}>⚙️</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={s.navBtn}
-            onPress={() => confirmBlockUser(myUid, viewUid, worker?.name, () => navigation.goBack())}
-            activeOpacity={0.7}
-          >
-            <Text style={s.navShare}>⋮</Text>
-          </TouchableOpacity>
-        )}
-      </Animated.View>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingTop: headerHeight, paddingBottom: 24 }}
-        onScroll={onScroll}
-        scrollEventThrottle={16}
-      >
-
-        <View style={s.sheet}>
-
-          {/* ── 2. HERO ─────────────────────────────────────────────────── */}
+        {/* ── HERO CARD ─────────────────────────────────────────────────── */}
+        <ProfileCard>
           <View style={s.heroRow}>
             <TouchableOpacity
               style={s.avatar}
@@ -608,28 +584,17 @@ export default function WorkerProfileScreen({ navigation, route }) {
             </View>
           </View>
 
-          {/* ── 2.25 TRADE + EXPERIENCE ──────────────────────────────────── */}
-          {heroTypeTradeParts.length > 0 && (
-            <Text style={s.heroTypeTradeLine} numberOfLines={1}>
-              {heroTypeTradeParts.map((part, i) => (
-                <Text key={i}>
-                  {i > 0 && <Text style={s.heroTypeTradeSep}> · </Text>}
-                  {part}
-                </Text>
-              ))}
-            </Text>
-          )}
-
-          {/* ── 2.5 LOCATION LINES ──────────────────────────────────────── */}
-          <Text style={s.heroLoc} numberOfLines={1}>
-            {locationShort ? `📍 ${locationShort}` : '📍 Add your area'}
-          </Text>
-          {nativePlace ? (
-            <Text style={s.heroNative} numberOfLines={1}>🏠 {nativePlace}</Text>
-          ) : null}
-
-          {/* ── 3. STATUS CHIPS ─────────────────────────────────────────── */}
-          <View style={s.chipsRow}>
+          <View style={s.typeAvailRow}>
+            {heroTypeTradeParts.length > 0 ? (
+              <Text style={s.heroTypeTradeLine} numberOfLines={1}>
+                {heroTypeTradeParts.map((part, i) => (
+                  <Text key={i}>
+                    {i > 0 && <Text style={s.heroTypeTradeSep}> · </Text>}
+                    {part}
+                  </Text>
+                ))}
+              </Text>
+            ) : <View style={{ flex: 1 }} />}
             {isOwn ? (
               <View style={s.availToggleRow}>
                 <Text style={[s.availToggleLabel, !available && s.availToggleLabelMuted]}>
@@ -647,6 +612,19 @@ export default function WorkerProfileScreen({ navigation, route }) {
             )}
           </View>
 
+          {/* Location rows with green icons */}
+          <Text style={s.heroLoc} numberOfLines={1}>
+            {locationShort ? `📍 ${locationShort}` : '📍 Add your area'}
+          </Text>
+          {nativePlace ? (
+            <Text style={s.heroNative} numberOfLines={1}>🏠 {nativePlace}</Text>
+          ) : null}
+          {link ? (
+            <TouchableOpacity onPress={handleOpenLink} activeOpacity={0.7}>
+              <Text style={s.linkText} numberOfLines={1}>🔗 {link.replace(/^https?:\/\//i, '')}</Text>
+            </TouchableOpacity>
+          ) : null}
+
           {/* Self-stated daily rate — deliberately plain text, never a pill/badge,
               so it can never be mistaken for verified data. */}
           {worker?.dailyCharge ? (
@@ -657,21 +635,16 @@ export default function WorkerProfileScreen({ navigation, route }) {
             </TouchableOpacity>
           ) : null}
 
-          {link ? (
-            <TouchableOpacity onPress={handleOpenLink} activeOpacity={0.7}>
-              <Text style={s.linkText} numberOfLines={1}>🔗 {link}</Text>
-            </TouchableOpacity>
-          ) : null}
-
           {joinedText ? <Text style={s.joinedText}>{joinedText}</Text> : null}
+        </ProfileCard>
 
-          <View style={s.divider} />
-
-          {/* ── 4. VERIFIED WORK ────────────────────────────────────────── */}
+        {/* ── COMPLETED WORK CARD ──────────────────────────────────────── */}
+        <ProfileCard>
           <View style={s.verHeader}>
-            <Text style={s.verLabel}>✓ {isOwn ? 'COMPLETED JOBS' : 'VERIFIED WORK'}</Text>
-            {isOwn && <Text style={s.verNote}>Verified from completed jobs — cannot be edited</Text>}
+            <Text style={s.verLabel}>COMPLETED WORK</Text>
+            {joinedText ? <Text style={s.verNote}>{joinedText}</Text> : null}
           </View>
+          {isOwn && <Text style={s.verOwnerNote}>Verified from completed jobs — cannot be edited</Text>}
           <View style={s.verStats}>
             <View style={s.verStat}>
               <Text style={s.verStatAmt}>{amtStr}</Text>
@@ -680,7 +653,7 @@ export default function WorkerProfileScreen({ navigation, route }) {
             <View style={s.verStatSep} />
             <View style={s.verStat}>
               <Text style={s.verStatVal}>{jobsCount}</Text>
-              <Text style={s.verStatLbl}>Jobs</Text>
+              <Text style={s.verStatLbl}>Projects</Text>
             </View>
             <View style={s.verStatSep} />
             <View style={s.verStat}>
@@ -689,51 +662,53 @@ export default function WorkerProfileScreen({ navigation, route }) {
             </View>
             <View style={s.verStatSep} />
             <View style={s.verStat}>
-              <Text style={s.verStatVal}>{ratingDisplay}</Text>
+              <Text style={s.verStatVal}>
+                {jobsCount === 0 ? 'New' : hasRating ? (<><Text style={s.ratingStar}>★</Text> {rating}</>) : '—'}
+              </Text>
               <Text style={s.verStatLbl}>Rating</Text>
             </View>
           </View>
+        </ProfileCard>
 
-          {/* ── 4.5 ACTION BUTTONS ───────────────────────────────────────── */}
-          <View style={s.actionRow}>
-            {isOwn ? (
-              <>
-                <TouchableOpacity style={s.editProfileBtn} onPress={handleEditProfile} activeOpacity={0.85}>
-                  <Text style={s.editProfileBtnText}>✏️  Edit Profile</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={s.newWorkRecordBtn}
-                  onPress={() => navigation.push('CreateWorkRecord')}
-                  activeOpacity={0.85}
-                >
-                  <Text style={s.newWorkRecordBtnText}>🧾  New Work Record</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <TouchableOpacity
-                  style={[s.callBtn, !available && s.callBtnLocked]}
-                  onPress={handleCall}
-                  disabled={!available}
-                  activeOpacity={0.85}
-                >
-                  <Text style={[s.callBtnText, !available && s.callBtnTextLocked]} numberOfLines={1}>
-                    {available ? '📞 Call' : '🔒 Call'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={s.chatBtn} onPress={handleChat} activeOpacity={0.85}>
-                  <Text style={s.chatBtnText} numberOfLines={1}>💬 Chat</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={s.enquiryBtn} onPress={handleEnquiry} activeOpacity={0.85}>
-                  <Text style={s.enquiryBtnText} numberOfLines={1}>📋 Enquiry</Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
+        {/* ── ACTIONS ───────────────────────────────────────────────────── */}
+        <View style={s.actionRow}>
+          {isOwn ? (
+            <>
+              <TouchableOpacity style={s.pillBtnOutline} onPress={handleEditProfile} activeOpacity={0.85}>
+                <Text style={s.pillBtnOutlineText}>✏️  Edit Profile</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.pillBtnPrimary}
+                onPress={() => navigation.push('CreateWorkRecord')}
+                activeOpacity={0.85}
+              >
+                <Text style={s.pillBtnPrimaryText}>🧾  New Work Record</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={[s.pillBtnOutline, !available && s.pillBtnLocked]}
+                onPress={handleCall}
+                disabled={!available}
+                activeOpacity={0.85}
+              >
+                <Text style={[s.pillBtnOutlineText, !available && s.pillBtnTextLocked]} numberOfLines={1}>
+                  {available ? '📞 Call' : '🔒 Call'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.pillBtnOutline} onPress={handleChat} activeOpacity={0.85}>
+                <Text style={s.pillBtnOutlineText} numberOfLines={1}>💬 Chat</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.pillBtnOutline} onPress={handleEnquiry} activeOpacity={0.85}>
+                <Text style={s.pillBtnOutlineText} numberOfLines={1}>📋 Enquiry</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
 
-          <View style={s.divider} />
-
-          {/* ── 5. VERIFIED PROJECTS ─────────────────────────────────────── */}
+        {/* ── PROJECTS CARD ─────────────────────────────────────────────── */}
+        <ProfileCard>
           <View style={s.sectionHeadRow}>
             <Text style={[s.sLabel, { marginBottom: 0 }]}>
               PROJECTS{jobsCount > 0 ? ` (${jobsCount})` : ''}
@@ -757,10 +732,10 @@ export default function WorkerProfileScreen({ navigation, route }) {
             </View>
           </View>
           <ProjectsList projects={projects} onOpenProject={setProjectDetail} />
+        </ProfileCard>
 
-          <View style={s.divider} />
-
-          {/* ── 6. GALLERY ───────────────────────────────────────────────── */}
+        {/* ── GALLERY CARD ──────────────────────────────────────────────── */}
+        <ProfileCard>
           <WorkPhotoGrid
             photos={worker?.workPhotos}
             savingUris={savingPhotoUris}
@@ -771,10 +746,10 @@ export default function WorkerProfileScreen({ navigation, route }) {
             onEditSection={() => handleEditSection('work')}
             onView={(i) => openViewer(worker?.workPhotos || [], i)}
           />
+        </ProfileCard>
 
-          <View style={s.divider} />
-
-          {/* ── 7. ABOUT ────────────────────────────────────────────────── */}
+        {/* ── ABOUT CARD ────────────────────────────────────────────────── */}
+        <ProfileCard>
           <View style={s.sectionHeadRow}>
             <Text style={[s.sLabel, { marginBottom: 0 }]}>ABOUT</Text>
             {isOwn && (
@@ -786,48 +761,52 @@ export default function WorkerProfileScreen({ navigation, route }) {
           <Text style={about ? s.aboutText : s.placeholder}>
             {about || 'Add a short bio to attract more clients'}
           </Text>
+        </ProfileCard>
 
-          {/* ── 8. ADDITIONAL SKILLS ─────────────────────────────────────
-              The primary skill already shows in the hero line above (see
-              heroTypeTradeParts) — this section is ONLY for skills beyond
-              that, so it's hidden entirely rather than repeating the
-              primary skill when there's nothing extra to show. */}
-          {(skillTags.length > 0 || (!worker?.primarySkill && skills.length > 1)) && (
-            <>
-              <View style={s.divider} />
-              <View style={s.sectionHeadRow}>
-                <Text style={[s.sLabel, { marginBottom: 0 }]}>ADDITIONAL SKILLS</Text>
-                {isOwn && (
-                  <TouchableOpacity onPress={() => handleEditSection('skills')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <Text style={s.editPencil}>✏️</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-              {skillTags.length > 0 ? (
-                <View style={s.chipsWrap}>
-                  {skillTags.map((sk, i) => (
-                    <View key={i} style={s.hashChip}>
-                      <Text style={s.hashChipText}>#{sk.toLowerCase()}</Text>
-                    </View>
-                  ))}
-                </View>
-              ) : (
-                // Fallback: old profiles with only workerSkills, no primarySkill/skillTags
-                <View style={s.chipsWrap}>
-                  {skills.slice(1).map((sk, i) => (
-                    <View key={i} style={s.hashChip}>
-                      <Text style={s.hashChipText}>#{sk.toLowerCase()}</Text>
-                    </View>
-                  ))}
-                </View>
+        {/* ── ADDITIONAL SKILLS CARD ────────────────────────────────────────
+            The primary skill already shows in the hero line above (see
+            heroTypeTradeParts) — this section is ONLY for skills beyond
+            that, so it's hidden entirely rather than repeating the
+            primary skill when there's nothing extra to show. */}
+        {(skillTags.length > 0 || (!worker?.primarySkill && skills.length > 1)) && (
+          <ProfileCard>
+            <View style={s.sectionHeadRow}>
+              <Text style={[s.sLabel, { marginBottom: 0 }]}>ADDITIONAL SKILLS</Text>
+              {isOwn && (
+                <TouchableOpacity onPress={() => handleEditSection('skills')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={s.editPencil}>✏️</Text>
+                </TouchableOpacity>
               )}
-            </>
-          )}
+            </View>
+            {skillTags.length > 0 ? (
+              <View style={s.chipsWrap}>
+                {skillTags.map((sk, i) => (
+                  <View key={i} style={s.hashChip}>
+                    <Text style={s.hashChipText}>#{sk.toLowerCase()}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              // Fallback: old profiles with only workerSkills, no primarySkill/skillTags
+              <View style={s.chipsWrap}>
+                {skills.slice(1).map((sk, i) => (
+                  <View key={i} style={s.hashChip}>
+                    <Text style={s.hashChipText}>#{sk.toLowerCase()}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </ProfileCard>
+        )}
 
-          <View style={s.divider} />
-
-          {/* ── 9. REVIEWS ───────────────────────────────────────────────── */}
-          <Text style={s.sLabel}>REVIEWS</Text>
+        {/* ── REVIEWS CARD ──────────────────────────────────────────────── */}
+        <ProfileCard>
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>REVIEWS</Text>
+            {hasRating && (
+              <Text style={s.reviewsSummary}>★ {rating} · {ratedWork.length} review{ratedWork.length === 1 ? '' : 's'}</Text>
+            )}
+          </View>
           {reviews.length === 0 ? (
             <Text style={s.placeholder}>No reviews yet</Text>
           ) : (
@@ -848,8 +827,7 @@ export default function WorkerProfileScreen({ navigation, route }) {
               </View>
             ))
           )}
-
-        </View>
+        </ProfileCard>
 
       </ScrollView>
 
@@ -889,7 +867,7 @@ const GREEN       = '#22A559';
 const DEEP_GREEN   = '#1E874B';
 const GREEN_LIGHT  = '#EAF7EF';
 const DARK          = '#262626';
-const BG            = '#FAF9F5';
+const SCREEN_BG      = '#F2F2F2';
 const FILL          = '#F2F2F2';
 const BORDER        = '#E5E5E5';
 const MID            = '#737373';
@@ -899,38 +877,11 @@ const STAR           = '#FFB830';
 const LINK_BLUE      = '#1877F2';
 
 const s = injectFonts({
-  screen: { flex: 1, backgroundColor: BG },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: BG },
-
-  // ── TOP NAV
-  nav: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 14, paddingBottom: 12,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1, borderBottomColor: BORDER,
-  },
-  navFloating: {
-    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
-  },
-  navBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: FILL, alignItems: 'center', justifyContent: 'center',
-  },
-  navBack:  { fontSize: 20, fontWeight: '700', color: DARK },
-  navTitle: { flex: 1, textAlign: 'center', fontSize: 15, fontWeight: '600', color: DARK },
-  navShare: { fontSize: 18, color: DARK },
-
-  // ── SHEET (single continuous card, sections separated by hairline dividers)
-  sheet: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 14, marginTop: 14,
-    borderRadius: 16, padding: 16,
-    borderWidth: 1, borderColor: BORDER,
-  },
-  divider: { height: 1, backgroundColor: BORDER, marginVertical: 16 },
+  screen: { flex: 1, backgroundColor: SCREEN_BG },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: SCREEN_BG },
 
   // ── HERO
-  heroRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 14 },
+  heroRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 12 },
   avatar: {
     width: 72, height: 72, borderRadius: 36,
     backgroundColor: FILL, borderWidth: 1, borderColor: BORDER,
@@ -953,16 +904,15 @@ const s = injectFonts({
     backgroundColor: LINK_BLUE, alignItems: 'center', justifyContent: 'center',
   },
   verifiedText: { fontSize: 10, color: '#fff', fontWeight: '900' },
-  heroTypeTradeLine: { fontSize: 15, fontWeight: '700', color: DARK, marginBottom: 8 },
+  heroTypeTradeLine: { flex: 1, fontSize: 15, fontWeight: '700', color: DARK },
   heroTypeTradeSep: { fontWeight: '400', color: LIGHT },
-  heroLoc:   { fontSize: 12, color: LIGHT },
-  heroNative: { fontSize: 12, color: LIGHT, marginTop: 3 },
+  typeAvailRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  heroLoc:   { fontSize: 12, color: GREEN, fontWeight: '500', marginTop: 8 },
+  heroNative: { fontSize: 12, color: GREEN, fontWeight: '500', marginTop: 4 },
 
-  // ── STATUS CHIPS
-  chipsRow: { flexDirection: 'row', gap: 8 },
   // Self-stated daily rate — plain muted text only, never styled like verified data.
-  dailyChargeText: { fontSize: 12, color: LIGHT, fontWeight: '400', marginTop: 5 },
-  dailyChargeAdd: { fontSize: 12, color: FAINT, fontWeight: '400', marginTop: 5 },
+  dailyChargeText: { fontSize: 12, color: LIGHT, fontWeight: '400', marginTop: 8 },
+  dailyChargeAdd: { fontSize: 12, color: FAINT, fontWeight: '400', marginTop: 8 },
   chipAvail: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: GREEN_LIGHT, borderRadius: 20,
@@ -983,19 +933,21 @@ const s = injectFonts({
   linkText: { fontSize: 12, fontWeight: '600', color: '#1877F2', marginTop: 8 },
   joinedText: { fontSize: 11, fontWeight: '400', color: LIGHT, marginTop: 6 },
 
-  // ── VERIFIED WORK
+  // ── COMPLETED WORK
   verHeader: {
     flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'flex-start', marginBottom: 12,
+    alignItems: 'flex-start', marginBottom: 4,
   },
-  verLabel: { fontSize: 11, fontWeight: '600', color: GREEN, letterSpacing: 0.8 },
+  verLabel: { fontSize: 11, fontWeight: '600', color: MID, letterSpacing: 0.8 },
   verNote: { fontSize: 10, color: LIGHT, fontWeight: '500', flexShrink: 1, textAlign: 'right' },
-  verStats: { flexDirection: 'row', alignItems: 'center' },
+  verOwnerNote: { fontSize: 10, color: LIGHT, fontWeight: '500', marginBottom: 10 },
+  verStats: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
   verStat:  { flex: 1, alignItems: 'center' },
-  verStatAmt: { fontSize: 16, fontWeight: '700', color: DEEP_GREEN, marginBottom: 2 },
+  verStatAmt: { fontSize: 16, fontWeight: '700', color: GREEN, marginBottom: 2 },
   verStatVal: { fontSize: 16, fontWeight: '700', color: DEEP_GREEN, marginBottom: 2 },
   verStatLbl: { fontSize: 10, fontWeight: '500', color: LIGHT },
   verStatSep: { width: 1, height: 28, backgroundColor: BORDER },
+  ratingStar: { color: STAR },
 
   // ── SECTION LABEL (shared)
   sLabel: {
@@ -1030,6 +982,7 @@ const s = injectFonts({
   infoText: { flex: 1, fontSize: 13, fontWeight: '500', color: MID, lineHeight: 20 },
 
   // ── REVIEWS
+  reviewsSummary: { fontSize: 12, fontWeight: '700', color: MID },
   reviewRow: { paddingVertical: 12 },
   reviewRowBorder: { borderTopWidth: 1, borderTopColor: BORDER },
   reviewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 },
@@ -1040,42 +993,25 @@ const s = injectFonts({
   reviewStarActive: { color: STAR },
   reviewComment: { fontSize: 13, color: MID, lineHeight: 20, fontStyle: 'italic' },
 
-  // ── ACTION BUTTONS
+  // ── ACTIONS — outlined pill buttons in a row, floating between cards
   actionRow: {
-    flexDirection: 'row', gap: 6, marginTop: 16,
+    flexDirection: 'row', gap: 8, marginTop: 4, marginBottom: 4,
+    paddingHorizontal: 14,
   },
-  callBtn: {
-    flex: 1.5, height: 50, borderRadius: 14,
-    backgroundColor: DARK, alignItems: 'center', justifyContent: 'center',
-  },
-  callBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
-  callBtnLocked: { backgroundColor: FILL },
-  callBtnTextLocked: { color: LIGHT },
-  chatBtn: {
-    flex: 1.2, height: 50, borderRadius: 14,
+  pillBtnOutline: {
+    flex: 1, height: 48, borderRadius: 24,
     borderWidth: 1.5, borderColor: DARK,
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: '#FFFFFF',
   },
-  chatBtnText: { color: DARK, fontWeight: '600', fontSize: 12 },
-  enquiryBtn: {
-    flex: 1.4, height: 50, borderRadius: 14,
-    borderWidth: 1.5, borderColor: DARK,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  enquiryBtnText: { color: DARK, fontWeight: '600', fontSize: 12 },
-  editProfileBtn: {
-    flex: 1, height: 50, borderRadius: 14,
-    backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: BORDER,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  editProfileBtnText: { color: DARK, fontWeight: '600', fontSize: 15 },
-  newWorkRecordBtn: {
-    flex: 1, height: 50, borderRadius: 14,
+  pillBtnOutlineText: { color: DARK, fontWeight: '600', fontSize: 13 },
+  pillBtnLocked: { borderColor: BORDER },
+  pillBtnTextLocked: { color: LIGHT },
+  pillBtnPrimary: {
+    flex: 1, height: 48, borderRadius: 24,
     backgroundColor: DARK, alignItems: 'center', justifyContent: 'center',
   },
-  newWorkRecordBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
+  pillBtnPrimaryText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
 
   // ── TOAST (brief confirmation, e.g. availability toggled)
   toast: {

@@ -1,18 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, StatusBar, Alert, ActivityIndicator, Linking,
+  Alert, ActivityIndicator, Linking,
   Image, Animated, Switch,
 } from 'react-native';
 import { injectFonts } from '../theme/typography';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import PhotoViewer from '../components/PhotoViewer';
 import ProjectDetailModal from '../components/ProjectDetailModal';
 import AllProjectsModal from '../components/AllProjectsModal';
-import { useAutoHideHeader } from '../hooks/useAutoHideHeader';
+import ProfileCard from '../components/ProfileCard';
+import ProfileScreenHeader from '../components/ProfileScreenHeader';
 import { useToast } from '../hooks/useToast';
 import { getProfile, recordProfileView, updateProfile } from '../services/userService';
 import { getVerifiedWork, getTotalVerifiedAmount } from '../services/workService';
@@ -255,35 +255,6 @@ const gl = injectFonts({
   replaceBtnText: { fontSize: 9 },
 });
 
-// ─── LICENSE & REGISTRATION rows ────────────────────────────────────────────
-function LicenseRows({ rows = [] }) {
-  if (rows.length === 0) {
-    return <Text style={s.placeholder}>Not added yet</Text>;
-  }
-  return (
-    <View>
-      {rows.map((r, i) => (
-        <View key={r.key} style={[lc.row, i > 0 && lc.rowBorder]}>
-          <Text style={lc.label}>{r.label}</Text>
-          <View style={lc.valueRow}>
-            <Text style={lc.value} numberOfLines={1}>{r.value}</Text>
-            {r.verified && <Text style={lc.tick}>✓</Text>}
-          </View>
-        </View>
-      ))}
-    </View>
-  );
-}
-
-const lc = injectFonts({
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 },
-  rowBorder: { borderTopWidth: 1, borderTopColor: '#E5E5E5' },
-  label: { fontSize: 13, fontWeight: '600', color: '#262626' },
-  valueRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
-  value: { fontSize: 13, fontWeight: '500', color: '#737373' },
-  tick: { fontSize: 13, fontWeight: '900', color: '#1877F2' },
-});
-
 export default function ContractorProfileScreen({ navigation, route }) {
   const viewUid = route?.params?.uid ?? null;
 
@@ -298,8 +269,6 @@ export default function ContractorProfileScreen({ navigation, route }) {
   const [savingPhotoUris, setSavingPhotoUris] = useState([]);
   const [projectDetail, setProjectDetail] = useState(null);
   const [allProjectsOpen, setAllProjectsOpen] = useState(false);
-  const { headerAnimatedStyle, headerHeight, onHeaderLayout, onScroll } = useAutoHideHeader();
-  const insets = useSafeAreaInsets();
   const { toastMessage, toastOpacity, showToast } = useToast();
 
   const openViewer = (photos, index = 0) => setViewer({ visible: true, photos, index });
@@ -581,7 +550,6 @@ export default function ContractorProfileScreen({ navigation, route }) {
   const available    = contractor?.available !== false;
   const website       = contractor?.contractorWebsite || '';
   const joinedText    = formatJoinedDate(contractor?.createdAt);
-  const verificationType = contractor?.verificationType || '';
   const isVerified    = !!(contractor?.verificationNumber || contractor?.verified);
 
   const about        = contractor?.contractorBio || '';
@@ -594,21 +562,6 @@ export default function ContractorProfileScreen({ navigation, route }) {
   const galleryItems = contractor?.gallery?.length > 0
     ? contractor.gallery
     : (contractor?.workPhotos || []).map(uri => ({ uri, caption: '' }));
-
-  const licenseRows = [
-    {
-      key: 'aadhaar', label: 'Aadhaar',
-      value: contractor?.aadhaar || (verificationType === 'aadhaar' ? contractor?.verificationNumber : ''),
-      verified: isVerified && verificationType === 'aadhaar',
-    },
-    {
-      key: 'gst', label: 'GST',
-      value: contractor?.gst || (verificationType === 'gst' ? contractor?.verificationNumber : ''),
-      verified: isVerified && verificationType === 'gst',
-    },
-    { key: 'pan', label: 'PAN', value: contractor?.pan || '', verified: false },
-    { key: 'labour', label: 'Labour Licence', value: contractor?.labourLicence || '', verified: false },
-  ].filter(r => !!r.value);
 
   const ratedWork = verifiedWork.filter(w => w.rating && w.rating > 0);
   const ratingCount = ratedWork.length;
@@ -633,39 +586,17 @@ export default function ContractorProfileScreen({ navigation, route }) {
 
   return (
     <View style={s.screen}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <ProfileScreenHeader
+        title="Contractor"
+        onBack={() => navigation.goBack()}
+        rightIcon={isOwn ? '⚙️' : '⋮'}
+        onRightPress={isOwn ? handleOpenSettings : () => confirmBlockUser(myUid, viewUid, contractor?.name || contractor?.companyName, () => navigation.goBack())}
+      />
 
-      {/* ── 1. HEADER (auto-hides on scroll) ───────────────────────────────── */}
-      <Animated.View style={[s.nav, s.navFloating, { paddingTop: insets.top + 8 }, headerAnimatedStyle]} onLayout={onHeaderLayout}>
-        <TouchableOpacity style={s.navBtn} onPress={() => navigation.goBack()}>
-          <Text style={s.navBack}>←</Text>
-        </TouchableOpacity>
-        <Text style={s.navTitle}>Contractor</Text>
-        {isOwn ? (
-          <TouchableOpacity style={s.navBtn} onPress={handleOpenSettings} activeOpacity={0.7}>
-            <Text style={s.navShare}>⚙️</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={s.navBtn}
-            onPress={() => confirmBlockUser(myUid, viewUid, contractor?.name || contractor?.companyName, () => navigation.goBack())}
-            activeOpacity={0.7}
-          >
-            <Text style={s.navShare}>⋮</Text>
-          </TouchableOpacity>
-        )}
-      </Animated.View>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingTop: headerHeight, paddingBottom: 24 }}
-        onScroll={onScroll}
-        scrollEventThrottle={16}
-      >
-
-        <View style={s.sheet}>
-
-          {/* ── 2. LOGO + IDENTITY ─────────────────────────────────────── */}
+        {/* ── HERO CARD ─────────────────────────────────────────────────── */}
+        <ProfileCard>
           <View style={s.heroRow}>
             <TouchableOpacity
               style={s.logoBox}
@@ -695,20 +626,11 @@ export default function ContractorProfileScreen({ navigation, route }) {
               <View style={s.contractorPill}>
                 <Text style={s.contractorPillText}>CONTRACTOR</Text>
               </View>
-              <Text style={s.heroType} numberOfLines={1}>{contractorType}</Text>
             </View>
           </View>
 
-          {/* ── 3. LOCATION LINES ───────────────────────────────────────── */}
-          <Text style={s.heroLoc} numberOfLines={1}>
-            {currentLoc ? `📍 ${currentLoc}` : '📍 Add your location'}
-          </Text>
-          {nativePlace ? (
-            <Text style={s.heroNative} numberOfLines={1}>🏠 {nativePlace}</Text>
-          ) : null}
-
-          {/* ── 4. STATUS PILL + LINK ───────────────────────────────────── */}
-          <View style={s.availRow}>
+          <View style={s.typeAvailRow}>
+            <Text style={s.heroType} numberOfLines={1}>{contractorType}</Text>
             {isOwn ? (
               <View style={s.availToggleRow}>
                 <Text style={[s.availToggleLabel, !available && s.availToggleLabelMuted]}>
@@ -725,25 +647,34 @@ export default function ContractorProfileScreen({ navigation, route }) {
               <StatusPill available={available} />
             )}
           </View>
+
+          {/* Location rows with green icons */}
+          <Text style={s.heroLoc} numberOfLines={1}>
+            {currentLoc ? `📍 ${currentLoc}` : '📍 Add your location'}
+          </Text>
+          {nativePlace ? (
+            <Text style={s.heroNative} numberOfLines={1}>🏠 {nativePlace}</Text>
+          ) : null}
           {website ? (
             <TouchableOpacity onPress={handleOpenLink} activeOpacity={0.7}>
-              <Text style={s.linkText} numberOfLines={1}>🔗 {website}</Text>
+              <Text style={s.linkText} numberOfLines={1}>🔗 {website.replace(/^https?:\/\//i, '')}</Text>
             </TouchableOpacity>
           ) : null}
 
           {joinedText ? <Text style={s.joinedText}>{joinedText}</Text> : null}
+        </ProfileCard>
 
-          <View style={s.divider} />
-
-          {/* ── 5. VERIFIED WORK ────────────────────────────────────────── */}
+        {/* ── COMPLETED WORK CARD ──────────────────────────────────────── */}
+        <ProfileCard>
           <View style={s.verHeader}>
-            <Text style={s.verLabel}>✓ {isOwn ? 'COMPLETED JOBS' : 'VERIFIED WORK'}</Text>
+            <Text style={s.verLabel}>COMPLETED WORK</Text>
+            {joinedText ? <Text style={s.verNote}>{joinedText}</Text> : null}
           </View>
           {isOwn && <Text style={s.verOwnerNote}>Verified from completed jobs — cannot be edited</Text>}
           <View style={s.verStats}>
             <View style={s.verStat}>
-              <Text style={s.verStatVal}>{amtStr}</Text>
-              <Text style={s.verStatLbl}>Value</Text>
+              <Text style={s.verStatAmt}>{amtStr}</Text>
+              <Text style={s.verStatLbl}>Revenue</Text>
             </View>
             <View style={s.verStatSep} />
             <View style={s.verStat}>
@@ -757,51 +688,53 @@ export default function ContractorProfileScreen({ navigation, route }) {
             </View>
             <View style={s.verStatSep} />
             <View style={s.verStat}>
-              <Text style={s.verStatVal}>{ratingDisplay}</Text>
+              <Text style={s.verStatVal}>
+                {jobsCount === 0 ? 'New' : ratingCount > 0 ? (<><Text style={s.ratingStar}>★</Text> {ratingAvg}</>) : '—'}
+              </Text>
               <Text style={s.verStatLbl}>Rating</Text>
             </View>
           </View>
+        </ProfileCard>
 
-          {/* ── 6. ACTION BUTTONS ───────────────────────────────────────── */}
-          <View style={s.actionRow}>
-            {isOwn ? (
-              <>
-                <TouchableOpacity style={s.editProfileBtn} onPress={handleEditProfile} activeOpacity={0.85}>
-                  <Text style={s.editProfileBtnText}>✏️  Edit Profile</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={s.newWorkRecordBtn}
-                  onPress={() => navigation.push('CreateWorkRecord')}
-                  activeOpacity={0.85}
-                >
-                  <Text style={s.newWorkRecordBtnText}>🧾  New Work Record</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <TouchableOpacity
-                  style={[s.actionCallBtn, !available && s.actionCallBtnLocked]}
-                  onPress={handleCall}
-                  disabled={!available}
-                  activeOpacity={0.85}
-                >
-                  <Text style={[s.actionCallText, !available && s.actionCallTextLocked]} numberOfLines={1}>
-                    {available ? '📞 Call' : '🔒 Call'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={s.actionMsgBtn} onPress={handleMessage} activeOpacity={0.85}>
-                  <Text style={s.actionMsgText} numberOfLines={1}>💬 Chat</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={s.actionEnquiryBtn} onPress={handleEnquiry} activeOpacity={0.85}>
-                  <Text style={s.actionEnquiryText} numberOfLines={1}>📋 Enquiry</Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
+        {/* ── ACTIONS ───────────────────────────────────────────────────── */}
+        <View style={s.actionRow}>
+          {isOwn ? (
+            <>
+              <TouchableOpacity style={s.pillBtnOutline} onPress={handleEditProfile} activeOpacity={0.85}>
+                <Text style={s.pillBtnOutlineText}>✏️  Edit Profile</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.pillBtnPrimary}
+                onPress={() => navigation.push('CreateWorkRecord')}
+                activeOpacity={0.85}
+              >
+                <Text style={s.pillBtnPrimaryText}>🧾  New Work Record</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={[s.pillBtnOutline, !available && s.pillBtnLocked]}
+                onPress={handleCall}
+                disabled={!available}
+                activeOpacity={0.85}
+              >
+                <Text style={[s.pillBtnOutlineText, !available && s.pillBtnTextLocked]} numberOfLines={1}>
+                  {available ? '📞 Call' : '🔒 Call'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.pillBtnOutline} onPress={handleMessage} activeOpacity={0.85}>
+                <Text style={s.pillBtnOutlineText} numberOfLines={1}>💬 Chat</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.pillBtnOutline} onPress={handleEnquiry} activeOpacity={0.85}>
+                <Text style={s.pillBtnOutlineText} numberOfLines={1}>📋 Enquiry</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
 
-          <View style={s.divider} />
-
-          {/* ── 7. VERIFIED PROJECTS ─────────────────────────────────────── */}
+        {/* ── PROJECTS CARD ─────────────────────────────────────────────── */}
+        <ProfileCard>
           <View style={s.sectionHeadRow}>
             <Text style={[s.sLabel, { marginBottom: 0 }]}>
               PROJECTS{jobsCount > 0 ? ` (${jobsCount})` : ''}
@@ -825,10 +758,10 @@ export default function ContractorProfileScreen({ navigation, route }) {
             </View>
           </View>
           <ProjectsList projects={projects} onOpenProject={setProjectDetail} />
+        </ProfileCard>
 
-          <View style={s.divider} />
-
-          {/* ── 8. GALLERY ───────────────────────────────────────────────── */}
+        {/* ── GALLERY CARD ──────────────────────────────────────────────── */}
+        <ProfileCard>
           <View style={s.sectionHeadRow}>
             <Text style={[s.sLabel, { marginBottom: 0 }]}>GALLERY</Text>
             {isOwn && (
@@ -846,10 +779,10 @@ export default function ContractorProfileScreen({ navigation, route }) {
             onRemove={handleRemoveGalleryPhoto}
             onView={(i) => openViewer(galleryItems, i)}
           />
+        </ProfileCard>
 
-          <View style={s.divider} />
-
-          {/* ── 9. ABOUT ─────────────────────────────────────────────────── */}
+        {/* ── ABOUT CARD ────────────────────────────────────────────────── */}
+        <ProfileCard>
           <View style={s.sectionHeadRow}>
             <Text style={[s.sLabel, { marginBottom: 0 }]}>ABOUT</Text>
             {isOwn && (
@@ -861,10 +794,10 @@ export default function ContractorProfileScreen({ navigation, route }) {
           <Text style={about ? s.aboutText : s.placeholder}>
             {about || 'Add a short bio to attract more clients'}
           </Text>
+        </ProfileCard>
 
-          <View style={s.divider} />
-
-          {/* ── 10. CREW ─────────────────────────────────────────────────── */}
+        {/* ── CREW CARD ─────────────────────────────────────────────────── */}
+        <ProfileCard>
           <View style={s.sectionHeadRow}>
             <Text style={[s.sLabel, { marginBottom: 0 }]}>CREW</Text>
             {isOwn && (
@@ -874,10 +807,10 @@ export default function ContractorProfileScreen({ navigation, route }) {
             )}
           </View>
           <CrewRow teamSize={teamSize} trades={services} />
+        </ProfileCard>
 
-          <View style={s.divider} />
-
-          {/* ── 11. SERVICES ─────────────────────────────────────────────── */}
+        {/* ── SERVICES CARD ─────────────────────────────────────────────── */}
+        <ProfileCard>
           <View style={s.sectionHeadRow}>
             <Text style={[s.sLabel, { marginBottom: 0 }]}>SERVICES</Text>
             {isOwn && (
@@ -887,27 +820,16 @@ export default function ContractorProfileScreen({ navigation, route }) {
             )}
           </View>
           <ServicesChips services={services} />
+        </ProfileCard>
 
-          <View style={s.divider} />
-
-          {/* ── 12. LICENSE & REGISTRATION ───────────────────────────────── */}
-          <View style={s.verHeader}>
-            <View style={s.sectionHeadLeft}>
-              <Text style={[s.sLabel, { marginBottom: 0 }]}>LICENSE & REGISTRATION</Text>
-              {isOwn && (
-                <TouchableOpacity onPress={() => handleEditSection('license')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <Text style={s.editPencil}>✏️</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            <Text style={s.verNote}>Optional</Text>
+        {/* ── REVIEWS CARD ──────────────────────────────────────────────── */}
+        <ProfileCard>
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>REVIEWS</Text>
+            {ratingCount > 0 && (
+              <Text style={s.reviewsSummary}>★ {ratingAvg} · {ratingCount} review{ratingCount === 1 ? '' : 's'}</Text>
+            )}
           </View>
-          <LicenseRows rows={licenseRows} />
-
-          <View style={s.divider} />
-
-          {/* ── 13. REVIEWS ──────────────────────────────────────────────── */}
-          <Text style={s.sLabel}>REVIEWS</Text>
           {reviews.length === 0 ? (
             <Text style={s.placeholder}>No reviews yet</Text>
           ) : (
@@ -928,8 +850,7 @@ export default function ContractorProfileScreen({ navigation, route }) {
               </View>
             ))
           )}
-
-        </View>
+        </ProfileCard>
 
       </ScrollView>
 
@@ -968,7 +889,7 @@ const GREEN        = '#22A559';
 const DEEP_GREEN    = '#1E874B';
 const GREEN_LIGHT   = '#EAF7EF';
 const DARK           = '#262626';
-const BG             = '#FAF9F5';
+const SCREEN_BG      = '#F2F2F2';
 const FILL           = '#F2F2F2';
 const BORDER         = '#E5E5E5';
 const MID             = '#737373';
@@ -978,38 +899,11 @@ const STAR            = '#FFB830';
 const LINK_BLUE       = '#1877F2';
 
 const s = injectFonts({
-  screen: { flex: 1, backgroundColor: BG },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: BG },
+  screen: { flex: 1, backgroundColor: SCREEN_BG },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: SCREEN_BG },
 
-  // ── 1. HEADER
-  nav: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 14, paddingBottom: 12,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1, borderBottomColor: BORDER,
-  },
-  navFloating: {
-    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
-  },
-  navBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: FILL, alignItems: 'center', justifyContent: 'center',
-  },
-  navBack:  { fontSize: 20, fontWeight: '700', color: DARK },
-  navTitle: { flex: 1, textAlign: 'center', fontSize: 15, fontWeight: '600', color: DARK },
-  navShare: { fontSize: 18, color: DARK },
-
-  // ── SHEET
-  sheet: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 14, marginTop: 14,
-    borderRadius: 16, padding: 16,
-    borderWidth: 1, borderColor: BORDER,
-  },
-  divider: { height: 1, backgroundColor: BORDER, marginVertical: 16 },
-
-  // ── 2. LOGO + IDENTITY
-  heroRow: { flexDirection: 'row', gap: 14, marginBottom: 14 },
+  // ── LOGO + IDENTITY
+  heroRow: { flexDirection: 'row', gap: 14, marginBottom: 12 },
   logoBox: {
     width: 72, height: 72, borderRadius: 14,
     backgroundColor: FILL, borderWidth: 1, borderColor: BORDER,
@@ -1037,14 +931,14 @@ const s = injectFonts({
     paddingHorizontal: 8, paddingVertical: 3, marginBottom: 6,
   },
   contractorPillText: { fontSize: 9, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.6 },
-  heroType: { fontSize: 13, fontWeight: '500', color: MID },
+  heroType: { flex: 1, fontSize: 13, fontWeight: '600', color: DARK },
+  typeAvailRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
 
-  // ── 3. LOCATION
-  heroLoc:    { fontSize: 12, color: LIGHT },
-  heroNative: { fontSize: 12, color: LIGHT, marginTop: 4 },
+  // ── LOCATION
+  heroLoc:    { fontSize: 12, color: GREEN, fontWeight: '500', marginTop: 8 },
+  heroNative: { fontSize: 12, color: GREEN, fontWeight: '500', marginTop: 4 },
 
-  // ── 4. STATUS
-  availRow: { marginTop: 12 },
+  // ── STATUS
   chipAvail: {
     alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: GREEN_LIGHT, borderRadius: 20,
@@ -1065,19 +959,21 @@ const s = injectFonts({
   linkText: { fontSize: 13, fontWeight: '600', color: LINK_BLUE, marginTop: 10 },
   joinedText: { fontSize: 11, fontWeight: '400', color: LIGHT, marginTop: 6 },
 
-  // ── 5. VERIFIED WORK
+  // ── COMPLETED WORK
   verHeader: {
     flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'flex-start', marginBottom: 12,
+    alignItems: 'flex-start', marginBottom: 4,
   },
-  verLabel: { fontSize: 11, fontWeight: '600', color: GREEN, letterSpacing: 0.8 },
+  verLabel: { fontSize: 11, fontWeight: '600', color: MID, letterSpacing: 0.8 },
   verNote:  { fontSize: 10, color: LIGHT, fontWeight: '500' },
   verOwnerNote: { fontSize: 10, color: LIGHT, fontWeight: '500', marginBottom: 10 },
-  verStats: { flexDirection: 'row', alignItems: 'center' },
+  verStats: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
   verStat:  { flex: 1, alignItems: 'center' },
+  verStatAmt: { fontSize: 16, fontWeight: '700', color: GREEN, marginBottom: 2 },
   verStatVal: { fontSize: 16, fontWeight: '700', color: DEEP_GREEN, marginBottom: 2 },
   verStatLbl: { fontSize: 10, fontWeight: '500', color: LIGHT },
   verStatSep: { width: 1, height: 28, backgroundColor: BORDER },
+  ratingStar: { color: STAR },
 
   // ── SECTION LABEL (shared)
   sLabel: {
@@ -1085,47 +981,29 @@ const s = injectFonts({
     letterSpacing: 1, marginBottom: 12,
   },
   sectionHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  sectionHeadLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sectionHeadRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   viewAllLink: { fontSize: 12, fontWeight: '700', color: GREEN },
   editPencil: { fontSize: 13 },
   placeholder: { fontSize: 13, color: FAINT, fontStyle: 'italic' },
   aboutText: { fontSize: 14, color: MID, lineHeight: 22 },
 
-  // ── 6. ACTIONS (inline)
-  actionRow: { flexDirection: 'row', gap: 6, marginTop: 16 },
-  actionCallBtn: {
-    flex: 1.3, height: 46, borderRadius: 12,
-    backgroundColor: DARK, alignItems: 'center', justifyContent: 'center',
-  },
-  actionCallText: { color: '#FFFFFF', fontWeight: '600', fontSize: 12 },
-  actionCallBtnLocked: { backgroundColor: FILL },
-  actionCallTextLocked: { color: LIGHT },
-  actionMsgBtn: {
-    flex: 1, height: 46, borderRadius: 12,
+  // ── ACTIONS — outlined pill buttons in a row, floating between cards
+  actionRow: { flexDirection: 'row', gap: 8, marginTop: 4, marginBottom: 4, paddingHorizontal: 14 },
+  pillBtnOutline: {
+    flex: 1, height: 48, borderRadius: 24,
     borderWidth: 1.5, borderColor: DARK,
     alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
   },
-  actionMsgText: { color: DARK, fontWeight: '600', fontSize: 11 },
-  actionEnquiryBtn: {
-    flex: 1.2, height: 46, borderRadius: 12,
-    borderWidth: 1.5, borderColor: DARK,
-    alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
-  },
-  actionEnquiryText: { color: DARK, fontWeight: '600', fontSize: 11 },
-  editProfileBtn: {
-    flex: 1, height: 46, borderRadius: 12,
-    backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: BORDER,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  editProfileBtnText: { color: DARK, fontWeight: '600', fontSize: 15 },
-  newWorkRecordBtn: {
-    flex: 1, height: 46, borderRadius: 12,
+  pillBtnOutlineText: { color: DARK, fontWeight: '600', fontSize: 13 },
+  pillBtnLocked: { borderColor: BORDER },
+  pillBtnTextLocked: { color: LIGHT },
+  pillBtnPrimary: {
+    flex: 1, height: 48, borderRadius: 24,
     backgroundColor: DARK, alignItems: 'center', justifyContent: 'center',
   },
-  newWorkRecordBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
+  pillBtnPrimaryText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
 
-  // ── 8. SERVICES chips
+  // ── SERVICES chips
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   hashChip: {
     backgroundColor: FILL, borderRadius: 20,
@@ -1133,7 +1011,8 @@ const s = injectFonts({
   },
   hashChipText: { fontSize: 12, fontWeight: '500', color: MID },
 
-  // ── 12. REVIEWS
+  // ── REVIEWS
+  reviewsSummary: { fontSize: 12, fontWeight: '700', color: MID },
   reviewRow: { paddingVertical: 12 },
   reviewRowBorder: { borderTopWidth: 1, borderTopColor: BORDER },
   reviewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 },

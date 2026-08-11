@@ -1,114 +1,116 @@
 import { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, StatusBar, useWindowDimensions, Alert, ActivityIndicator,
+  View, Text, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator, Linking,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { injectFonts } from '../theme/typography';
 import { getProfile, recordProfileView } from '../services/userService';
 import {
-  getPartyWorkRecords, workRecordToProject, getWorkRecordShareAmount, getClientReviews, WORK_RECORD_STATUS,
+  getPartyWorkRecords, workRecordToProject, workRecordToVerifiedWork, WORK_RECORD_STATUS,
 } from '../services/workRecordService';
-import ClientReviewsSection from '../components/ClientReviewsSection';
 import ProjectDetailModal from '../components/ProjectDetailModal';
+import AllProjectsModal from '../components/AllProjectsModal';
 import PhotoViewer from '../components/PhotoViewer';
-import { formatAmountIndian } from '../utils/format';
+import ProfileCard from '../components/ProfileCard';
+import ProfileScreenHeader from '../components/ProfileScreenHeader';
+import { formatAmountIndian, formatJoinedDate } from '../utils/format';
 import { getCurrentUid } from '../utils/session';
 import { checkMutualBlock, confirmBlockUser } from '../utils/blocking';
 import BlockedProfileNotice from '../components/BlockedProfileNotice';
 
-// ─── Orange Gradient Button ───────────────────────────────────────────────────
-function GradBtn({ label, subLabel, onPress }) {
-  return (
-    <TouchableOpacity style={ss.gradWrap} onPress={onPress} activeOpacity={0.88}>
-      <View style={ss.gradBg} pointerEvents="none">
-        {['#FF6B2B', '#FF7A35', '#FF8840', '#FF8C00'].map((c, i) => (
-          <View key={i} style={{ flex: 1, backgroundColor: c }} />
-        ))}
-      </View>
-      <View style={ss.gradContent}>
-        <Text style={ss.gradLabel}>{label}</Text>
-        {subLabel ? <Text style={ss.gradSub}>{subLabel}</Text> : null}
-      </View>
-    </TouchableOpacity>
-  );
+const GREEN       = '#22A559';
+const DEEP_GREEN   = '#1E874B';
+const DARK          = '#262626';
+const SCREEN_BG     = '#F2F2F2';
+const FILL          = '#F2F2F2';
+const BORDER        = '#E5E5E5';
+const MID            = '#737373';
+const LIGHT          = '#8E8E8E';
+const FAINT          = '#B5B5B5';
+const STAR           = '#FFB830';
+const LINK_BLUE      = '#1877F2';
+
+// ─── PROJECTS list — same preview pattern as Worker/Contractor/Professional ──
+function projectSubline(p) {
+  return [p.category, p.value ? formatAmountIndian(p.value) : null, p.isPartnership ? '🤝 Partnership' : null]
+    .filter(Boolean).join(' · ');
 }
 
-// ─── CC Score Bar ─────────────────────────────────────────────────────────────
-function ScoreBar({ score }) {
+const PROJECTS_PREVIEW_COUNT = 3;
+
+function ProjectsList({ projects = [], onOpenProject }) {
+  if (projects.length === 0) {
+    return <Text style={s.placeholder}>No projects yet</Text>;
+  }
+  const visible = projects.slice(0, PROJECTS_PREVIEW_COUNT);
   return (
-    <View style={ss.scorePad}>
-      <View style={ss.scoreRow}>
-        <Text style={ss.scoreLabel}>CC Trust Score</Text>
-        <Text style={ss.scoreNum}>{score} / 100</Text>
-      </View>
-      <View style={ss.scoreTrack}>
-        <View style={{ width: `${score}%`, height: 10, borderRadius: 5, flexDirection: 'row', overflow: 'hidden' }}>
-          {['#F44336', '#FF9800', '#FFEB3B', '#8BC34A', '#4CAF50'].map((c, i) => (
-            <View key={i} style={{ flex: 1, backgroundColor: c }} />
-          ))}
-        </View>
-      </View>
+    <View>
+      {visible.map((p, i) => (
+        <TouchableOpacity
+          key={i}
+          style={[pj.row, i > 0 && pj.rowBorder]}
+          activeOpacity={0.7}
+          onPress={() => onOpenProject(p)}
+        >
+          <View style={pj.thumb}>
+            {p.photoUri ? (
+              <Image source={{ uri: p.photoUri }} style={pj.thumbImg} resizeMode="cover" />
+            ) : (
+              <Text style={pj.thumbIcon}>🏗️</Text>
+            )}
+          </View>
+          <View style={pj.info}>
+            <Text style={pj.name} numberOfLines={1}>{p.name || 'Untitled project'}</Text>
+            {projectSubline(p) ? <Text style={pj.meta} numberOfLines={1}>{projectSubline(p)}</Text> : null}
+          </View>
+          <View style={[pj.badge, p.status === 'ongoing' ? pj.badgeOngoing : pj.badgeDone]}>
+            <Text style={[pj.badgeText, p.status === 'ongoing' ? pj.badgeTextOngoing : pj.badgeTextDone]}>
+              {p.status === 'ongoing' ? 'ONGOING' : 'DONE'}
+            </Text>
+          </View>
+          <Text style={pj.chevron}>›</Text>
+        </TouchableOpacity>
+      ))}
     </View>
   );
 }
 
-// ─── Sample data ─────────────────────────────────────────────────────────────
-const PROFILE = {
-  name: 'Mehta Construction Pvt Ltd',
-  type: 'Civil & Structural Contractor',
-  location: 'Navrangpura, Ahmedabad, Gujarat',
-  logo: '🏢',
-  score: 94,
-  projectsValue: '₹120 Cr+',
-  teamSize: 250,
-  experience: '25 Yrs',
-  about: 'Mehta Construction Pvt Ltd is an ISO 9001:2015 certified civil contractor specialising in residential complexes, commercial towers, and infrastructure projects. RERA registered, GST compliant, and trusted by 200+ clients across Gujarat.',
-};
-
-const HIGHLIGHTS = [
-  { emoji: '🗂️', label: 'Portfolio', color: '#833AB4' },
-  { emoji: '⭐', label: 'Reviews', color: '#FD1D1D' },
-  { emoji: '👷', label: 'Team', color: '#F77737' },
-  { emoji: '📜', label: 'Certs', color: '#4CAF50' },
-  { emoji: '🏆', label: 'Awards', color: '#0EA5E9' },
-];
-
-const SERVICES = [
-  { icon: '🏗️', name: 'RCC\nConstruction', price: '₹1800/sqft' },
-  { icon: '🏢', name: 'Commercial\nBuilding', price: '₹2200/sqft' },
-  { icon: '🏠', name: 'Residential\nComplex', price: '₹1600/sqft' },
-  { icon: '🛣️', name: 'Infrastructure\nWork', price: 'On Quote' },
-  { icon: '💧', name: 'Waterproofing', price: '₹120/sqft' },
-  { icon: '🔩', name: 'Steel\nStructure', price: '₹180/kg' },
-];
-
-const TEAM = [
-  { emoji: '👨‍💼', name: 'Rajesh Mehta', role: 'MD & Founder' },
-  { emoji: '👷', name: 'Suresh Patel', role: 'Site Director' },
-  { emoji: '📐', name: 'Priya Shah', role: 'Lead Architect' },
-  { emoji: '📊', name: 'Amit Joshi', role: 'QS Manager' },
-];
+const pj = injectFonts({
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
+  rowBorder: { borderTopWidth: 1, borderTopColor: BORDER },
+  thumb: {
+    width: 46, height: 46, borderRadius: 10,
+    backgroundColor: FILL, alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  },
+  thumbImg: { width: '100%', height: '100%' },
+  thumbIcon: { fontSize: 18, opacity: 0.5 },
+  info: { flex: 1 },
+  name: { fontSize: 13, fontWeight: '700', color: DARK, marginBottom: 2 },
+  meta: { fontSize: 12, color: LIGHT, fontWeight: '500' },
+  badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  badgeOngoing: { backgroundColor: '#FFF3E0' },
+  badgeDone: { backgroundColor: '#EAF7EF' },
+  badgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
+  badgeTextOngoing: { color: '#B26A00' },
+  badgeTextDone: { color: '#1E874B' },
+  chevron: { fontSize: 18, color: '#B5B5B5', marginLeft: 2 },
+});
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 export default function BusinessProfileScreen({ navigation, route }) {
-  const insets = useSafeAreaInsets();
   const viewUid = route?.params?.uid ?? null;
-  const { width } = useWindowDimensions();
-  const [activeTab, setActiveTab] = useState('Projects');
   const [loading, setLoading] = useState(true);
   const [liveProfile, setLiveProfile] = useState(null);
   const [blocked, setBlocked] = useState(false);
-  const [verifiedAmt, setVerifiedAmt] = useState('');
-  const [verifiedJobsCount, setVerifiedJobsCount] = useState(0);
+  const [verifiedAmt, setVerifiedAmt] = useState(0);
+  const [verifiedWork, setVerifiedWork] = useState([]);
   const [realProjects, setRealProjects] = useState([]);
   const [projectDetail, setProjectDetail] = useState(null);
+  const [allProjectsOpen, setAllProjectsOpen] = useState(false);
   const [viewer, setViewer] = useState({ visible: false, photos: [], index: 0 });
-  const [clientReviews, setClientReviews] = useState([]);
   const [myUid, setMyUid] = useState(null);
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
+  const openViewer = (photos, index = 0) => setViewer({ visible: true, photos, index });
+  const closeViewer = () => setViewer(v => ({ ...v, visible: false }));
 
   const loadProfile = async () => {
     try {
@@ -130,28 +132,28 @@ export default function BusinessProfileScreen({ navigation, route }) {
         try { setBlocked(await checkMutualBlock(me, uid, profile?.blockedUsers)); } catch (_) {}
       }
 
-      // Verified totals + projects now come from work_records, same system
-      // Worker/Contractor/Professional use — no demo Business/Supplier
-      // profiles exist today, so this is always the real-data path.
+      // Verified totals + projects come from work_records, same system
+      // Worker/Contractor/Professional use. getPartyWorkRecords (not
+      // getProviderWorkRecords) — includes records where `uid` is an
+      // APPROVED partner, so a partner sees their share of a partnered
+      // record on their own profile too.
       if (uid && !uid.startsWith('guest_')) {
         try {
-          // getPartyWorkRecords (not getProviderWorkRecords) — includes
-          // records where `uid` is an APPROVED partner, so a partner sees
-          // their share of a partnered record on their own profile too.
           const records = await getPartyWorkRecords(uid);
           const confirmed = records.filter(r => r.status === WORK_RECORD_STATUS.VERIFIED || r.status === WORK_RECORD_STATUS.COMPLETED_PAID);
-          const total = confirmed.reduce((sum, r) => sum + getWorkRecordShareAmount(r, uid), 0);
-          setVerifiedAmt(total > 0 ? `₹${total.toLocaleString('en-IN')}` : '₹0');
-          setVerifiedJobsCount(confirmed.length);
+          const work = confirmed.map(r => workRecordToVerifiedWork(r, uid));
+          setVerifiedAmt(work.reduce((sum, w) => sum + (w.amount || 0), 0));
+          setVerifiedWork(work);
           setRealProjects(records.map(r => workRecordToProject(r, uid)));
         } catch (_) {}
-        try { setClientReviews(await getClientReviews(uid)); } catch (_) { setClientReviews([]); }
       }
     } catch (_) {}
     finally { setLoading(false); }
   };
 
-  const openPhotoViewer = (photos, index = 0) => setViewer({ visible: true, photos, index });
+  useEffect(() => {
+    loadProfile();
+  }, []);
 
   const handleChat = () => {
     if (!viewUid || viewUid === myUid) return;
@@ -182,20 +184,22 @@ export default function BusinessProfileScreen({ navigation, route }) {
     });
   };
 
-  const display = {
-    name: liveProfile?.companyName || liveProfile?.name || 'Add company name',
-    type: liveProfile?.companyType || liveProfile?.designation || 'Add business type',
-    location: [liveProfile?.city, liveProfile?.state].filter(Boolean).join(', ') || 'Add location',
-    verified: verifiedAmt || '₹0',
+  const handleOpenSettings = () => navigation.navigate('Settings');
+  const handleEditProfile = () => navigation.navigate('EditProfile', { profileType: 'business' });
+
+  const handleOpenLink = () => {
+    const url = liveProfile?.businessWebsite;
+    if (!url) return;
+    const withScheme = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+    Linking.openURL(withScheme).catch(() => Alert.alert('Could not open link.'));
   };
 
   const isOwn = !viewUid || viewUid === myUid;
 
   if (loading) {
     return (
-      <View style={[ss.screen, { alignItems: 'center', justifyContent: 'center' }]}>
-        <ActivityIndicator size="large" color="#FF6B2B" />
-        <Text style={{ marginTop: 12, color: '#888', fontSize: 14 }}>Loading profile...</Text>
+      <View style={s.center}>
+        <ActivityIndicator size="large" color={DARK} />
       </View>
     );
   }
@@ -206,385 +210,324 @@ export default function BusinessProfileScreen({ navigation, route }) {
 
   if (!liveProfile && !viewUid) {
     return (
-      <View style={[ss.screen, { alignItems: 'center', justifyContent: 'center', padding: 32 }]}>
+      <View style={[s.center, { paddingHorizontal: 32 }]}>
         <Text style={{ fontSize: 52, marginBottom: 16 }}>🏢</Text>
-        <Text style={{ fontSize: 20, fontWeight: '900', color: '#111', marginBottom: 8, textAlign: 'center' }}>Profile Incomplete</Text>
-        <Text style={{ fontSize: 14, color: '#888', textAlign: 'center', lineHeight: 22, marginBottom: 24 }}>
+        <Text style={s.incompleteTitle}>Profile Incomplete</Text>
+        <Text style={s.incompleteText}>
           Please complete your company profile to appear in search results and attract clients.
         </Text>
-        <TouchableOpacity
-          style={{ backgroundColor: '#FF6B2B', paddingVertical: 14, paddingHorizontal: 28, borderRadius: 14 }}
-          onPress={() => navigation.navigate('EditProfile')}
-        >
-          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>Complete Profile →</Text>
+        <TouchableOpacity style={s.incompleteBtn} onPress={() => navigation.navigate('EditProfile')}>
+          <Text style={s.incompleteBtnText}>Complete Profile →</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
+  // ── Derived display values ────────────────────────────────────────────────
+  const name       = liveProfile?.companyName || liveProfile?.name || 'Add company name';
+  const type       = liveProfile?.companyType || 'Add business type';
+  const city       = liveProfile?.city || '';
+  const state      = liveProfile?.state || '';
+  const location   = [city, state].filter(Boolean).join(', ');
+  const website    = liveProfile?.businessWebsite || '';
+  const about      = liveProfile?.companyAbout || '';
+  const joinedText = formatJoinedDate(liveProfile?.createdAt);
+  const isVerified = !!liveProfile?.verified;
+  const projects   = realProjects;
+
+  const ratedWork = verifiedWork.filter(w => w.rating && w.rating > 0);
+  const ratingCount = ratedWork.length;
+  const ratingAvg = ratingCount > 0
+    ? (ratedWork.reduce((sum, w) => sum + w.rating, 0) / ratingCount).toFixed(1)
+    : null;
+
+  const amtStr = formatAmountIndian(verifiedAmt);
+  const jobsCount = verifiedWork.length;
+  const onTimeRate = jobsCount > 0 ? (liveProfile?.onTimeRate || '—') : '—';
+
+  const reviews = ratedWork
+    .slice()
+    .sort((a, b) => {
+      const at = a.verifiedAt?.toMillis?.() ?? 0;
+      const bt = b.verifiedAt?.toMillis?.() ?? 0;
+      return bt - at;
+    });
+
   return (
-    <View style={ss.screen}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FAFAFA" />
+    <View style={s.screen}>
+      <ProfileScreenHeader
+        title="Company"
+        onBack={() => navigation.goBack()}
+        rightIcon={isOwn ? '⚙️' : '⋮'}
+        onRightPress={isOwn ? handleOpenSettings : () => confirmBlockUser(myUid, viewUid, name, () => navigation.goBack())}
+      />
 
-      {/* HEADER */}
-      <View style={ss.header}>
-        <TouchableOpacity style={ss.backBtn} onPress={() => navigation.goBack()}>
-          <Text style={ss.backArrow}>←</Text>
-        </TouchableOpacity>
-        <Text style={ss.headerTitle}>Company Profile</Text>
-        {isOwn ? (
-          <TouchableOpacity style={ss.moreBtn} onPress={() => Alert.alert('Options')}>
-            <Text style={ss.moreIcon}>⋯</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={ss.moreBtn}
-            onPress={() => confirmBlockUser(myUid, viewUid, liveProfile?.companyName || liveProfile?.name, () => navigation.goBack())}
-          >
-            <Text style={ss.moreIcon}>⋯</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
-
-        {/* HERO CARD */}
-        <View style={ss.heroCard}>
-          <View style={ss.companyLogo}>
-            <Text style={{ fontSize: 44 }}>{PROFILE.logo}</Text>
-          </View>
-
-          <Text style={ss.profileName}>{display.name}</Text>
-          <View style={ss.typeBadgeWrap}>
-            <View style={ss.typeBadge}>
-              <Text style={ss.typeBadgeText}>{display.type}</Text>
+        {/* ── HERO CARD ─────────────────────────────────────────────────── */}
+        <ProfileCard>
+          <View style={s.heroRow}>
+            <TouchableOpacity
+              style={s.logoBox}
+              activeOpacity={0.8}
+              onPress={() => liveProfile?.photoUri && openViewer([liveProfile.photoUri])}
+            >
+              {liveProfile?.photoUri ? (
+                <Image source={{ uri: liveProfile.photoUri }} style={s.logoImg} />
+              ) : (
+                <Text style={{ fontSize: 34 }}>🏢</Text>
+              )}
+            </TouchableOpacity>
+            <View style={s.heroInfo}>
+              <View style={s.nameRow}>
+                <Text style={s.heroName} numberOfLines={2}>{name}</Text>
+                {isVerified && (
+                  <View style={s.verifiedBadge}>
+                    <Text style={s.verifiedText}>✓</Text>
+                  </View>
+                )}
+              </View>
             </View>
           </View>
-          <Text style={ss.profileLoc}>📍 {display.location}</Text>
 
-          <View style={ss.badgesRow}>
-            <View style={[ss.badge, { backgroundColor: '#E8F5E9', borderColor: '#4CAF50' }]}>
-              <Text style={[ss.badgeText, { color: '#2E7D32' }]}>✓ GST Verified</Text>
+          <View style={s.typeAvailRow}>
+            <Text style={s.heroType} numberOfLines={1}>{type}</Text>
+          </View>
+
+          {/* Location rows with green icons */}
+          <Text style={s.heroLoc} numberOfLines={1}>
+            {location ? `📍 ${location}` : '📍 Add your location'}
+          </Text>
+          {website ? (
+            <TouchableOpacity onPress={handleOpenLink} activeOpacity={0.7}>
+              <Text style={s.linkText} numberOfLines={1}>🔗 {website.replace(/^https?:\/\//i, '')}</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {joinedText ? <Text style={s.joinedText}>{joinedText}</Text> : null}
+        </ProfileCard>
+
+        {/* ── COMPLETED WORK CARD ──────────────────────────────────────── */}
+        <ProfileCard>
+          <View style={s.verHeader}>
+            <Text style={s.verLabel}>COMPLETED WORK</Text>
+            {joinedText ? <Text style={s.verNote}>{joinedText}</Text> : null}
+          </View>
+          {isOwn && <Text style={s.verOwnerNote}>Verified from completed jobs — cannot be edited</Text>}
+          <View style={s.verStats}>
+            <View style={s.verStat}>
+              <Text style={s.verStatAmt}>{amtStr}</Text>
+              <Text style={s.verStatLbl}>Revenue</Text>
             </View>
-            <View style={[ss.badge, { backgroundColor: '#E3F2FD', borderColor: '#1E88E5' }]}>
-              <Text style={[ss.badgeText, { color: '#1565C0' }]}>✓ RERA Registered</Text>
+            <View style={s.verStatSep} />
+            <View style={s.verStat}>
+              <Text style={s.verStatVal}>{jobsCount}</Text>
+              <Text style={s.verStatLbl}>Projects</Text>
             </View>
-            <View style={[ss.badge, { backgroundColor: '#FFF8E1', borderColor: '#F9A825' }]}>
-              <Text style={[ss.badgeText, { color: '#F57F17' }]}>ISO 9001:2015</Text>
+            <View style={s.verStatSep} />
+            <View style={s.verStat}>
+              <Text style={s.verStatVal}>{onTimeRate}</Text>
+              <Text style={s.verStatLbl}>On-time</Text>
+            </View>
+            <View style={s.verStatSep} />
+            <View style={s.verStat}>
+              <Text style={s.verStatVal}>
+                {jobsCount === 0 ? 'New' : ratingCount > 0 ? (<><Text style={s.ratingStar}>★</Text> {ratingAvg}</>) : '—'}
+              </Text>
+              <Text style={s.verStatLbl}>Rating</Text>
             </View>
           </View>
-        </View>
+        </ProfileCard>
 
-        {/* STATS */}
-        <View style={ss.statsCard}>
-          {[
-            { value: PROFILE.projectsValue, label: 'Projects Value' },
-            { value: `${PROFILE.teamSize}+`, label: 'Team Size' },
-            { value: PROFILE.experience, label: 'Experience' },
-            { value: `${PROFILE.score}`, label: 'CC Score' },
-          ].map((st, i) => (
-            <View key={i} style={[ss.statItem, i < 3 && ss.statBorder]}>
-              <Text style={ss.statVal}>{st.value}</Text>
-              <Text style={ss.statLbl}>{st.label}</Text>
-            </View>
-          ))}
-        </View>
-
-        {/* CC SCORE BAR */}
-        <ScoreBar score={PROFILE.score} />
-
-        {/* VERIFIED PROJECTS DONE */}
-        <View style={ss.verifiedCard}>
-          <View style={ss.verifiedHeader}>
-            <Text style={ss.verifiedHeaderTxt}>✅  Verified Projects Done  ·  Cannot be edited</Text>
-          </View>
-          <View style={ss.verifiedBody}>
-            <View style={ss.verifiedStat}>
-              <Text style={ss.verifiedAmt}>{display.verified}</Text>
-              <Text style={ss.verifiedLbl}>Total Project Value</Text>
-            </View>
-            <View style={ss.verifiedDivider} />
-            <View style={ss.verifiedStat}>
-              <Text style={ss.verifiedAmt}>{verifiedJobsCount}</Text>
-              <Text style={ss.verifiedLbl}>Projects Done</Text>
-            </View>
-          </View>
-          <TouchableOpacity style={ss.viewHistoryBtn} onPress={() => setActiveTab('Projects')}>
-            <Text style={ss.viewHistoryText}>View Full History →</Text>
-          </TouchableOpacity>
-          {isOwn && (
-            <TouchableOpacity style={ss.viewHistoryBtn} onPress={() => navigation.navigate('MyWorkRecords')}>
-              <Text style={ss.viewHistoryText}>My Work Records →</Text>
+        {/* ── ACTIONS ───────────────────────────────────────────────────── */}
+        <View style={s.actionRow}>
+          {isOwn ? (
+            <>
+              <TouchableOpacity style={s.pillBtnOutline} onPress={handleEditProfile} activeOpacity={0.85}>
+                <Text style={s.pillBtnOutlineText}>✏️  Edit Profile</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.pillBtnPrimary}
+                onPress={() => navigation.push('CreateWorkRecord')}
+                activeOpacity={0.85}
+              >
+                <Text style={s.pillBtnPrimaryText}>🧾  New Work Record</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity style={s.pillBtnOutline} onPress={handleChat} activeOpacity={0.85}>
+              <Text style={s.pillBtnOutlineText}>💬 Chat</Text>
             </TouchableOpacity>
           )}
         </View>
 
-        {/* LINKS */}
-        <View style={ss.linksRow}>
-          {[
-            { icon: '🌐', label: 'Website' },
-            { icon: '💼', label: 'LinkedIn' },
-            { icon: '📸', label: 'Instagram' },
-            { icon: '📍', label: 'Maps' },
-            { icon: '💬', label: 'WhatsApp' },
-          ].map((l, i) => (
-            <TouchableOpacity key={i} style={ss.linkBtn} onPress={() => Alert.alert('Opening ' + l.label)}>
-              <View style={ss.linkIconBox}><Text style={{ fontSize: 20 }}>{l.icon}</Text></View>
-              <Text style={ss.linkLabel}>{l.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* HIGHLIGHTS */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={ss.highlightsContent}>
-          {HIGHLIGHTS.map((h, i) => (
-            <TouchableOpacity
-              key={i}
-              style={ss.highlight}
-              onPress={() => {
-                if (h.label === 'Reviews') {
-                  navigation.navigate('ReviewsList', {
-                    workerName: PROFILE.name,
-                    workerEmoji: PROFILE.logo,
-                    role: PROFILE.type,
-                  });
-                }
-              }}
-            >
-              <View style={[ss.highlightRing, { borderColor: h.color }]}>
-                <View style={ss.highlightCircle}>
-                  <Text style={{ fontSize: 26 }}>{h.emoji}</Text>
-                </View>
-              </View>
-              <Text style={ss.highlightLabel}>{h.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {/* SERVICES */}
-        <View style={ss.sectionHead}>
-          <Text style={ss.sectionTitle}>Services Offered</Text>
-        </View>
-        <View style={[ss.servicesGrid, { paddingHorizontal: 14 }]}>
-          {SERVICES.map((sv, i) => (
-            <View key={i} style={[ss.serviceItem, { width: (width - 42) / 2 }]}>
-              <Text style={{ fontSize: 28, marginBottom: 6 }}>{sv.icon}</Text>
-              <Text style={ss.serviceName}>{sv.name}</Text>
-              <Text style={ss.servicePrice}>{sv.price}</Text>
+        {/* ── PROJECTS CARD ─────────────────────────────────────────────── */}
+        <ProfileCard>
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>
+              PROJECTS{jobsCount > 0 ? ` (${jobsCount})` : ''}
+            </Text>
+            <View style={s.sectionHeadRight}>
+              {projects.length > 0 && (
+                <TouchableOpacity onPress={() => setAllProjectsOpen(true)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={s.viewAllLink}>View all</Text>
+                </TouchableOpacity>
+              )}
+              {isOwn && (
+                <TouchableOpacity onPress={() => navigation.navigate('MyWorkRecords')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={s.viewAllLink}>My Work Records</Text>
+                </TouchableOpacity>
+              )}
             </View>
-          ))}
-        </View>
+          </View>
+          <ProjectsList projects={projects} onOpenProject={setProjectDetail} />
+        </ProfileCard>
 
-        {/* TEAM */}
-        <View style={ss.sectionHead}>
-          <Text style={ss.sectionTitle}>Key Team Members</Text>
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 14, gap: 12, paddingBottom: 8 }}>
-          {TEAM.map((m, i) => (
-            <View key={i} style={ss.teamCard}>
-              <View style={ss.teamAvatar}>
-                <Text style={{ fontSize: 28 }}>{m.emoji}</Text>
-              </View>
-              <Text style={ss.teamName}>{m.name}</Text>
-              <Text style={ss.teamRole}>{m.role}</Text>
-            </View>
-          ))}
-        </ScrollView>
+        {/* ── ABOUT CARD ────────────────────────────────────────────────── */}
+        <ProfileCard>
+          <Text style={[s.sLabel, { marginBottom: 12 }]}>ABOUT</Text>
+          <Text style={about ? s.aboutText : s.placeholder}>
+            {about || 'Add a short description to attract more clients'}
+          </Text>
+        </ProfileCard>
 
-        {/* TAB BAR */}
-        <View style={ss.tabBar}>
-          {['Projects', 'About', 'Reviews'].map(t => (
-            <TouchableOpacity key={t} style={[ss.tab, activeTab === t && ss.tabActive]} onPress={() => setActiveTab(t)}>
-              <Text style={[ss.tabText, activeTab === t && ss.tabTextActive]}>{t}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* PAST PROJECTS — from work_records, same system Worker/Contractor/
-            Professional use. Only 'confirmed' records read as Completed;
-            locked-but-unconfirmed ones still show, as Ongoing. */}
-        {activeTab === 'Projects' && (
-          <View style={{ paddingHorizontal: 14, paddingTop: 12, gap: 10 }}>
-            {realProjects.length === 0 ? (
-              <Text style={ss.projectsEmptyText}>No verified projects yet</Text>
-            ) : (
-              realProjects.map((p, i) => {
-                const isDone = p.status === 'done';
-                return (
-                  <TouchableOpacity
-                    key={p.id || i}
-                    style={[ss.projectCard, { backgroundColor: isDone ? '#E8F5E9' : '#FFF3E0' }]}
-                    activeOpacity={0.85}
-                    onPress={() => setProjectDetail(p)}
-                  >
-                    <View style={ss.projectLogoWrap}>
-                      <Text style={{ fontSize: 32 }}>🏗️</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                        <Text style={ss.projectName} numberOfLines={1}>{p.name || 'Untitled project'}</Text>
-                        <View style={[ss.statusBadge, { backgroundColor: isDone ? '#C8E6C9' : '#FFF9C4' }]}>
-                          <Text style={[ss.statusText, { color: isDone ? '#2E7D32' : '#F57F17' }]}>{isDone ? 'Completed' : 'Ongoing'}</Text>
-                        </View>
-                      </View>
-                      {p.location ? <Text style={ss.projectLoc}>📍 {p.location}</Text> : null}
-                      {p.isPartnership ? <Text style={ss.projectPartnership}>🤝 Partnership</Text> : null}
-                    </View>
-                    <Text style={ss.projectValue}>{p.value ? formatAmountIndian(p.value) : '—'}</Text>
-                  </TouchableOpacity>
-                );
-              })
+        {/* ── REVIEWS CARD ──────────────────────────────────────────────── */}
+        <ProfileCard>
+          <View style={s.sectionHeadRow}>
+            <Text style={[s.sLabel, { marginBottom: 0 }]}>REVIEWS</Text>
+            {ratingCount > 0 && (
+              <Text style={s.reviewsSummary}>★ {ratingAvg} · {ratingCount} review{ratingCount === 1 ? '' : 's'}</Text>
             )}
           </View>
-        )}
+          {reviews.length === 0 ? (
+            <Text style={s.placeholder}>No reviews yet</Text>
+          ) : (
+            reviews.map((r, i) => (
+              <View key={r.id || i} style={[s.reviewRow, i > 0 && s.reviewRowBorder]}>
+                <View style={s.reviewTop}>
+                  <Text style={s.reviewName} numberOfLines={2}>{r.customerName || 'Customer'}</Text>
+                  <Text style={s.reviewDate}>{r.date || ''}</Text>
+                </View>
+                <View style={s.reviewStars}>
+                  {[1, 2, 3, 4, 5].map(star => (
+                    <Text key={star} style={[s.reviewStarIcon, star <= r.rating && s.reviewStarActive]}>
+                      {star <= r.rating ? '★' : '☆'}
+                    </Text>
+                  ))}
+                </View>
+                {r.review ? <Text style={s.reviewComment}>"{r.review}"</Text> : null}
+              </View>
+            ))
+          )}
+        </ProfileCard>
 
-        {activeTab === 'About' && (
-          <View style={ss.aboutCard}>
-            <Text style={ss.aboutText}>{PROFILE.about}</Text>
-          </View>
-        )}
-
-        {activeTab === 'Reviews' && (
-          <View style={ss.reviewsCard}>
-            <ClientReviewsSection reviews={clientReviews} />
-          </View>
-        )}
-
-        <View style={{ height: 100 }} />
       </ScrollView>
-
-      {/* ACTION BAR */}
-      <View style={[ss.bookBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-        {isOwn && (
-          <TouchableOpacity
-            style={ss.newRecordBtn}
-            onPress={() => navigation.push('CreateWorkRecord')}
-            activeOpacity={0.85}
-          >
-            <Text style={ss.newRecordBtnText}>🧾 New{'\n'}Work Record</Text>
-          </TouchableOpacity>
-        )}
-        <View style={{ flex: 1 }}>
-          <GradBtn
-            label="Contact Now"
-            subLabel="Send message"
-            onPress={handleChat}
-          />
-        </View>
-      </View>
 
       <ProjectDetailModal
         visible={!!projectDetail}
         project={projectDetail}
         onClose={() => setProjectDetail(null)}
-        onViewPhoto={openPhotoViewer}
+        onViewPhoto={(photos, index) => openViewer(photos, index)}
       />
+
+      <AllProjectsModal
+        visible={allProjectsOpen}
+        projects={projects}
+        verifiedCount={jobsCount}
+        onClose={() => setAllProjectsOpen(false)}
+        onOpenProject={setProjectDetail}
+      />
+
       <PhotoViewer
         visible={viewer.visible}
         photos={viewer.photos}
         initialIndex={viewer.index}
-        onClose={() => setViewer(v => ({ ...v, visible: false }))}
+        onClose={closeViewer}
       />
     </View>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
-const ss = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#F5F5F0' },
+const s = injectFonts({
+  screen: { flex: 1, backgroundColor: SCREEN_BG },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: SCREEN_BG },
 
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, backgroundColor: '#F5F5F0', borderBottomWidth: 1, borderBottomColor: '#EFEFEF' },
-  backBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
-  backArrow: { fontSize: 20, color: '#1A1A1A', fontWeight: '700' },
-  headerTitle: { flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '800', color: '#1A1A1A' },
-  moreBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
-  moreIcon: { fontSize: 20, color: '#1A1A1A', letterSpacing: 1 },
+  incompleteTitle: { fontSize: 20, fontWeight: '700', color: DARK, marginBottom: 8, textAlign: 'center' },
+  incompleteText: { fontSize: 14, color: LIGHT, textAlign: 'center', lineHeight: 22, marginBottom: 24 },
+  incompleteBtn: { backgroundColor: DARK, paddingVertical: 14, paddingHorizontal: 28, borderRadius: 24 },
+  incompleteBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
 
-  heroCard: { backgroundColor: '#FFFFFF', margin: 14, borderRadius: 18, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#EFEFEF', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
-  companyLogo: { width: 88, height: 88, borderRadius: 20, backgroundColor: '#FFF3E0', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#EFEFEF', marginBottom: 12 },
-  profileName: { fontSize: 19, fontWeight: '800', color: '#1A1A1A', marginBottom: 6, textAlign: 'center' },
-  typeBadgeWrap: { marginBottom: 6 },
-  typeBadge: { backgroundColor: '#FFF3E0', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4, borderWidth: 1, borderColor: '#FFE0C4' },
-  typeBadgeText: { fontSize: 12, fontWeight: '700', color: '#FF6B2B' },
-  profileLoc: { fontSize: 13, color: '#888888', marginBottom: 12 },
-  badgesRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', justifyContent: 'center' },
-  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, borderWidth: 1 },
-  badgeText: { fontSize: 11, fontWeight: '700' },
+  // ── HERO
+  heroRow: { flexDirection: 'row', gap: 14, marginBottom: 12 },
+  logoBox: {
+    width: 72, height: 72, borderRadius: 14,
+    backgroundColor: FILL, borderWidth: 1, borderColor: BORDER,
+    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  },
+  logoImg: { width: 72, height: 72, borderRadius: 14 },
+  heroInfo: { flex: 1, justifyContent: 'center' },
+  nameRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+  heroName: { fontSize: 18, fontWeight: '700', color: DARK, flexShrink: 1, lineHeight: 22 },
+  verifiedBadge: {
+    width: 18, height: 18, borderRadius: 9,
+    backgroundColor: LINK_BLUE, alignItems: 'center', justifyContent: 'center',
+  },
+  verifiedText: { fontSize: 10, color: '#fff', fontWeight: '900' },
+  typeAvailRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, marginBottom: 8 },
+  heroType: { flex: 1, fontSize: 13, fontWeight: '600', color: DARK },
 
-  statsCard: { flexDirection: 'row', backgroundColor: '#FFFFFF', marginHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: '#EFEFEF', overflow: 'hidden' },
-  statItem: { flex: 1, alignItems: 'center', paddingVertical: 14 },
-  statBorder: { borderRightWidth: 1, borderRightColor: '#EFEFEF' },
-  statVal: { fontSize: 13, fontWeight: '800', color: '#1A1A1A', marginBottom: 2, textAlign: 'center' },
-  statLbl: { fontSize: 10, color: '#888888', fontWeight: '600', textAlign: 'center' },
+  // ── LOCATION
+  heroLoc:    { fontSize: 12, color: GREEN, fontWeight: '500', marginTop: 4 },
+  linkText: { fontSize: 13, fontWeight: '600', color: LINK_BLUE, marginTop: 10 },
+  joinedText: { fontSize: 11, fontWeight: '400', color: LIGHT, marginTop: 6 },
 
-  scorePad: { marginHorizontal: 14, marginTop: 12, marginBottom: 4 },
-  scoreRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  scoreLabel: { fontSize: 12, fontWeight: '700', color: '#666666' },
-  scoreNum: { fontSize: 12, fontWeight: '800', color: '#2ECC71' },
-  scoreTrack: { height: 10, backgroundColor: '#EFEFEF', borderRadius: 5, overflow: 'hidden' },
+  // ── COMPLETED WORK
+  verHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
+  verLabel: { fontSize: 11, fontWeight: '600', color: MID, letterSpacing: 0.8 },
+  verNote:  { fontSize: 10, color: LIGHT, fontWeight: '500' },
+  verOwnerNote: { fontSize: 10, color: LIGHT, fontWeight: '500', marginBottom: 10 },
+  verStats: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
+  verStat:  { flex: 1, alignItems: 'center' },
+  verStatAmt: { fontSize: 16, fontWeight: '700', color: GREEN, marginBottom: 2 },
+  verStatVal: { fontSize: 16, fontWeight: '700', color: DEEP_GREEN, marginBottom: 2 },
+  verStatLbl: { fontSize: 10, fontWeight: '500', color: LIGHT },
+  verStatSep: { width: 1, height: 28, backgroundColor: BORDER },
+  ratingStar: { color: STAR },
 
-  verifiedCard: { marginHorizontal: 14, marginTop: 14, borderRadius: 16, overflow: 'hidden', backgroundColor: '#1A1A2E' },
-  verifiedHeader: { paddingVertical: 8, paddingHorizontal: 14 },
-  verifiedHeaderTxt: { color: 'rgba(255,255,255,0.6)', fontWeight: '700', fontSize: 11, textAlign: 'center', textTransform: 'uppercase', letterSpacing: 1 },
-  verifiedBody: { flexDirection: 'row', paddingVertical: 14, backgroundColor: 'rgba(255,255,255,0.04)' },
-  verifiedStat: { flex: 1, alignItems: 'center' },
-  verifiedAmt: { fontSize: 17, fontWeight: '800', color: '#FFFFFF' },
-  verifiedLbl: { fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: '600', marginTop: 2 },
-  verifiedDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.1)' },
+  // ── ACTIONS — outlined pill buttons in a row, floating between cards
+  actionRow: { flexDirection: 'row', gap: 8, marginTop: 4, marginBottom: 4, paddingHorizontal: 14 },
+  pillBtnOutline: {
+    flex: 1, height: 48, borderRadius: 24,
+    borderWidth: 1.5, borderColor: DARK,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
+  },
+  pillBtnOutlineText: { color: DARK, fontWeight: '600', fontSize: 13 },
+  pillBtnPrimary: {
+    flex: 1, height: 48, borderRadius: 24,
+    backgroundColor: DARK, alignItems: 'center', justifyContent: 'center',
+  },
+  pillBtnPrimaryText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
 
-  linksRow: { flexDirection: 'row', justifyContent: 'space-around', paddingHorizontal: 14, paddingVertical: 16, backgroundColor: '#FFFFFF', marginHorizontal: 14, marginTop: 12, borderRadius: 16, borderWidth: 1, borderColor: '#EFEFEF' },
-  linkBtn: { alignItems: 'center', gap: 4 },
-  linkIconBox: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#F5F5F0', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#EFEFEF' },
-  linkLabel: { fontSize: 10, color: '#666666', fontWeight: '600' },
+  // ── SECTION LABEL (shared)
+  sLabel: { fontSize: 11, fontWeight: '600', color: LIGHT, letterSpacing: 1, marginBottom: 12 },
+  sectionHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  sectionHeadRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  viewAllLink: { fontSize: 12, fontWeight: '700', color: GREEN },
+  placeholder: { fontSize: 13, color: FAINT, fontStyle: 'italic' },
 
-  highlightsContent: { paddingHorizontal: 14, paddingVertical: 16, gap: 14 },
-  highlight: { alignItems: 'center', gap: 6 },
-  highlightRing: { width: 72, height: 72, borderRadius: 36, borderWidth: 2.5, alignItems: 'center', justifyContent: 'center' },
-  highlightCircle: { width: 62, height: 62, borderRadius: 31, backgroundColor: '#F5F5F0', alignItems: 'center', justifyContent: 'center' },
-  highlightLabel: { fontSize: 10, fontWeight: '700', color: '#666666' },
+  // ── ABOUT
+  aboutText: { fontSize: 14, color: MID, lineHeight: 22 },
 
-  sectionHead: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 18, paddingBottom: 10 },
-  sectionTitle: { fontSize: 15, fontWeight: '800', color: '#1A1A1A', borderLeftWidth: 3, borderLeftColor: '#FF6B2B', paddingLeft: 8 },
-
-  servicesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  serviceItem: { backgroundColor: '#FFFFFF', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#EFEFEF', alignItems: 'center' },
-  serviceName: { fontSize: 11, fontWeight: '700', color: '#333', textAlign: 'center', marginBottom: 4 },
-  servicePrice: { fontSize: 12, fontWeight: '800', color: '#FFB830' },
-
-  teamCard: { alignItems: 'center', gap: 6, width: 90 },
-  teamAvatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#FFF3E0', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#FFE0C4' },
-  teamName: { fontSize: 11, fontWeight: '800', color: '#1A1A1A', textAlign: 'center' },
-  teamRole: { fontSize: 10, color: '#888888', textAlign: 'center', fontWeight: '600' },
-
-  tabBar: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#EFEFEF', backgroundColor: '#FFFFFF', marginTop: 14 },
-  tab: { flex: 1, paddingVertical: 12, alignItems: 'center' },
-  tabActive: { borderBottomWidth: 2, borderBottomColor: '#FF6B2B' },
-  tabText: { fontSize: 13, fontWeight: '600', color: '#888888' },
-  tabTextActive: { color: '#FF6B2B', fontWeight: '800' },
-
-  projectCard: { flexDirection: 'row', borderRadius: 16, padding: 14, alignItems: 'center', gap: 12, borderWidth: 1, borderColor: '#EFEFEF' },
-  projectLogoWrap: { width: 52, height: 52, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.8)', alignItems: 'center', justifyContent: 'center' },
-  projectName: { fontSize: 13, fontWeight: '800', color: '#1A1A1A' },
-  projectLoc: { fontSize: 11, color: '#666666', marginTop: 2 },
-  projectPartnership: { fontSize: 11, color: '#22A559', fontWeight: '700', marginTop: 2 },
-  projectValue: { fontSize: 15, fontWeight: '800', color: '#FFB830' },
-  statusBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
-  statusText: { fontSize: 10, fontWeight: '700' },
-
-  aboutCard: { backgroundColor: '#FFFFFF', marginHorizontal: 14, marginTop: 12, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#EFEFEF' },
-  aboutText: { fontSize: 13, color: '#666666', lineHeight: 20 },
-  reviewsCard: { backgroundColor: '#FFFFFF', marginHorizontal: 14, marginTop: 12, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#EFEFEF' },
-
-  gradWrap: { borderRadius: 14, overflow: 'hidden', height: 56 },
-  gradBg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, flexDirection: 'row' },
-  gradContent: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  gradLabel: { color: '#FFFFFF', fontWeight: '700', fontSize: 17 },
-  gradSub: { color: 'rgba(255,255,255,0.75)', fontSize: 11, fontWeight: '600', marginTop: 2 },
-
-  bookBar: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingTop: 10, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#EFEFEF' },
-  viewHistoryBtn: { paddingVertical: 10, alignItems: 'center', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)' },
-  viewHistoryText: { fontSize: 12, fontWeight: '800', color: '#FF6B2B' },
-  newRecordBtn: { width: 84, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F0FFF4', borderWidth: 2, borderColor: '#2ECC71' },
-  newRecordBtnText: { fontSize: 11, fontWeight: '800', color: '#2ECC71', textAlign: 'center', lineHeight: 16 },
-  projectsEmptyText: { fontSize: 13, color: '#888888', fontStyle: 'italic', textAlign: 'center', paddingVertical: 16 },
+  // ── REVIEWS
+  reviewsSummary: { fontSize: 12, fontWeight: '700', color: MID },
+  reviewRow: { paddingVertical: 12 },
+  reviewRowBorder: { borderTopWidth: 1, borderTopColor: BORDER },
+  reviewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 },
+  reviewName: { fontSize: 13, fontWeight: '700', color: DARK, flex: 1, flexShrink: 1, lineHeight: 16 },
+  reviewDate: { fontSize: 11, color: LIGHT, fontWeight: '500', flexShrink: 0, marginLeft: 8 },
+  reviewStars: { flexDirection: 'row', gap: 2, marginBottom: 6 },
+  reviewStarIcon: { fontSize: 14, color: BORDER },
+  reviewStarActive: { color: STAR },
+  reviewComment: { fontSize: 13, color: MID, lineHeight: 20, fontStyle: 'italic' },
 });
